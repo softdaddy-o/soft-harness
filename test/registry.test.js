@@ -61,3 +61,12 @@ test('resolves known output presets', () => {
     assert.equal(loaded.registry.outputs[1].generated_path, './generated/project/claude/CLAUDE.generated.md');
     assert.equal(loaded.issues.length, 0);
 });
+
+test('supports account-level output presets', () => {
+    const projectRoot = path.join(fixturesRoot, 'account-preset-project');
+    const loaded = loadRegistry(projectRoot);
+
+    assert.equal(loaded.registry.outputs[0].generated_path, './generated/account/claude/CLAUDE.generated.md');
+    assert.equal(loaded.registry.outputs[1].generated_path, './generated/account/codex/AGENTS.generated.md');
+    assert.equal(loaded.issues.length, 0);
+});

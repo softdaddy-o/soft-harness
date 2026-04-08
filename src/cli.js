@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const path = require('path');
+const { approveMigration } = require('./approve');
 const { listBackups, restoreBackup } = require('./backup');
 const { applyOutputs } = require('./apply');
 const { diffOutputs } = require('./diff');
@@ -34,6 +35,9 @@ function main() {
         case 'apply':
             runApply();
             break;
+        case 'approve':
+            runApprove();
+            break;
         case 'restore':
             runRestore();
             break;
@@ -54,6 +58,7 @@ function printHelp() {
     console.log('  generate   Generate host-native outputs from the registry');
     console.log('  diff       Show differences between registry and live state');
     console.log('  apply      Apply generated outputs');
+    console.log('  approve    Approve grouped migration proposals into registry.d');
     console.log('  restore    Restore files from the latest or specified backup');
 }
 
@@ -181,6 +186,17 @@ function runRestore() {
     console.log(`Restored backup: ${result.backupId}`);
     console.log(`Manifest: ${result.manifestPath}`);
     console.log(`Files restored: ${result.restoredCount}`);
+}
+
+function runApprove() {
+    const proposalDir = process.argv[3] ? path.resolve(process.argv[3]) : null;
+    const result = approveMigration(ROOT, proposalDir);
+    console.log(`Approved from: ${result.proposalDir}`);
+    console.log(`Summary: ${result.summaryPath}`);
+    console.log(`Approved files: ${result.approvedFiles.length}`);
+    for (const file of result.approvedFiles) {
+        console.log(`  - ${file}`);
+    }
 }
 
 function groupFindings(findings) {

@@ -10,6 +10,7 @@ const VALID_MANAGEMENT = new Set(['generated', 'linked', 'external', 'discovered
 const VALID_GUIDE_BUCKETS = ['shared', 'claude', 'codex'];
 const VALID_OUTPUT_GUIDE_BUCKETS = new Set(['shared', 'claude', 'codex']);
 const VALID_APPLY_MODES = new Set(['copy', 'stub']);
+const VALID_CONTENT_TYPES = new Set(['guide-bundle', 'mcp-json']);
 
 function loadRegistry(rootDir) {
     const harnessRoot = path.join(rootDir, 'harness');
@@ -198,6 +199,10 @@ function validateCapability(capability, issues) {
     if (capability.management !== undefined && !VALID_MANAGEMENT.has(capability.management)) {
         issues.push(error('invalid-capability-management', `Capability ${capability.id || '<unknown>'} has invalid management: ${capability.management}`));
     }
+
+    if (capability.kind === 'mcp' && capability.server !== undefined && typeof capability.server !== 'object') {
+        issues.push(error('invalid-mcp-server', `Capability ${capability.id || '<unknown>'} must provide server as an object`));
+    }
 }
 
 function validateGuideEntry(bucket, guideEntry, guidesRoot, issues) {
@@ -243,12 +248,19 @@ function validateOutput(output, issues) {
         issues.push(error('invalid-output-scope', `Output ${output.id || '<unknown>'} has invalid scope: ${output.scope}`));
     }
 
-    if (!Array.isArray(output.guide_buckets) || output.guide_buckets.length === 0) {
-        issues.push(error('invalid-output-guide-buckets', `Output ${output.id || '<unknown>'} must define non-empty guide_buckets`));
-    } else {
-        for (const bucket of output.guide_buckets) {
-            if (!VALID_OUTPUT_GUIDE_BUCKETS.has(bucket)) {
-                issues.push(error('invalid-output-guide-bucket', `Output ${output.id || '<unknown>'} uses invalid guide bucket: ${bucket}`));
+    const contentType = output.content_type || 'guide-bundle';
+    if (!VALID_CONTENT_TYPES.has(contentType)) {
+        issues.push(error('invalid-output-content-type', `Output ${output.id || '<unknown>'} has invalid content_type: ${contentType}`));
+    }
+
+    if (contentType === 'guide-bundle') {
+        if (!Array.isArray(output.guide_buckets) || output.guide_buckets.length === 0) {
+            issues.push(error('invalid-output-guide-buckets', `Output ${output.id || '<unknown>'} must define non-empty guide_buckets`));
+        } else {
+            for (const bucket of output.guide_buckets) {
+                if (!VALID_OUTPUT_GUIDE_BUCKETS.has(bucket)) {
+                    issues.push(error('invalid-output-guide-bucket', `Output ${output.id || '<unknown>'} uses invalid guide bucket: ${bucket}`));
+                }
             }
         }
     }

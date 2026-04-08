@@ -1,0 +1,25 @@
+version: 0
+
+defaults:
+  guides_root: ./guides
+
+capabilities:
+  - id: demo-mcp
+    kind: mcp
+    target: both
+    scope: project
+    management: generated
+    server_id: demo
+    server:
+      command: demo-server
+      args:
+        - --serve
+
+guides:
+  shared: []
+  claude: []
+  codex: []
+
+outputs:
+  - id: project-mcp
+    preset: project-mcp

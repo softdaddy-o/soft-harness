@@ -96,6 +96,9 @@ Supported presets:
 
 - `project-codex-stub`
 - `project-claude-stub`
+- `account-claude-stub`
+- `account-codex-stub`
+- `project-mcp`
 
 ## Ignore Rules
 
@@ -113,3 +116,21 @@ defaults:
 ```
 
 These patterns are matched against both absolute paths and discovered relative paths.
+
+## MCP Capabilities
+
+Registry-managed MCP capabilities use:
+
+```yaml
+capabilities:
+  - id: demo-mcp
+    kind: mcp
+    target: both
+    scope: project
+    management: generated
+    server_id: demo
+    server:
+      command: demo-server
+```
+
+These can be emitted through an MCP output preset such as `project-mcp`.

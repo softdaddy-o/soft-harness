@@ -1,17 +1,23 @@
 const path = require('path');
-const { exists, readUtf8, writeUtf8 } = require('./fs-util');
+const os = require('os');
+const { exists, readUtf8, resolveTemplatePath, writeUtf8 } = require('./fs-util');
 
 function applyOutputs(rootDir, loadedRegistry) {
     const applied = [];
     const harnessRoot = path.join(rootDir, 'harness');
+    const variables = {
+        rootDir,
+        harnessRoot,
+        userHome: os.homedir()
+    };
 
     for (const output of loadedRegistry.registry.outputs || []) {
         if (output.enabled === false) {
             continue;
         }
 
-        const generatedPath = path.resolve(harnessRoot, output.generated_path);
-        const applyPath = path.resolve(harnessRoot, output.apply_path);
+        const generatedPath = resolveTemplatePath(output.generated_path, variables, harnessRoot);
+        const applyPath = resolveTemplatePath(output.apply_path, variables, harnessRoot);
 
         if (!exists(generatedPath)) {
             throw new Error(`Generated output does not exist: ${generatedPath}`);

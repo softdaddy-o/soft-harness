@@ -44,6 +44,7 @@ soft-harness migrate
 soft-harness generate
 soft-harness diff
 soft-harness apply
+soft-harness approve [proposal-dir]
 soft-harness restore [backup-id]
 ```
 
@@ -57,6 +58,9 @@ soft-harness restore [backup-id]
 - grouped migration proposal generation under `harness/registry.d/discovered/`
 - migration backups under `harness/state/backups/`
 - explicit output generation and apply flow
+- account-wide and project-wide output presets
+- generated MCP JSON outputs from registry-managed MCP capabilities
+- approve command to promote grouped migration proposals into active `registry.d` files
 - restore command for migration backups
 - ignore rules for doctor and migrate noise reduction
 

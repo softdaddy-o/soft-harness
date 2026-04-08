@@ -1,9 +1,11 @@
 const path = require('path');
-const { ensureDir, exists, readUtf8, toPosixRelative, writeUtf8 } = require('./fs-util');
+const os = require('os');
+const { ensureDir, exists, readUtf8, resolveTemplatePath, toPosixRelative, writeUtf8 } = require('./fs-util');
 
 function generateOutputs(rootDir, loadedRegistry) {
     const generated = [];
     const harnessRoot = path.join(rootDir, 'harness');
+    const variables = createPathVariables(rootDir, harnessRoot);
     const guidesRoot = loadedRegistry.registry.defaults && loadedRegistry.registry.defaults.guides_root
         ? path.resolve(harnessRoot, loadedRegistry.registry.defaults.guides_root)
         : path.join(harnessRoot, 'guides');
@@ -13,8 +15,8 @@ function generateOutputs(rootDir, loadedRegistry) {
             continue;
         }
 
-        const generatedPath = path.resolve(harnessRoot, output.generated_path);
-        const content = buildOutputContent(output, loadedRegistry.registry.guides, guidesRoot, rootDir);
+        const generatedPath = resolveTemplatePath(output.generated_path, variables, harnessRoot);
+        const content = buildOutputContent(output, loadedRegistry.registry, guidesRoot, rootDir);
         ensureDir(path.dirname(generatedPath));
         writeUtf8(generatedPath, content);
 
@@ -29,7 +31,12 @@ function generateOutputs(rootDir, loadedRegistry) {
     return generated;
 }
 
-function buildOutputContent(output, guideMap, guidesRoot, rootDir) {
+function buildOutputContent(output, registry, guidesRoot, rootDir) {
+    if (output.content_type === 'mcp-json') {
+        return buildMcpOutput(output, registry);
+    }
+
+    const guideMap = registry.guides;
     const lines = [];
     const guideBuckets = Array.isArray(output.guide_buckets) ? output.guide_buckets : [];
 
@@ -61,6 +68,46 @@ function buildOutputContent(output, guideMap, guidesRoot, rootDir) {
     }
 
     return `${lines.join('\n')}\n`;
+}
+
+function buildMcpOutput(output, registry) {
+    const capabilityIds = Array.isArray(output.capability_ids) ? new Set(output.capability_ids) : null;
+    const servers = {};
+
+    for (const capability of registry.capabilities || []) {
+        if (capability.kind !== 'mcp') {
+            continue;
+        }
+
+        if (capability.enabled === false) {
+            continue;
+        }
+
+        if (capabilityIds && !capabilityIds.has(capability.id)) {
+            continue;
+        }
+
+        if (capability.scope !== output.scope) {
+            continue;
+        }
+
+        if (!(capability.target === output.target || capability.target === 'both' || output.target === 'both')) {
+            continue;
+        }
+
+        const serverId = capability.server_id || capability.id;
+        servers[serverId] = capability.server || {};
+    }
+
+    return `${JSON.stringify({ mcpServers: servers }, null, 2)}\n`;
+}
+
+function createPathVariables(rootDir, harnessRoot) {
+    return {
+        rootDir,
+        harnessRoot,
+        userHome: os.homedir()
+    };
 }
 
 function normalizeGuideEntry(entry) {
