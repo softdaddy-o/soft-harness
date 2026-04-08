@@ -1,32 +1,37 @@
 #!/usr/bin/env node
 
-const fs = require('fs');
 const path = require('path');
+const { applyOutputs } = require('./apply');
+const { diffOutputs } = require('./diff');
+const { discoverState, persistDiscovery } = require('./discover');
+const { runDoctor } = require('./doctor');
+const { generateOutputs } = require('./generate');
+const { createMigrationProposal } = require('./migrate');
+const { loadRegistry } = require('./registry');
 
 const ROOT = path.resolve(__dirname, '..');
-const REGISTRY_PATH = path.join(ROOT, 'harness', 'registry.yaml');
 
 function main() {
     const command = process.argv[2] || 'help';
 
     switch (command) {
         case 'discover':
-            printNotImplemented('discover');
+            runDiscover();
             break;
         case 'doctor':
-            printNotImplemented('doctor');
+            runDoctorCommand();
             break;
         case 'migrate':
-            printNotImplemented('migrate');
+            runMigrate();
             break;
         case 'generate':
-            printRegistryLocation();
+            runGenerate();
             break;
         case 'diff':
-            printNotImplemented('diff');
+            runDiff();
             break;
         case 'apply':
-            printNotImplemented('apply');
+            runApply();
             break;
         case 'help':
         default:
@@ -47,10 +52,30 @@ function printHelp() {
     console.log('  apply      Apply generated outputs');
 }
 
-function printRegistryLocation() {
-    const exists = fs.existsSync(REGISTRY_PATH);
-    console.log(`Registry: ${REGISTRY_PATH}`);
-    console.log(`Exists: ${exists ? 'yes' : 'no'}`);
+function runGenerate() {
+    const loaded = loadRegistry(ROOT);
+    const guideCount = Object.values(loaded.registry.guides).reduce((sum, items) => sum + items.length, 0);
+
+    console.log(`Registry: ${loaded.registryPath}`);
+    console.log(`Imports: ${loaded.importPaths.length}`);
+    console.log(`Capabilities: ${loaded.registry.capabilities.length}`);
+    console.log(`Guides: ${guideCount}`);
+    console.log(`Outputs: ${(loaded.registry.outputs || []).length}`);
+
+    if (loaded.issues.length > 0) {
+        console.log(`Issues: ${loaded.issues.length}`);
+        for (const issue of loaded.issues) {
+            console.log(`- [${issue.code}] ${issue.message}`);
+        }
+        process.exitCode = 1;
+        return;
+    }
+
+    console.log('Issues: 0');
+    const generated = generateOutputs(ROOT, loaded);
+    for (const item of generated) {
+        console.log(`Generated: ${item.generatedPath}`);
+    }
 }
 
 function printNotImplemented(command) {
@@ -58,4 +83,104 @@ function printNotImplemented(command) {
     console.log(`Repository root: ${ROOT}`);
 }
 
-main();
+function runDiscover() {
+    const discovery = discoverState(ROOT, {});
+    const persisted = persistDiscovery(ROOT, discovery);
+
+    console.log(`Discovered assets: ${discovery.assets.length}`);
+    console.log(`Latest: ${persisted.latestPath}`);
+    console.log(`Snapshot: ${persisted.timestampPath}`);
+}
+
+function runDoctorCommand() {
+    const loaded = loadRegistry(ROOT);
+    const discovery = discoverState(ROOT, {});
+    const findings = runDoctor(ROOT, loaded, discovery);
+
+    if (findings.length === 0) {
+        console.log('Doctor: no issues found');
+        return;
+    }
+
+    const grouped = groupFindings(findings);
+    for (const item of grouped) {
+        console.log(`[${item.level}] [${item.code}] ${item.count} finding(s)`);
+        for (const sample of item.samples) {
+            console.log(`  - ${sample}`);
+        }
+    }
+
+    if (findings.some((finding) => finding.level === 'error')) {
+        process.exitCode = 1;
+    }
+}
+
+function runMigrate() {
+    const discovery = discoverState(ROOT, {});
+    const result = createMigrationProposal(ROOT, discovery);
+
+    console.log(`Proposal: ${result.proposalPath}`);
+    console.log(`Copied guides: ${result.copiedGuideCount}`);
+    console.log(`Capability proposals: ${result.capabilityCount}`);
+}
+
+function runDiff() {
+    const loaded = loadRegistry(ROOT);
+    const diffs = diffOutputs(ROOT, loaded);
+
+    if (diffs.length === 0) {
+        console.log('Diff: no outputs defined');
+        return;
+    }
+
+    for (const diff of diffs) {
+        console.log(`[${diff.status}] ${diff.id}`);
+        console.log(`  generated: ${diff.generatedPath}`);
+        console.log(`  applied:   ${diff.applyPath}`);
+    }
+}
+
+function runApply() {
+    const loaded = loadRegistry(ROOT);
+    if (loaded.issues.length > 0) {
+        for (const issue of loaded.issues) {
+            console.log(`[${issue.level}] [${issue.code}] ${issue.message}`);
+        }
+        process.exitCode = 1;
+        return;
+    }
+
+    generateOutputs(ROOT, loaded);
+    const applied = applyOutputs(ROOT, loaded);
+    for (const item of applied) {
+        console.log(`Applied (${item.applyMode}): ${item.applyPath}`);
+    }
+}
+
+function groupFindings(findings) {
+    const grouped = new Map();
+
+    for (const finding of findings) {
+        const key = `${finding.level}:${finding.code}`;
+        if (!grouped.has(key)) {
+            grouped.set(key, {
+                level: finding.level,
+                code: finding.code,
+                count: 0,
+                samples: []
+            });
+        }
+
+        const entry = grouped.get(key);
+        entry.count += 1;
+        if (entry.samples.length < 5) {
+            entry.samples.push(finding.message);
+        }
+    }
+
+    return Array.from(grouped.values());
+}
+
+if (require.main === module) {
+    main();
+}
