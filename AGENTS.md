@@ -43,6 +43,7 @@ It is not:
 ## Product Rules
 
 - Registry is the source of truth.
+- The `harness/` directory is the home for all user-managed Harness truth.
 - Generated outputs must be clearly marked generated.
 - Stable stubs may be hand-maintained, but must point to generated content.
 - Vendor-native installers remain external to Harness.
@@ -51,7 +52,8 @@ It is not:
 ## Initial Priorities
 
 1. Registry schema
-2. Discovery model
-3. Doctor checks
-4. Generate/apply model
-5. Migration workflow
+2. Guides model inside `harness/`
+3. Discovery model
+4. Doctor checks
+5. Generate/apply model
+6. Migration workflow

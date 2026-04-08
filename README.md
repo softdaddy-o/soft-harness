@@ -25,6 +25,7 @@ The initial goal is to support:
 - migration of unorganized local state into a structured registry
 - generation of host-native outputs from a single registry
 - drift detection and cleanup
+- explicit output definitions for generated bundles and stable stubs
 
 ## Principles
 
@@ -45,18 +46,43 @@ soft-harness diff
 soft-harness apply
 ```
 
+## Current MVP
+
+- registry loading and validation
+- `registry.d` fragment support
+- guide buckets for shared, Claude-only, and Codex-only content
+- discovery snapshots to `harness/state/discovered`
+- doctor checks for registry issues, unmanaged assets, and possible plaintext secrets
+- migration proposal generation to `harness/registry.d/discovered.generated.yaml`
+- explicit output generation and apply flow
+
 ## Layout
 
 ```text
 harness/
   registry.yaml
   registry.d/
+  guides/
+    shared/
+    claude/
+    codex/
   policies/
   templates/
   generated/
   state/
 src/
 ```
+
+`harness/` is the home for user-managed truth.
+
+That includes:
+
+- registry files
+- shared guides
+- Claude-only guides
+- Codex-only guides
+- policy fragments
+- generation templates
 
 ## License
 

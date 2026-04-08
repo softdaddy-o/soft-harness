@@ -18,6 +18,12 @@ That state drifts over time and becomes hard to audit, share, or clean up.
 
 Build a governance-first harness that gives a single source of truth while preserving host-native behavior.
 
+All user-managed truth should live under `harness/`, including custom guides that apply to:
+
+- both hosts
+- Claude only
+- Codex only
+
 ## Non-Goals
 
 - replacing vendor-native plugin installers
@@ -33,6 +39,7 @@ Build a governance-first harness that gives a single source of truth while prese
 
 - discovery-first onboarding
 - registry-driven generation
+- guide-first customization under `harness/`
 - doctor-style governance checks
 - migration from unstructured local state
 - clear support for account-wide and project-wide scope

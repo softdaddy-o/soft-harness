@@ -17,5 +17,13 @@ defaults:
   secrets_policy: local-only
   generated_files_policy: generated-is-derived
   vendor_install_policy: upstream-owned
+  guides_root: ./guides
 
 capabilities: []
+
+guides:
+  shared: []
+  claude: []
+  codex: []
+
+outputs: []

@@ -5,12 +5,14 @@
 - create public repo scaffold
 - define vocabulary
 - draft registry schema
+- define `harness/guides` model for shared and per-LLM custom guides
 
 ## Phase 1
 
 - implement discovery
 - implement doctor checks
 - implement registry merge from `registry.yaml` and `registry.d/*.yaml`
+- implement output generation and apply model
 
 ## Phase 2
 
