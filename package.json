@@ -1,0 +1,25 @@
+{
+  "name": "soft-harness",
+  "version": "0.1.0",
+  "description": "Governance-first harness for Claude and Codex environments",
+  "bin": {
+    "soft-harness": "./src/cli.js"
+  },
+  "scripts": {
+    "start": "node src/cli.js",
+    "doctor": "node src/cli.js doctor",
+    "discover": "node src/cli.js discover",
+    "generate": "node src/cli.js generate"
+  },
+  "keywords": [
+    "claude",
+    "codex",
+    "mcp",
+    "agents",
+    "skills",
+    "plugins",
+    "registry"
+  ],
+  "author": "softdaddy-o",
+  "license": "MIT"
+}

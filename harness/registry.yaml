@@ -1,0 +1,21 @@
+version: 0
+
+meta:
+  name: soft-harness
+  description: Single-truth harness for Claude and Codex environments
+  supported_hosts:
+    - claude
+    - codex
+  scopes:
+    - account
+    - project
+
+imports:
+  - ./registry.d/*.yaml
+
+defaults:
+  secrets_policy: local-only
+  generated_files_policy: generated-is-derived
+  vendor_install_policy: upstream-owned
+
+capabilities: []
