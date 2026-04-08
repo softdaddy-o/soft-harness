@@ -110,6 +110,7 @@ Trusted Publishing is the preferred long-term path over a bypass-2FA token.
 ## Planned Commands
 
 ```text
+soft-harness init
 soft-harness discover
 soft-harness doctor
 soft-harness migrate
@@ -169,6 +170,7 @@ outputs: []
 Then run:
 
 ```text
+soft-harness init
 soft-harness generate
 soft-harness apply
 soft-harness doctor

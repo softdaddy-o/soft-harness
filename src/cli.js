@@ -11,6 +11,7 @@ const { runDoctor } = require('./doctor');
 const { exists } = require('./fs-util');
 const { generateOutputs } = require('./generate');
 const { createMigrationProposal } = require('./migrate');
+const { initProjectHarness } = require('./project');
 const { loadRegistry } = require('./registry');
 const { addWorkspace, getWorkspaceRegistryPath, hasWorkspaceMarkers, listWorkspaces, removeWorkspace } = require('./workspaces');
 
@@ -20,6 +21,9 @@ function main() {
     const command = process.argv[2] || 'help';
 
     switch (command) {
+        case 'init':
+            runInit();
+            break;
         case 'account':
             runAccount();
             break;
@@ -63,6 +67,7 @@ function printHelp() {
     console.log(`Root: ${ROOT}`);
     console.log('');
     console.log('Commands:');
+    console.log('  init       Initialize a project harness in the current directory');
     console.log('  account    Manage account-wide harness state');
     console.log('  workspace  Manage registered workspaces');
     console.log('  discover   Scan local Claude/Codex state');
@@ -172,6 +177,12 @@ function runWorkspace() {
             runWorkspaceList();
             break;
     }
+}
+
+function runInit() {
+    const result = initProjectHarness(ROOT);
+    console.log(`Harness root: ${result.harnessRoot}`);
+    console.log(`Registry: ${result.registryPath}`);
 }
 
 function runAccount() {
