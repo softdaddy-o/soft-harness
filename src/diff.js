@@ -1,8 +1,8 @@
 const path = require('path');
 const { exists, readUtf8 } = require('./fs-util');
 
-function diffOutputs(rootDir, loadedRegistry) {
-    const harnessRoot = path.join(rootDir, 'harness');
+function diffOutputs(rootDir, loadedRegistry, options) {
+    const harnessRoot = (options && options.harnessRoot) || path.join(rootDir, 'harness');
     const diffs = [];
 
     for (const output of loadedRegistry.registry.outputs || []) {

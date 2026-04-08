@@ -2,9 +2,9 @@ const path = require('path');
 const os = require('os');
 const { ensureDir, exists, readUtf8, resolveTemplatePath, toPosixRelative, writeUtf8 } = require('./fs-util');
 
-function generateOutputs(rootDir, loadedRegistry) {
+function generateOutputs(rootDir, loadedRegistry, options) {
     const generated = [];
-    const harnessRoot = path.join(rootDir, 'harness');
+    const harnessRoot = (options && options.harnessRoot) || path.join(rootDir, 'harness');
     const variables = createPathVariables(rootDir, harnessRoot);
     const guidesRoot = loadedRegistry.registry.defaults && loadedRegistry.registry.defaults.guides_root
         ? path.resolve(harnessRoot, loadedRegistry.registry.defaults.guides_root)

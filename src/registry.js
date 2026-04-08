@@ -14,6 +14,10 @@ const VALID_CONTENT_TYPES = new Set(['guide-bundle', 'mcp-json']);
 
 function loadRegistry(rootDir) {
     const harnessRoot = path.join(rootDir, 'harness');
+    return loadRegistryFromHarnessRoot(harnessRoot);
+}
+
+function loadRegistryFromHarnessRoot(harnessRoot) {
     const registryPath = path.join(harnessRoot, 'registry.yaml');
     const baseRegistry = parseYamlFile(registryPath);
     const importPaths = resolveImportPaths(registryPath, baseRegistry.imports || []);
@@ -292,6 +296,7 @@ function error(code, message) {
 
 module.exports = {
     loadRegistry,
+    loadRegistryFromHarnessRoot,
     mergeRegistry,
     resolveImportPaths,
     validateRegistry

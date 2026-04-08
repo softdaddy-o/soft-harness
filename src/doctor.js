@@ -3,9 +3,9 @@ const os = require('os');
 const { exists, readUtf8, replaceTemplateVariables, resolveTemplatePath } = require('./fs-util');
 const { matchesAnyPattern, normalize } = require('./match');
 
-function runDoctor(rootDir, loadedRegistry, discovery) {
+function runDoctor(rootDir, loadedRegistry, discovery, options) {
     const findings = [...loadedRegistry.issues];
-    const harnessRoot = path.join(rootDir, 'harness');
+    const harnessRoot = (options && options.harnessRoot) || path.join(rootDir, 'harness');
     const pathVariables = createPathVariables(rootDir, harnessRoot, discovery);
     const guidesRoot = loadedRegistry.registry.defaults && loadedRegistry.registry.defaults.guides_root
         ? resolveTemplatePath(loadedRegistry.registry.defaults.guides_root, pathVariables, harnessRoot)
@@ -43,7 +43,9 @@ function runDoctor(rootDir, loadedRegistry, discovery) {
         message: `Discovered asset is not represented in the registry: ${asset.path}`
     })));
 
-    findings.push(...findPlaintextSecretFindings(rootDir));
+    if (!options || options.includeProjectMcp !== false) {
+        findings.push(...findPlaintextSecretFindings(rootDir));
+    }
 
     return findings;
 }

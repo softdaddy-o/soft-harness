@@ -2,9 +2,9 @@ const path = require('path');
 const os = require('os');
 const { exists, readUtf8, resolveTemplatePath, writeUtf8 } = require('./fs-util');
 
-function applyOutputs(rootDir, loadedRegistry) {
+function applyOutputs(rootDir, loadedRegistry, options) {
     const applied = [];
-    const harnessRoot = path.join(rootDir, 'harness');
+    const harnessRoot = (options && options.harnessRoot) || path.join(rootDir, 'harness');
     const variables = {
         rootDir,
         harnessRoot,

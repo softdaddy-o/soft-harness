@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const path = require('path');
+const { applyAccountOutputs, diffAccountOutputs, discoverAccountHarness, doctorAccountHarness, generateAccountOutputs, getAccountHarnessRoot, initAccountHarness } = require('./account');
 const { approveMigration } = require('./approve');
 const { listBackups, restoreBackup } = require('./backup');
 const { applyOutputs } = require('./apply');
@@ -19,6 +20,9 @@ function main() {
     const command = process.argv[2] || 'help';
 
     switch (command) {
+        case 'account':
+            runAccount();
+            break;
         case 'workspace':
             runWorkspace();
             break;
@@ -59,6 +63,7 @@ function printHelp() {
     console.log(`Root: ${ROOT}`);
     console.log('');
     console.log('Commands:');
+    console.log('  account    Manage account-wide harness state');
     console.log('  workspace  Manage registered workspaces');
     console.log('  discover   Scan local Claude/Codex state');
     console.log('  doctor     Report drift, security issues, and gaps');
@@ -169,6 +174,35 @@ function runWorkspace() {
     }
 }
 
+function runAccount() {
+    const subcommand = process.argv[3] || 'doctor';
+
+    switch (subcommand) {
+        case 'init':
+            runAccountInit();
+            break;
+        case 'discover':
+            runAccountDiscover();
+            break;
+        case 'doctor':
+            runAccountDoctor();
+            break;
+        case 'generate':
+            runAccountGenerate();
+            break;
+        case 'apply':
+            runAccountApply();
+            break;
+        case 'diff':
+            runAccountDiff();
+            break;
+        default:
+            console.log(`Unknown account command: ${subcommand}`);
+            process.exitCode = 1;
+            break;
+    }
+}
+
 function runWorkspaceAdd() {
     const workspacePath = process.argv[4] ? path.resolve(process.argv[4]) : ROOT;
     const result = addWorkspace(workspacePath);
@@ -232,6 +266,22 @@ function runDoctorAll() {
     const loadedWorkspaces = listWorkspaces();
     console.log(`Registry: ${loadedWorkspaces.registryPath}`);
 
+    const accountHarnessRoot = getAccountHarnessRoot();
+    if (exists(path.join(accountHarnessRoot, 'registry.yaml'))) {
+        const accountResult = doctorAccountHarness();
+        const errorCount = accountResult.findings.filter((finding) => finding.level === 'error').length;
+        const warningCount = accountResult.findings.filter((finding) => finding.level === 'warning').length;
+        console.log(`[${errorCount > 0 ? 'error' : 'ok'}] account errors=${errorCount} warnings=${warningCount}`);
+        for (const finding of accountResult.findings.slice(0, 5)) {
+            console.log(`  - [${finding.level}] [${finding.code}] ${finding.message}`);
+        }
+        if (errorCount > 0) {
+            process.exitCode = 1;
+        }
+    } else {
+        console.log(`[skip] account missing ${path.join(accountHarnessRoot, 'registry.yaml')}`);
+    }
+
     if (loadedWorkspaces.registry.workspaces.length === 0) {
         console.log('Workspaces: 0');
         return;
@@ -265,6 +315,73 @@ function runDoctorAll() {
 
     if (hasErrors) {
         process.exitCode = 1;
+    }
+}
+
+function runAccountInit() {
+    const result = initAccountHarness();
+    console.log(`Harness root: ${result.harnessRoot}`);
+    console.log(`Registry: ${result.registryPath}`);
+}
+
+function runAccountDiscover() {
+    const result = discoverAccountHarness();
+    console.log(`Harness root: ${result.harnessRoot}`);
+    console.log(`Discovered assets: ${result.discovery.assets.length}`);
+    console.log(`Latest: ${result.persisted.latestPath}`);
+    console.log(`Snapshot: ${result.persisted.timestampPath}`);
+}
+
+function runAccountDoctor() {
+    const result = doctorAccountHarness();
+    console.log(`Harness root: ${result.harnessRoot}`);
+
+    if (result.findings.length === 0) {
+        console.log('Doctor: no issues found');
+        return;
+    }
+
+    const grouped = groupFindings(result.findings);
+    for (const item of grouped) {
+        console.log(`[${item.level}] [${item.code}] ${item.count} finding(s)`);
+        for (const sample of item.samples) {
+            console.log(`  - ${sample}`);
+        }
+    }
+
+    if (result.findings.some((finding) => finding.level === 'error')) {
+        process.exitCode = 1;
+    }
+}
+
+function runAccountGenerate() {
+    const result = generateAccountOutputs();
+    console.log(`Harness root: ${result.harnessRoot}`);
+    for (const item of result.generated) {
+        console.log(`Generated: ${item.generatedPath}`);
+    }
+}
+
+function runAccountApply() {
+    const result = applyAccountOutputs();
+    console.log(`Harness root: ${result.harnessRoot}`);
+    for (const item of result.applied) {
+        console.log(`Applied (${item.applyMode}): ${item.applyPath}`);
+    }
+}
+
+function runAccountDiff() {
+    const result = diffAccountOutputs();
+    console.log(`Harness root: ${result.harnessRoot}`);
+    if (result.diffs.length === 0) {
+        console.log('Diff: no outputs defined');
+        return;
+    }
+
+    for (const diff of result.diffs) {
+        console.log(`[${diff.status}] ${diff.id}`);
+        console.log(`  generated: ${diff.generatedPath}`);
+        console.log(`  applied:   ${diff.applyPath}`);
     }
 }
 

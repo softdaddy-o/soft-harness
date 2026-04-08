@@ -19,6 +19,21 @@ function discoverState(projectRoot, options) {
     };
 }
 
+function discoverAccountState(options) {
+    const userHome = (options && options.userHome) || os.homedir();
+    const discoveredAt = new Date().toISOString();
+    const assets = [];
+
+    discoverAccountAssets(userHome, assets);
+
+    return {
+        discoveredAt,
+        projectRoot: null,
+        userHome,
+        assets
+    };
+}
+
 function discoverProjectAssets(projectRoot, assets) {
     const projectChecks = [
         { path: path.join(projectRoot, 'AGENTS.md'), type: 'instruction', target: 'codex', scope: 'project' },
@@ -194,7 +209,11 @@ function classifyAsset(type, scope, fullPath) {
 }
 
 function persistDiscovery(rootDir, discovery) {
-    const discoveryDir = path.join(rootDir, 'harness', 'state', 'discovered');
+    return persistDiscoveryAtHarnessRoot(path.join(rootDir, 'harness'), discovery);
+}
+
+function persistDiscoveryAtHarnessRoot(harnessRoot, discovery) {
+    const discoveryDir = path.join(harnessRoot, 'state', 'discovered');
     ensureDir(discoveryDir);
     const latestPath = path.join(discoveryDir, 'latest.json');
     const timestampPath = path.join(discoveryDir, `${discovery.discoveredAt.replace(/[:.]/g, '-')}.json`);
@@ -208,6 +227,8 @@ function persistDiscovery(rootDir, discovery) {
 }
 
 module.exports = {
+    discoverAccountState,
     discoverState,
-    persistDiscovery
+    persistDiscovery,
+    persistDiscoveryAtHarnessRoot
 };
