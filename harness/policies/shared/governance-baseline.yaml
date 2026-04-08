@@ -1,0 +1,19 @@
+defaults:
+  secrets_policy: local-only
+  generated_files_policy: generated-is-derived
+  vendor_install_policy: upstream-owned
+  ignore:
+    doctor_paths:
+      - '{rootDir}/harness/generated/*'
+      - '{rootDir}/harness/state/*'
+      - '{userHome}/.claude/plugins/cache/*'
+    migrate_paths:
+      - '{rootDir}/harness/generated/*'
+      - '{rootDir}/harness/state/*'
+      - '{userHome}/.claude/plugins/cache/*'
+capabilities: []
+guides:
+  shared: []
+  claude: []
+  codex: []
+outputs: []

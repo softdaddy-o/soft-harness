@@ -1,0 +1,24 @@
+version: 0
+
+imports:
+  - ../../../harness/policies/shared/governance-baseline.yaml
+  - ../../../harness/policies/shared/project-stubs.yaml
+  - ../../../harness/policies/claude/account-stub.yaml
+  - ../../../harness/policies/codex/account-stub.yaml
+
+guides:
+  shared:
+    - path: common/account-and-project.md
+      scope: project
+    - path: common/account-and-project.md
+      scope: account
+  claude:
+    - path: claude/account-review.md
+      scope: account
+  codex:
+    - path: codex/account-build.md
+      scope: account
+
+capabilities: []
+
+outputs: []

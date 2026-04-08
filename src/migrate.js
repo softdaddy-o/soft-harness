@@ -1,6 +1,7 @@
 const path = require('path');
+const os = require('os');
 const { backupAssets } = require('./backup');
-const { ensureDir, exists, readUtf8, writeJson, writeUtf8 } = require('./fs-util');
+const { ensureDir, exists, readUtf8, replaceTemplateVariables, writeJson, writeUtf8 } = require('./fs-util');
 const { matchesAnyPattern, normalize } = require('./match');
 
 function createMigrationProposal(rootDir, discovery, loadedRegistry) {
@@ -9,7 +10,7 @@ function createMigrationProposal(rootDir, discovery, loadedRegistry) {
     const proposalDir = path.join(harnessRoot, 'registry.d', 'discovered');
     ensureDir(proposalDir);
 
-    const filteredAssets = filterMigratableAssets(discovery.assets || [], loadedRegistry);
+    const filteredAssets = filterMigratableAssets(rootDir, discovery, loadedRegistry);
     const backup = backupAssets(rootDir, filterBackupAssets(filteredAssets), 'migrate');
 
     const groupedGuides = {
@@ -102,9 +103,16 @@ function createMigrationProposal(rootDir, discovery, loadedRegistry) {
     }, summary);
 }
 
-function filterMigratableAssets(assets, loadedRegistry) {
-    const ignorePatterns = ((((loadedRegistry || {}).registry || {}).defaults || {}).ignore || {}).migrate_paths || [];
-    return assets.filter((asset) => {
+function filterMigratableAssets(rootDir, discovery, loadedRegistry) {
+    const ignorePatterns = resolvePatterns(
+        ((((loadedRegistry || {}).registry || {}).defaults || {}).ignore || {}).migrate_paths || [],
+        {
+            rootDir,
+            harnessRoot: path.join(rootDir, 'harness'),
+            userHome: (discovery && discovery.userHome) || os.homedir()
+        }
+    );
+    return (discovery.assets || []).filter((asset) => {
         if (asset.classification === 'transient') {
             return false;
         }
@@ -113,6 +121,10 @@ function filterMigratableAssets(assets, loadedRegistry) {
         const relativePath = normalize(asset.relativePath);
         return !matchesAnyPattern(absolutePath, ignorePatterns) && !matchesAnyPattern(relativePath, ignorePatterns);
     });
+}
+
+function resolvePatterns(patterns, pathVariables) {
+    return (patterns || []).map((pattern) => replaceTemplateVariables(pattern, pathVariables));
 }
 
 function renderGuideEntries(bucket, entries) {

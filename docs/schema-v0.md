@@ -7,6 +7,7 @@
 Additional fragments may be loaded from:
 
 - `harness/registry.d/*.yaml`
+- `harness/policies/**/*.yaml`
 
 ## Top-Level Keys
 
@@ -17,6 +18,32 @@ Additional fragments may be loaded from:
 - `capabilities`
 - `guides`
 - `outputs`
+
+## Policy Packs
+
+Policy packs are normal registry fragments.
+
+They typically live under:
+
+- `harness/policies/shared/`
+- `harness/policies/claude/`
+- `harness/policies/codex/`
+
+They can define any mergeable top-level keys:
+
+- `defaults`
+- `capabilities`
+- `guides`
+- `outputs`
+
+Example:
+
+```yaml
+imports:
+  - ./policies/shared/governance-baseline.yaml
+  - ./policies/shared/project-stubs.yaml
+  - ./policies/claude/account-stub.yaml
+```
 
 ## Capabilities
 
@@ -116,6 +143,21 @@ defaults:
 ```
 
 These patterns are matched against both absolute paths and discovered relative paths.
+
+Template variables are supported in ignore patterns:
+
+- `{rootDir}`
+- `{harnessRoot}`
+- `{userHome}`
+
+Example:
+
+```yaml
+defaults:
+  ignore:
+    doctor_paths:
+      - '{userHome}/.claude/plugins/cache/*'
+```
 
 ## MCP Capabilities
 

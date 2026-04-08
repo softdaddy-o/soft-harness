@@ -1,0 +1,33 @@
+version: 0
+
+imports:
+  - ../../../harness/policies/shared/governance-baseline.yaml
+  - ../../../harness/policies/shared/project-stubs.yaml
+  - ../../../harness/policies/shared/project-mcp.yaml
+
+guides:
+  shared:
+    - path: common/project-baseline.md
+      scope: project
+  claude:
+    - path: claude/review.md
+      scope: project
+  codex:
+    - path: codex/build.md
+      scope: project
+
+capabilities:
+  - id: local-filesystem-mcp
+    kind: mcp
+    target: both
+    scope: project
+    management: generated
+    server_id: filesystem
+    server:
+      command: npx
+      args:
+        - -y
+        - '@modelcontextprotocol/server-filesystem'
+        - .
+
+outputs: []

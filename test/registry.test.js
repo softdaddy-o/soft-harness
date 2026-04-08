@@ -70,3 +70,15 @@ test('supports account-level output presets', () => {
     assert.equal(loaded.registry.outputs[1].generated_path, './generated/account/codex/AGENTS.generated.md');
     assert.equal(loaded.issues.length, 0);
 });
+
+test('loads reusable policy packs through registry imports', () => {
+    const projectRoot = path.join(fixturesRoot, 'policy-pack-project');
+    const loaded = loadRegistry(projectRoot);
+
+    assert.equal(loaded.registry.outputs.length, 3);
+    assert.equal(loaded.registry.outputs.some((output) => output.id === 'project-codex'), true);
+    assert.equal(loaded.registry.outputs.some((output) => output.id === 'project-claude'), true);
+    assert.equal(loaded.registry.outputs.some((output) => output.id === 'account-claude'), true);
+    assert.equal(loaded.registry.defaults.ignore.doctor_paths.includes('{userHome}/.claude/plugins/cache/*'), true);
+    assert.equal(loaded.issues.length, 0);
+});

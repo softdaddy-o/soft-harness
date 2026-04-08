@@ -17,15 +17,16 @@ Across two scopes:
 
 ## Status
 
-Early scaffold.
+Working prototype.
 
-The initial goal is to support:
+The current goal is to support:
 
 - discovery of current Claude and Codex state
 - migration of unorganized local state into a structured registry
 - generation of host-native outputs from a single registry
 - drift detection and cleanup
 - explicit output definitions for generated bundles and stable stubs
+- reusable policy packs and example registries
 
 ## Principles
 
@@ -63,6 +64,44 @@ soft-harness restore [backup-id]
 - approve command to promote grouped migration proposals into active `registry.d` files
 - restore command for migration backups
 - ignore rules for doctor and migrate noise reduction
+- reusable policy packs under `harness/policies/`
+- example registries under `examples/`
+
+## Quick Start
+
+Start from `harness/registry.yaml` and import reusable policy packs:
+
+```yaml
+version: 0
+
+imports:
+  - ./registry.d/*.yaml
+  - ./policies/shared/governance-baseline.yaml
+  - ./policies/shared/project-stubs.yaml
+  - ./policies/shared/project-mcp.yaml
+
+guides:
+  shared:
+    - path: common/project.md
+      scope: project
+  claude:
+    - path: claude/review.md
+      scope: project
+  codex:
+    - path: codex/build.md
+      scope: project
+
+capabilities: []
+outputs: []
+```
+
+Then run:
+
+```text
+soft-harness generate
+soft-harness apply
+soft-harness doctor
+```
 
 ## Layout
 
@@ -91,6 +130,8 @@ That includes:
 - Codex-only guides
 - policy fragments
 - generation templates
+- reusable policy packs
+- example registries and starter layouts
 
 ## License
 

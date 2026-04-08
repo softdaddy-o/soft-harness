@@ -1,0 +1,8 @@
+capabilities: []
+guides:
+  shared: []
+  claude: []
+  codex: []
+outputs:
+  - id: account-claude
+    preset: account-claude-stub

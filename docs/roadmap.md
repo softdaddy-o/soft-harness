@@ -24,3 +24,10 @@
 - implement migrate flow
 - implement diff/apply flow
 - add policy packs and examples
+
+## Current State
+
+- Phase 0 complete
+- Phase 1 complete
+- Phase 2 complete
+- Phase 3 complete

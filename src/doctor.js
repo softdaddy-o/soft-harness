@@ -1,12 +1,14 @@
 const path = require('path');
-const { exists, readUtf8 } = require('./fs-util');
+const os = require('os');
+const { exists, readUtf8, replaceTemplateVariables, resolveTemplatePath } = require('./fs-util');
 const { matchesAnyPattern, normalize } = require('./match');
 
 function runDoctor(rootDir, loadedRegistry, discovery) {
     const findings = [...loadedRegistry.issues];
     const harnessRoot = path.join(rootDir, 'harness');
+    const pathVariables = createPathVariables(rootDir, harnessRoot, discovery);
     const guidesRoot = loadedRegistry.registry.defaults && loadedRegistry.registry.defaults.guides_root
-        ? path.resolve(harnessRoot, loadedRegistry.registry.defaults.guides_root)
+        ? resolveTemplatePath(loadedRegistry.registry.defaults.guides_root, pathVariables, harnessRoot)
         : path.join(harnessRoot, 'guides');
 
     for (const bucket of ['shared', 'claude', 'codex']) {
@@ -34,7 +36,7 @@ function runDoctor(rootDir, loadedRegistry, discovery) {
         }
     }
 
-    const unmanaged = findUnmanagedDiscoveredAssets(loadedRegistry.registry, discovery.assets || []);
+    const unmanaged = findUnmanagedDiscoveredAssets(loadedRegistry.registry, discovery.assets || [], pathVariables);
     findings.push(...unmanaged.map((asset) => ({
         level: 'warning',
         code: 'unmanaged-discovered-asset',
@@ -46,9 +48,9 @@ function runDoctor(rootDir, loadedRegistry, discovery) {
     return findings;
 }
 
-function findUnmanagedDiscoveredAssets(registry, assets) {
+function findUnmanagedDiscoveredAssets(registry, assets, pathVariables) {
     const managedPaths = new Set();
-    const ignorePatterns = (((registry.defaults || {}).ignore || {}).doctor_paths) || [];
+    const ignorePatterns = resolvePatterns((((registry.defaults || {}).ignore || {}).doctor_paths) || [], pathVariables);
 
     for (const bucket of ['shared', 'claude', 'codex']) {
         for (const guideEntry of registry.guides[bucket] || []) {
@@ -78,6 +80,18 @@ function findUnmanagedDiscoveredAssets(registry, assets) {
 
         return !managedPaths.has(absolutePath) && !managedPaths.has(relativePath);
     });
+}
+
+function createPathVariables(rootDir, harnessRoot, discovery) {
+    return {
+        rootDir,
+        harnessRoot,
+        userHome: (discovery && discovery.userHome) || os.homedir()
+    };
+}
+
+function resolvePatterns(patterns, pathVariables) {
+    return (patterns || []).map((pattern) => replaceTemplateVariables(pattern, pathVariables));
 }
 
 function findPlaintextSecretFindings(rootDir) {
