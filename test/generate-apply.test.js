@@ -31,3 +31,23 @@ test('generate writes output bundles and apply copies them to target paths', () 
     assert.match(codexContent, /Project coding guide/);
     assert.match(claudeContent, /Claude memory guide/);
 });
+
+test('preset outputs resolve to real CLAUDE.md and AGENTS.md stubs', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soft-harness-preset-'));
+    fs.cpSync(path.join(__dirname, 'fixtures', 'preset-project'), tempRoot, { recursive: true });
+
+    const loaded = loadRegistry(tempRoot);
+    const generated = generateOutputs(tempRoot, loaded);
+    assert.equal(generated.length, 2);
+
+    const applied = applyOutputs(tempRoot, loaded);
+    assert.equal(applied.length, 2);
+
+    const agentsPath = path.join(tempRoot, 'AGENTS.md');
+    const claudePath = path.join(tempRoot, 'CLAUDE.md');
+
+    assert.equal(fs.existsSync(agentsPath), true);
+    assert.equal(fs.existsSync(claudePath), true);
+    assert.match(fs.readFileSync(agentsPath, 'utf8'), /Managed by soft-harness/);
+    assert.match(fs.readFileSync(claudePath, 'utf8'), /Managed by soft-harness/);
+});

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const path = require('path');
+const { listBackups, restoreBackup } = require('./backup');
 const { applyOutputs } = require('./apply');
 const { diffOutputs } = require('./diff');
 const { discoverState, persistDiscovery } = require('./discover');
@@ -33,6 +34,9 @@ function main() {
         case 'apply':
             runApply();
             break;
+        case 'restore':
+            runRestore();
+            break;
         case 'help':
         default:
             printHelp();
@@ -50,6 +54,7 @@ function printHelp() {
     console.log('  generate   Generate host-native outputs from the registry');
     console.log('  diff       Show differences between registry and live state');
     console.log('  apply      Apply generated outputs');
+    console.log('  restore    Restore files from the latest or specified backup');
 }
 
 function runGenerate() {
@@ -122,6 +127,8 @@ function runMigrate() {
     console.log(`Proposal: ${result.proposalPath}`);
     console.log(`Copied guides: ${result.copiedGuideCount}`);
     console.log(`Capability proposals: ${result.capabilityCount}`);
+    console.log(`Backup: ${result.backup.manifestPath}`);
+    console.log(`Backed up files: ${result.backup.entryCount}`);
 }
 
 function runDiff() {
@@ -155,6 +162,22 @@ function runApply() {
     for (const item of applied) {
         console.log(`Applied (${item.applyMode}): ${item.applyPath}`);
     }
+}
+
+function runRestore() {
+    const explicitBackupId = process.argv[3];
+    const backups = listBackups(ROOT);
+    if (backups.length === 0) {
+        console.log('No backups found');
+        process.exitCode = 1;
+        return;
+    }
+
+    const backupId = explicitBackupId || backups[backups.length - 1];
+    const result = restoreBackup(ROOT, backupId);
+    console.log(`Restored backup: ${result.backupId}`);
+    console.log(`Manifest: ${result.manifestPath}`);
+    console.log(`Files restored: ${result.restoredCount}`);
 }
 
 function groupFindings(findings) {

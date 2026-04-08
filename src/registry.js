@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const YAML = require('yaml');
+const { resolveOutputPresets } = require('./presets');
 
 const VALID_KINDS = new Set(['instruction', 'guide', 'skill', 'agent', 'plugin', 'mcp']);
 const VALID_TARGETS = new Set(['claude', 'codex', 'both']);
@@ -129,7 +130,7 @@ function normalizeOutputs(outputs) {
         return [];
     }
 
-    return outputs.map((item) => Object.assign({}, item));
+    return outputs.map((item) => resolveOutputPresets(Object.assign({}, item)));
 }
 
 function validateRegistry(registry, harnessRoot) {
@@ -228,6 +229,10 @@ function validateOutput(output, issues) {
 
     if (!isNonEmptyString(output.id)) {
         issues.push(error('missing-output-id', 'Output is missing a non-empty id'));
+    }
+
+    if (output.invalid_preset) {
+        issues.push(error('invalid-output-preset', `Output ${output.id || '<unknown>'} has invalid preset: ${output.invalid_preset}`));
     }
 
     if (!VALID_TARGETS.has(output.target)) {

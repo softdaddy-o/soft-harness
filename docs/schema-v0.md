@@ -77,7 +77,22 @@ outputs:
     enabled: true
 ```
 
+Preset example:
+
+```yaml
+outputs:
+  - id: project-codex
+    preset: project-codex-stub
+  - id: project-claude
+    preset: project-claude-stub
+```
+
 `apply_mode` values:
 
 - `copy`
 - `stub`
+
+Supported presets:
+
+- `project-codex-stub`
+- `project-claude-stub`

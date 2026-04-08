@@ -1,4 +1,5 @@
 const path = require('path');
+const { backupAssets } = require('./backup');
 const { ensureDir, exists, readUtf8, writeUtf8 } = require('./fs-util');
 
 function createMigrationProposal(rootDir, discovery) {
@@ -10,6 +11,7 @@ function createMigrationProposal(rootDir, discovery) {
         codex: []
     };
     const capabilityBlocks = [];
+    const backup = backupAssets(rootDir, filterBackupAssets(discovery.assets || []), 'migrate');
 
     for (const asset of discovery.assets || []) {
         if (asset.type === 'instruction' && (asset.target === 'claude' || asset.target === 'codex')) {
@@ -61,7 +63,8 @@ function createMigrationProposal(rootDir, discovery) {
     return {
         proposalPath,
         copiedGuideCount: guideEntries.claude.length + guideEntries.codex.length,
-        capabilityCount: capabilityBlocks.length
+        capabilityCount: capabilityBlocks.length,
+        backup
     };
 }
 
@@ -110,3 +113,7 @@ function mapAssetTypeToCapabilityKind(type) {
 module.exports = {
     createMigrationProposal
 };
+
+function filterBackupAssets(assets) {
+    return assets.filter((asset) => ['instruction', 'settings', 'mcp-config', 'agent', 'skill'].includes(asset.type));
+}

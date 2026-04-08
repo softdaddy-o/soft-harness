@@ -44,6 +44,7 @@ soft-harness migrate
 soft-harness generate
 soft-harness diff
 soft-harness apply
+soft-harness restore [backup-id]
 ```
 
 ## Current MVP
@@ -54,7 +55,9 @@ soft-harness apply
 - discovery snapshots to `harness/state/discovered`
 - doctor checks for registry issues, unmanaged assets, and possible plaintext secrets
 - migration proposal generation to `harness/registry.d/discovered.generated.yaml`
+- migration backups under `harness/state/backups/`
 - explicit output generation and apply flow
+- restore command for migration backups
 
 ## Layout
 

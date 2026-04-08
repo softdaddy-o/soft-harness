@@ -51,3 +51,13 @@ test('reports invalid output configuration', () => {
     assert.equal(codes.includes('missing-output-generated-path'), true);
     assert.equal(codes.includes('invalid-output-apply-mode'), true);
 });
+
+test('resolves known output presets', () => {
+    const projectRoot = path.join(fixturesRoot, 'preset-project');
+    const loaded = loadRegistry(projectRoot);
+
+    assert.equal(loaded.registry.outputs[0].generated_path, './generated/project/codex/AGENTS.generated.md');
+    assert.equal(loaded.registry.outputs[0].apply_path, '../AGENTS.md');
+    assert.equal(loaded.registry.outputs[1].generated_path, './generated/project/claude/CLAUDE.generated.md');
+    assert.equal(loaded.issues.length, 0);
+});
