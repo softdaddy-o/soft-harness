@@ -76,6 +76,37 @@ If you do not want a global CLI install, you can also run it directly from this 
 node D:\srcp\soft-harness\src\cli.js help
 ```
 
+## Trusted Publishing
+
+`soft-harness` is set up for npm Trusted Publishing from GitHub Actions.
+
+Workflow file:
+
+- [.github/workflows/publish.yml](D:/srcp/soft-harness/.github/workflows/publish.yml)
+
+What you still need to do in npm:
+
+1. Open the npm package settings for `soft-harness`.
+2. Add a Trusted Publisher for GitHub Actions.
+3. Use these values:
+   - owner: `softdaddy-o`
+   - repository: `soft-harness`
+   - workflow file: `publish.yml`
+   - environment: leave empty unless you later protect it with a GitHub Environment
+
+After that, you can publish without storing an npm token by:
+
+1. creating a GitHub release, or
+2. running the `Publish to npm` workflow manually from the Actions tab
+
+The workflow will:
+
+- install dependencies
+- run `npm test`
+- publish with `--provenance`
+
+Trusted Publishing is the preferred long-term path over a bypass-2FA token.
+
 ## Planned Commands
 
 ```text
