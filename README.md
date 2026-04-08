@@ -36,6 +36,46 @@ The current goal is to support:
 - Secrets stay local and out of tracked project config.
 - Governance and cleanup come before automation.
 
+## Installation
+
+Prerequisites:
+
+- Node.js 20+ recommended
+- Git
+
+Clone the repository and install dependencies:
+
+```text
+git clone https://github.com/softdaddy-o/soft-harness.git
+cd soft-harness
+npm install
+```
+
+Run the CLI from the repository:
+
+```text
+node src/cli.js help
+```
+
+Optional: install the CLI into your user environment with `npm link`:
+
+```text
+npm link
+soft-harness help
+```
+
+To use `soft-harness` in another project:
+
+1. Copy or create a `harness/` folder in that project.
+2. Start from [examples/project-starter/harness/registry.yaml](D:/srcp/soft-harness/examples/project-starter/harness/registry.yaml) or [examples/full-governance/harness/registry.yaml](D:/srcp/soft-harness/examples/full-governance/harness/registry.yaml).
+3. Run `soft-harness discover`, `soft-harness doctor`, and `soft-harness generate`.
+
+If you do not want a global CLI install, you can also run it directly from this repo with an explicit path:
+
+```text
+node D:\srcp\soft-harness\src\cli.js help
+```
+
 ## Planned Commands
 
 ```text
