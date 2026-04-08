@@ -11,7 +11,7 @@ const { generateOutputs } = require('./generate');
 const { createMigrationProposal } = require('./migrate');
 const { loadRegistry } = require('./registry');
 
-const ROOT = path.resolve(__dirname, '..');
+const ROOT = resolveRootDir();
 
 function main() {
     const command = process.argv[2] || 'help';
@@ -51,6 +51,8 @@ function main() {
 function printHelp() {
     console.log('soft-harness');
     console.log('');
+    console.log(`Root: ${ROOT}`);
+    console.log('');
     console.log('Commands:');
     console.log('  discover   Scan local Claude/Codex state');
     console.log('  doctor     Report drift, security issues, and gaps');
@@ -60,6 +62,15 @@ function printHelp() {
     console.log('  apply      Apply generated outputs');
     console.log('  approve    Approve grouped migration proposals into registry.d');
     console.log('  restore    Restore files from the latest or specified backup');
+}
+
+function resolveRootDir() {
+    const rootFlagIndex = process.argv.indexOf('--root');
+    if (rootFlagIndex >= 0 && process.argv[rootFlagIndex + 1]) {
+        return path.resolve(process.argv[rootFlagIndex + 1]);
+    }
+
+    return process.cwd();
 }
 
 function runGenerate() {
