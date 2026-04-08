@@ -7,9 +7,11 @@ const { applyOutputs } = require('./apply');
 const { diffOutputs } = require('./diff');
 const { discoverState, persistDiscovery } = require('./discover');
 const { runDoctor } = require('./doctor');
+const { exists } = require('./fs-util');
 const { generateOutputs } = require('./generate');
 const { createMigrationProposal } = require('./migrate');
 const { loadRegistry } = require('./registry');
+const { addWorkspace, getWorkspaceRegistryPath, hasWorkspaceMarkers, listWorkspaces, removeWorkspace } = require('./workspaces');
 
 const ROOT = resolveRootDir();
 
@@ -17,6 +19,9 @@ function main() {
     const command = process.argv[2] || 'help';
 
     switch (command) {
+        case 'workspace':
+            runWorkspace();
+            break;
         case 'discover':
             runDiscover();
             break;
@@ -54,6 +59,7 @@ function printHelp() {
     console.log(`Root: ${ROOT}`);
     console.log('');
     console.log('Commands:');
+    console.log('  workspace  Manage registered workspaces');
     console.log('  discover   Scan local Claude/Codex state');
     console.log('  doctor     Report drift, security issues, and gaps');
     console.log('  migrate    Normalize discovered state into the registry');
@@ -105,6 +111,11 @@ function printNotImplemented(command) {
 }
 
 function runDiscover() {
+    if (hasFlag('--all')) {
+        runDiscoverAll();
+        return;
+    }
+
     const discovery = discoverState(ROOT, {});
     const persisted = persistDiscovery(ROOT, discovery);
 
@@ -114,6 +125,11 @@ function runDiscover() {
 }
 
 function runDoctorCommand() {
+    if (hasFlag('--all')) {
+        runDoctorAll();
+        return;
+    }
+
     const loaded = loadRegistry(ROOT);
     const discovery = discoverState(ROOT, {});
     const findings = runDoctor(ROOT, loaded, discovery);
@@ -132,6 +148,122 @@ function runDoctorCommand() {
     }
 
     if (findings.some((finding) => finding.level === 'error')) {
+        process.exitCode = 1;
+    }
+}
+
+function runWorkspace() {
+    const subcommand = process.argv[3] || 'list';
+
+    switch (subcommand) {
+        case 'add':
+            runWorkspaceAdd();
+            break;
+        case 'remove':
+            runWorkspaceRemove();
+            break;
+        case 'list':
+        default:
+            runWorkspaceList();
+            break;
+    }
+}
+
+function runWorkspaceAdd() {
+    const workspacePath = process.argv[4] ? path.resolve(process.argv[4]) : ROOT;
+    const result = addWorkspace(workspacePath);
+
+    if (!hasWorkspaceMarkers(workspacePath)) {
+        console.log(`Warning: ${workspacePath} does not contain .git or harness/registry.yaml`);
+    }
+
+    console.log(`Registry: ${result.registryPath}`);
+    console.log(`Workspace: ${result.workspace.path}`);
+    console.log(`Id: ${result.workspace.id}`);
+    console.log(`Status: ${result.action}`);
+}
+
+function runWorkspaceRemove() {
+    const workspacePath = process.argv[4] ? path.resolve(process.argv[4]) : ROOT;
+    const result = removeWorkspace(workspacePath);
+
+    console.log(`Registry: ${result.registryPath}`);
+    console.log(`Workspace: ${workspacePath}`);
+    console.log(`Status: ${result.action}`);
+
+    if (result.action === 'missing') {
+        process.exitCode = 1;
+    }
+}
+
+function runWorkspaceList() {
+    const loaded = listWorkspaces();
+    console.log(`Registry: ${loaded.registryPath}`);
+
+    if (loaded.registry.workspaces.length === 0) {
+        console.log('Workspaces: 0');
+        return;
+    }
+
+    console.log(`Workspaces: ${loaded.registry.workspaces.length}`);
+    for (const workspace of loaded.registry.workspaces) {
+        console.log(`- ${workspace.id} ${workspace.path}`);
+    }
+}
+
+function runDiscoverAll() {
+    const loaded = listWorkspaces();
+    console.log(`Registry: ${loaded.registryPath}`);
+
+    if (loaded.registry.workspaces.length === 0) {
+        console.log('Workspaces: 0');
+        return;
+    }
+
+    for (const workspace of loaded.registry.workspaces) {
+        const discovery = discoverState(workspace.path, {});
+        const persisted = persistDiscovery(workspace.path, discovery);
+        console.log(`[ok] ${workspace.id} assets=${discovery.assets.length}`);
+        console.log(`  latest: ${persisted.latestPath}`);
+    }
+}
+
+function runDoctorAll() {
+    const loadedWorkspaces = listWorkspaces();
+    console.log(`Registry: ${loadedWorkspaces.registryPath}`);
+
+    if (loadedWorkspaces.registry.workspaces.length === 0) {
+        console.log('Workspaces: 0');
+        return;
+    }
+
+    let hasErrors = false;
+    for (const workspace of loadedWorkspaces.registry.workspaces) {
+        const registryPath = path.join(workspace.path, 'harness', 'registry.yaml');
+        if (!exists(registryPath)) {
+            console.log(`[skip] ${workspace.id} missing ${registryPath}`);
+            continue;
+        }
+
+        const loaded = loadRegistry(workspace.path);
+        const discovery = discoverState(workspace.path, {});
+        const findings = runDoctor(workspace.path, loaded, discovery);
+        const errorCount = findings.filter((finding) => finding.level === 'error').length;
+        const warningCount = findings.filter((finding) => finding.level === 'warning').length;
+        console.log(`[${errorCount > 0 ? 'error' : 'ok'}] ${workspace.id} errors=${errorCount} warnings=${warningCount}`);
+
+        if (findings.length > 0) {
+            for (const finding of findings.slice(0, 5)) {
+                console.log(`  - [${finding.level}] [${finding.code}] ${finding.message}`);
+            }
+        }
+
+        if (errorCount > 0) {
+            hasErrors = true;
+        }
+    }
+
+    if (hasErrors) {
         process.exitCode = 1;
     }
 }
@@ -232,6 +364,10 @@ function groupFindings(findings) {
     }
 
     return Array.from(grouped.values());
+}
+
+function hasFlag(flag) {
+    return process.argv.includes(flag);
 }
 
 if (require.main === module) {
