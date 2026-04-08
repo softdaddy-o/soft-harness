@@ -1,0 +1,6 @@
+capabilities:
+  - id: duplicate-capability
+    kind: skill
+    target: codex
+    scope: account
+    management: external

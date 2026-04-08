@@ -1,0 +1,13 @@
+version: 0
+
+defaults:
+  guides_root: ./guides
+
+capabilities: []
+
+guides:
+  shared: []
+  claude: []
+  codex: []
+
+outputs: []

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "private": {
+      "command": "demo",
+      "env": {
+        "API_TOKEN": "abc123-real-token"
+      }
+    }
+  }
+}

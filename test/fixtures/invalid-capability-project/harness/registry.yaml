@@ -1,0 +1,16 @@
+version: 0
+
+defaults:
+  guides_root: ./guides
+
+capabilities:
+  - id: broken-capability
+    kind: widget
+    target: all
+    scope: user
+    management: magical
+
+guides:
+  shared: []
+  claude: []
+  codex: []

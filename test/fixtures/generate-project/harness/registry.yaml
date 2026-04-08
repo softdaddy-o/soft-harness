@@ -1,0 +1,39 @@
+version: 0
+
+defaults:
+  guides_root: ./guides
+
+capabilities: []
+
+guides:
+  shared:
+    - path: common/project.md
+      scope: project
+  claude:
+    - path: claude/memory.md
+      scope: project
+  codex:
+    - path: codex/coding.md
+      scope: project
+
+outputs:
+  - id: project-codex-instructions
+    target: codex
+    scope: project
+    guide_buckets:
+      - shared
+      - codex
+    generated_path: ./generated/project/codex/AGENTS.generated.md
+    apply_path: ../AGENTS.harness.md
+    apply_mode: copy
+    enabled: true
+  - id: project-claude-instructions
+    target: claude
+    scope: project
+    guide_buckets:
+      - shared
+      - claude
+    generated_path: ./generated/project/claude/CLAUDE.generated.md
+    apply_path: ../CLAUDE.harness.md
+    apply_mode: copy
+    enabled: true

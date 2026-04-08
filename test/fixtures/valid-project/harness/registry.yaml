@@ -1,0 +1,21 @@
+version: 0
+
+meta:
+  name: valid-project
+
+imports:
+  - ./registry.d/*.yaml
+
+defaults:
+  guides_root: ./guides
+
+capabilities:
+  - id: shared-review-checklist
+    kind: guide
+    target: both
+    scope: project
+    management: generated
+
+guides:
+  shared:
+    - shared/base.md

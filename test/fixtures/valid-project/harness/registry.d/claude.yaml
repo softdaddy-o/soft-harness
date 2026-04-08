@@ -1,0 +1,12 @@
+capabilities:
+  - id: claude-memory-pack
+    kind: instruction
+    target: claude
+    scope: account
+    management: linked
+
+guides:
+  claude:
+    - claude/memory.md
+  codex:
+    - codex/coding.md
