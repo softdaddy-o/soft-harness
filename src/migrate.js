@@ -1,19 +1,24 @@
 const path = require('path');
 const { backupAssets } = require('./backup');
-const { ensureDir, exists, readUtf8, writeUtf8 } = require('./fs-util');
+const { ensureDir, exists, readUtf8, writeJson, writeUtf8 } = require('./fs-util');
+const { matchesAnyPattern, normalize } = require('./match');
 
-function createMigrationProposal(rootDir, discovery) {
+function createMigrationProposal(rootDir, discovery, loadedRegistry) {
     const harnessRoot = path.join(rootDir, 'harness');
     const guidesRoot = path.join(harnessRoot, 'guides');
-    const proposalPath = path.join(harnessRoot, 'registry.d', 'discovered.generated.yaml');
-    const guideEntries = {
+    const proposalDir = path.join(harnessRoot, 'registry.d', 'discovered');
+    ensureDir(proposalDir);
+
+    const filteredAssets = filterMigratableAssets(discovery.assets || [], loadedRegistry);
+    const backup = backupAssets(rootDir, filterBackupAssets(filteredAssets), 'migrate');
+
+    const groupedGuides = {
         claude: [],
         codex: []
     };
-    const capabilityBlocks = [];
-    const backup = backupAssets(rootDir, filterBackupAssets(discovery.assets || []), 'migrate');
+    const groupedCapabilities = new Map();
 
-    for (const asset of discovery.assets || []) {
+    for (const asset of filteredAssets) {
         if (asset.type === 'instruction' && (asset.target === 'claude' || asset.target === 'codex')) {
             const bucket = asset.target;
             const fileName = `${asset.scope}-${path.basename(asset.path)}`;
@@ -23,14 +28,19 @@ function createMigrationProposal(rootDir, discovery) {
             if (!exists(targetFile)) {
                 writeUtf8(targetFile, readUtf8(asset.path));
             }
-            guideEntries[bucket].push({
+            groupedGuides[bucket].push({
                 path: `discovered/${fileName}`,
                 scope: asset.scope
             });
             continue;
         }
 
-        capabilityBlocks.push({
+        const groupKey = `${asset.scope}-${asset.target}`;
+        if (!groupedCapabilities.has(groupKey)) {
+            groupedCapabilities.set(groupKey, []);
+        }
+
+        groupedCapabilities.get(groupKey).push({
             id: buildCapabilityId(asset),
             kind: mapAssetTypeToCapabilityKind(asset.type),
             target: asset.target,
@@ -42,30 +52,67 @@ function createMigrationProposal(rootDir, discovery) {
         });
     }
 
-    const yamlLines = ['capabilities:'];
-    for (const block of capabilityBlocks) {
-        yamlLines.push(`  - id: ${block.id}`);
-        yamlLines.push(`    kind: ${block.kind}`);
-        yamlLines.push(`    target: ${block.target}`);
-        yamlLines.push(`    scope: ${block.scope}`);
-        yamlLines.push(`    management: ${block.management}`);
-        yamlLines.push('    truth:');
-        yamlLines.push(`      path: ${block.truth.path}`);
+    const proposalFiles = [];
+    for (const [groupKey, entries] of groupedCapabilities.entries()) {
+        const filePath = path.join(proposalDir, `${groupKey}.generated.yaml`);
+        const yamlLines = ['capabilities:'];
+
+        for (const block of entries) {
+            yamlLines.push(`  - id: ${block.id}`);
+            yamlLines.push(`    kind: ${block.kind}`);
+            yamlLines.push(`    target: ${block.target}`);
+            yamlLines.push(`    scope: ${block.scope}`);
+            yamlLines.push(`    management: ${block.management}`);
+            yamlLines.push('    truth:');
+            yamlLines.push(`      path: ${block.truth.path}`);
+        }
+
+        yamlLines.push('guides:');
+        yamlLines.push('  shared: []');
+        yamlLines.push('  claude: []');
+        yamlLines.push('  codex: []');
+        writeUtf8(filePath, `${yamlLines.join('\n')}\n`);
+        proposalFiles.push(filePath);
     }
 
-    yamlLines.push('guides:');
-    yamlLines.push(...renderGuideEntries('shared', []));
-    yamlLines.push(...renderGuideEntries('claude', guideEntries.claude));
-    yamlLines.push(...renderGuideEntries('codex', guideEntries.codex));
+    const guidesFile = path.join(proposalDir, 'guides.generated.yaml');
+    const guideLines = [
+        'capabilities:',
+        'guides:',
+        ...renderGuideEntries('shared', []),
+        ...renderGuideEntries('claude', groupedGuides.claude),
+        ...renderGuideEntries('codex', groupedGuides.codex)
+    ];
+    writeUtf8(guidesFile, `${guideLines.join('\n')}\n`);
+    proposalFiles.push(guidesFile);
 
-    writeUtf8(proposalPath, `${yamlLines.join('\n')}\n`);
-
-    return {
-        proposalPath,
-        copiedGuideCount: guideEntries.claude.length + guideEntries.codex.length,
-        capabilityCount: capabilityBlocks.length,
+    const summaryPath = path.join(proposalDir, 'summary.json');
+    const summary = {
+        createdAt: new Date().toISOString(),
+        proposalFiles,
+        copiedGuideCount: groupedGuides.claude.length + groupedGuides.codex.length,
+        capabilityCount: Array.from(groupedCapabilities.values()).reduce((sum, items) => sum + items.length, 0),
         backup
     };
+    writeJson(summaryPath, summary);
+
+    return Object.assign({
+        proposalDir,
+        summaryPath
+    }, summary);
+}
+
+function filterMigratableAssets(assets, loadedRegistry) {
+    const ignorePatterns = ((((loadedRegistry || {}).registry || {}).defaults || {}).ignore || {}).migrate_paths || [];
+    return assets.filter((asset) => {
+        if (asset.classification === 'transient') {
+            return false;
+        }
+
+        const absolutePath = normalize(asset.path);
+        const relativePath = normalize(asset.relativePath);
+        return !matchesAnyPattern(absolutePath, ignorePatterns) && !matchesAnyPattern(relativePath, ignorePatterns);
+    });
 }
 
 function renderGuideEntries(bucket, entries) {
@@ -110,10 +157,10 @@ function mapAssetTypeToCapabilityKind(type) {
     return 'guide';
 }
 
-module.exports = {
-    createMigrationProposal
-};
-
 function filterBackupAssets(assets) {
     return assets.filter((asset) => ['instruction', 'settings', 'mcp-config', 'agent', 'skill'].includes(asset.type));
 }
+
+module.exports = {
+    createMigrationProposal
+};

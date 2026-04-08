@@ -165,9 +165,32 @@ function describeAsset(baseRoot, fullPath, meta) {
         type: meta.type,
         target: meta.target,
         scope: meta.scope,
+        classification: classifyAsset(meta.type, meta.scope, fullPath),
         path: fullPath,
         relativePath: toPosixRelative(baseRoot, fullPath)
     };
+}
+
+function classifyAsset(type, scope, fullPath) {
+    const normalized = String(fullPath).replace(/\\/g, '/').toLowerCase();
+
+    if (normalized.includes('/.claude/plugins/cache/') || normalized.includes('/.agents/skills/') || normalized.includes('/.codex/skills/')) {
+        return 'vendor-cache';
+    }
+
+    if (normalized.includes('/temp_git_')) {
+        return 'transient';
+    }
+
+    if (type === 'instruction' || type === 'settings' || type === 'mcp-config') {
+        return 'primary';
+    }
+
+    if (scope === 'project') {
+        return 'project-capability';
+    }
+
+    return 'account-capability';
 }
 
 function persistDiscovery(rootDir, discovery) {

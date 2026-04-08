@@ -96,3 +96,20 @@ Supported presets:
 
 - `project-codex-stub`
 - `project-claude-stub`
+
+## Ignore Rules
+
+Ignore patterns can be placed under `defaults.ignore`.
+
+Example:
+
+```yaml
+defaults:
+  ignore:
+    doctor_paths:
+      - "C:/Users/me/.claude/plugins/cache/*"
+    migrate_paths:
+      - "C:/Users/me/.claude/plugins/cache/temp_git_*"
+```
+
+These patterns are matched against both absolute paths and discovered relative paths.

@@ -122,9 +122,12 @@ function runDoctorCommand() {
 
 function runMigrate() {
     const discovery = discoverState(ROOT, {});
-    const result = createMigrationProposal(ROOT, discovery);
+    const loaded = loadRegistry(ROOT);
+    const result = createMigrationProposal(ROOT, discovery, loaded);
 
-    console.log(`Proposal: ${result.proposalPath}`);
+    console.log(`Proposal directory: ${result.proposalDir}`);
+    console.log(`Summary: ${result.summaryPath}`);
+    console.log(`Proposal files: ${result.proposalFiles.length}`);
     console.log(`Copied guides: ${result.copiedGuideCount}`);
     console.log(`Capability proposals: ${result.capabilityCount}`);
     console.log(`Backup: ${result.backup.manifestPath}`);

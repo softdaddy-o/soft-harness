@@ -54,10 +54,11 @@ soft-harness restore [backup-id]
 - guide buckets for shared, Claude-only, and Codex-only content
 - discovery snapshots to `harness/state/discovered`
 - doctor checks for registry issues, unmanaged assets, and possible plaintext secrets
-- migration proposal generation to `harness/registry.d/discovered.generated.yaml`
+- grouped migration proposal generation under `harness/registry.d/discovered/`
 - migration backups under `harness/state/backups/`
 - explicit output generation and apply flow
 - restore command for migration backups
+- ignore rules for doctor and migrate noise reduction
 
 ## Layout
 

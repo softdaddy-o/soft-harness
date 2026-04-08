@@ -18,6 +18,9 @@ defaults:
   generated_files_policy: generated-is-derived
   vendor_install_policy: upstream-owned
   guides_root: ./guides
+  ignore:
+    doctor_paths: []
+    migrate_paths: []
 
 capabilities: []
 

@@ -1,5 +1,6 @@
 const path = require('path');
 const { exists, readUtf8 } = require('./fs-util');
+const { matchesAnyPattern, normalize } = require('./match');
 
 function runDoctor(rootDir, loadedRegistry, discovery) {
     const findings = [...loadedRegistry.issues];
@@ -47,23 +48,36 @@ function runDoctor(rootDir, loadedRegistry, discovery) {
 
 function findUnmanagedDiscoveredAssets(registry, assets) {
     const managedPaths = new Set();
+    const ignorePatterns = (((registry.defaults || {}).ignore || {}).doctor_paths) || [];
 
     for (const bucket of ['shared', 'claude', 'codex']) {
         for (const guideEntry of registry.guides[bucket] || []) {
             const entry = typeof guideEntry === 'string' ? { path: guideEntry } : guideEntry;
             if (entry.path) {
-                managedPaths.add(normalizePath(entry.path));
+                managedPaths.add(normalize(entry.path));
             }
         }
     }
 
     for (const capability of registry.capabilities || []) {
         if (capability.truth && capability.truth.path) {
-            managedPaths.add(normalizePath(capability.truth.path));
+            managedPaths.add(normalize(capability.truth.path));
         }
     }
 
-    return assets.filter((asset) => !managedPaths.has(normalizePath(asset.path)) && !managedPaths.has(normalizePath(asset.relativePath)));
+    return assets.filter((asset) => {
+        if (asset.classification === 'transient') {
+            return false;
+        }
+
+        const absolutePath = normalize(asset.path);
+        const relativePath = normalize(asset.relativePath);
+        if (matchesAnyPattern(absolutePath, ignorePatterns) || matchesAnyPattern(relativePath, ignorePatterns)) {
+            return false;
+        }
+
+        return !managedPaths.has(absolutePath) && !managedPaths.has(relativePath);
+    });
 }
 
 function findPlaintextSecretFindings(rootDir) {
@@ -84,10 +98,6 @@ function findPlaintextSecretFindings(rootDir) {
     }
 
     return findings;
-}
-
-function normalizePath(value) {
-    return String(value).replace(/\\/g, '/');
 }
 
 module.exports = {

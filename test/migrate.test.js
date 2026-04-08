@@ -15,10 +15,11 @@ test('migrate creates a proposal file and copies discovered instruction guides',
     const discovery = discoverState(tempRoot, { userHome });
     const result = createMigrationProposal(tempRoot, discovery);
 
-    assert.equal(fs.existsSync(result.proposalPath), true);
+    assert.equal(fs.existsSync(result.summaryPath), true);
+    assert.equal(fs.existsSync(path.join(result.proposalDir, 'guides.generated.yaml')), true);
     assert.equal(result.copiedGuideCount > 0, true);
 
-    const proposal = fs.readFileSync(result.proposalPath, 'utf8');
+    const proposal = fs.readFileSync(path.join(result.proposalDir, 'guides.generated.yaml'), 'utf8');
     assert.match(proposal, /guides:/);
     assert.match(proposal, /discovered\/project-AGENTS.md/);
 });
