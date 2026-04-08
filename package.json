@@ -2,8 +2,32 @@
   "name": "soft-harness",
   "version": "0.1.0",
   "description": "Governance-first harness for Claude and Codex environments",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/softdaddy-o/soft-harness.git"
+  },
+  "bugs": {
+    "url": "https://github.com/softdaddy-o/soft-harness/issues"
+  },
+  "homepage": "https://github.com/softdaddy-o/soft-harness#readme",
   "bin": {
-    "soft-harness": "./src/cli.js"
+    "soft-harness": "src/cli.js"
+  },
+  "files": [
+    "src",
+    "docs",
+    "examples",
+    "harness/guides",
+    "harness/policies",
+    "harness/registry.yaml",
+    "LICENSE",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "scripts": {
     "start": "node src/cli.js",
