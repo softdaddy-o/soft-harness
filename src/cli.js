@@ -92,7 +92,7 @@ function printHelp() {
     console.log('');
     console.log('Flags:');
     console.log('  discover --scope project|account');
-    console.log('  preview');
+    console.log('  preview [--verbose]');
     console.log('  apply --dry-run --yes --force --backup');
     console.log('  migrate-schema --apply [--force]');
 }
@@ -182,6 +182,7 @@ function runDoctorCommand() {
 function runPreview() {
     const loaded = loadRegistry(ROOT);
     const preview = collectPreview(ROOT, loaded);
+    const verbose = hasFlag('--verbose');
 
     console.log(`Root: ${preview.rootDir}`);
     console.log(`Registry: ${preview.registry.path}`);
@@ -205,6 +206,10 @@ function runPreview() {
 
     for (const group of preview.doctor.groups.slice(0, 5)) {
         console.log(`Doctor group: [${group.level}] [${group.code}] ${group.count}`);
+    }
+
+    if (verbose) {
+        printPreviewDetails(preview);
     }
 
     if (preview.doctor.errors > 0 || preview.registry.issues > 0) {
@@ -608,6 +613,54 @@ function printStatusSummary(label, counts) {
     }
 
     console.log(`${label} statuses: ${entries.map(([status, count]) => `${status}=${count}`).join(', ')}`);
+}
+
+function printPreviewDetails(preview) {
+    console.log('Discovery assets:');
+    if (preview.details.discoveryAssets.length === 0) {
+        console.log('  - none');
+    } else {
+        for (const asset of preview.details.discoveryAssets) {
+            console.log(`  - [${asset.classification}] [${asset.scope}] [${asset.target}] [${asset.type}] ${asset.path}`);
+        }
+    }
+
+    console.log('Proposal files:');
+    if (preview.details.proposalFiles.length === 0) {
+        console.log('  - none');
+    } else {
+        for (const filePath of preview.details.proposalFiles) {
+            console.log(`  - ${filePath}`);
+        }
+    }
+
+    console.log('Doctor findings:');
+    if (preview.details.doctorFindings.length === 0) {
+        console.log('  - none');
+    } else {
+        for (const finding of preview.details.doctorFindings) {
+            console.log(`  - [${finding.level}] [${finding.code}] ${finding.message}`);
+        }
+    }
+
+    console.log('Diff items:');
+    if (preview.details.diffs.length === 0) {
+        console.log('  - none');
+    } else {
+        for (const diff of preview.details.diffs) {
+            console.log(`  - [${diff.status}] ${diff.id} ${diff.applyPath}`);
+        }
+    }
+
+    console.log('Apply preview items:');
+    if (preview.details.applyPreview.length === 0) {
+        console.log('  - none');
+    } else {
+        for (const item of preview.details.applyPreview) {
+            const unmanaged = item.unmanaged ? ' unmanaged' : '';
+            console.log(`  - [${item.status}] ${item.id}${unmanaged} ${item.applyPath}`);
+        }
+    }
 }
 
 function hasFlag(flag) {

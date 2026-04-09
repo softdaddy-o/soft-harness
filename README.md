@@ -251,6 +251,7 @@ soft-harness apply
 - shows doctor warning/error totals
 - shows diff status summary
 - shows apply dry-run status summary
+- `soft-harness preview --verbose` also prints the full asset, proposal, doctor, diff, and apply item lists
 
 ## Layout
 

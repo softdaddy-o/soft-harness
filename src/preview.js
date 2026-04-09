@@ -37,7 +37,33 @@ function collectPreview(rootDir, loadedRegistry, options) {
         proposals: summarizeProposals(harnessRoot),
         doctor: summarizeDoctor(findings),
         diff: summarizeStatuses(diffs, 'status'),
-        apply: summarizeStatuses(applyPreview, 'status')
+        apply: summarizeStatuses(applyPreview, 'status'),
+        details: {
+            discoveryAssets: (discovery.assets || []).map((asset) => ({
+                type: asset.type,
+                target: asset.target,
+                scope: asset.scope,
+                classification: asset.classification,
+                path: asset.path
+            })),
+            proposalFiles: collectProposalFiles(harnessRoot),
+            doctorFindings: findings.map((finding) => ({
+                level: finding.level,
+                code: finding.code,
+                message: finding.message
+            })),
+            diffs: diffs.map((diff) => ({
+                id: diff.id,
+                status: diff.status,
+                applyPath: diff.applyPath
+            })),
+            applyPreview: applyPreview.map((item) => ({
+                id: item.id,
+                status: item.status,
+                unmanaged: Boolean(item.unmanaged),
+                applyPath: item.applyPath
+            }))
+        }
     };
 }
 
@@ -98,6 +124,26 @@ function summarizeProposals(harnessRoot) {
         capabilityProposals,
         summaryPath: exists(summaryPath) ? summaryPath : null
     };
+}
+
+function collectProposalFiles(harnessRoot) {
+    const proposalDir = path.join(harnessRoot, 'registry.d', 'discovered');
+    const summaryPath = path.join(proposalDir, 'summary.json');
+
+    if (!exists(proposalDir)) {
+        return [];
+    }
+
+    if (exists(summaryPath)) {
+        const summary = JSON.parse(readUtf8(summaryPath));
+        if (Array.isArray(summary.proposalFiles)) {
+            return summary.proposalFiles.map((filePath) => path.resolve(proposalDir, path.basename(filePath)));
+        }
+    }
+
+    return fs.readdirSync(proposalDir)
+        .filter((name) => name.endsWith('.generated.yaml'))
+        .map((name) => path.join(proposalDir, name));
 }
 
 function summarizeDoctor(findings) {

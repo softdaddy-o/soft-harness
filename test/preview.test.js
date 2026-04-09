@@ -68,6 +68,10 @@ test('collectPreview summarizes registry, proposals, diff, apply, and doctor wit
     assert.equal(preview.proposals.pending, 2);
     assert.equal(preview.proposals.copiedGuides, 1);
     assert.equal(preview.proposals.capabilityProposals, 2);
+    assert.equal(preview.details.discoveryAssets.length, 1);
+    assert.equal(preview.details.proposalFiles.length, 2);
+    assert.equal(preview.details.diffs.length, 1);
+    assert.equal(preview.details.applyPreview.length, 1);
     assert.equal(preview.diff.counts.different, 1);
     assert.equal(preview.apply.counts['would-write'], 1);
     assert.equal(preview.doctor.warnings > 0, true);
@@ -89,5 +93,27 @@ test('cli preview prints combined state and does not write discover tmp files', 
     assert.match(result.stdout, /Diff statuses: different=1/);
     assert.match(result.stdout, /Apply statuses: would-write=1/);
     assert.equal(fs.existsSync(tmpPath), false);
+    fixture.cleanup();
+});
+
+test('cli preview --verbose prints detailed sections', () => {
+    const fixture = makeProject();
+
+    const result = spawnSync(process.execPath, [cliPath, 'preview', '--verbose'], {
+        cwd: fixture.rootDir,
+        encoding: 'utf8'
+    });
+
+    assert.equal(result.status, 0);
+    assert.match(result.stdout, /Discovery assets:/);
+    assert.match(result.stdout, /\[primary\] \[project\] \[codex\] \[instruction\]/);
+    assert.match(result.stdout, /Proposal files:/);
+    assert.match(result.stdout, /a\.generated\.yaml/);
+    assert.match(result.stdout, /Doctor findings:/);
+    assert.match(result.stdout, /\[warning\] \[unmanaged-discovered-asset\]/);
+    assert.match(result.stdout, /Diff items:/);
+    assert.match(result.stdout, /\[different\] project-codex/);
+    assert.match(result.stdout, /Apply preview items:/);
+    assert.match(result.stdout, /\[would-write\] project-codex unmanaged/);
     fixture.cleanup();
 });
