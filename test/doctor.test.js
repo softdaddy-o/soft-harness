@@ -11,7 +11,7 @@ test('doctor reports plaintext secrets in project mcp config', () => {
     const projectRoot = path.join(fixturesRoot, 'doctor-project');
     const userHome = path.join(fixturesRoot, 'discovery-home');
     const loaded = loadRegistry(projectRoot);
-    const discovery = discoverState(projectRoot, { userHome });
+    const discovery = discoverState(projectRoot, { scope: 'project', userHome });
     const findings = runDoctor(projectRoot, loaded, discovery);
 
     assert.equal(findings.some((finding) => finding.code === 'plaintext-secret-in-config'), true);

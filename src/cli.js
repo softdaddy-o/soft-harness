@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+const fs = require('fs');
 const path = require('path');
 const { applyAccountOutputs, diffAccountOutputs, discoverAccountHarness, doctorAccountHarness, generateAccountOutputs, getAccountHarnessRoot, initAccountHarness } = require('./account');
 const { approveMigration } = require('./approve');
@@ -11,6 +12,7 @@ const { runDoctor } = require('./doctor');
 const { exists } = require('./fs-util');
 const { generateOutputs } = require('./generate');
 const { createMigrationProposal } = require('./migrate');
+const { migrateSchema } = require('./migrate-schema');
 const { initProjectHarness } = require('./project');
 const { loadRegistry } = require('./registry');
 const { addWorkspace, getWorkspaceRegistryPath, hasWorkspaceMarkers, listWorkspaces, removeWorkspace } = require('./workspaces');
@@ -38,6 +40,9 @@ function main() {
             break;
         case 'migrate':
             runMigrate();
+            break;
+        case 'migrate-schema':
+            runMigrateSchema();
             break;
         case 'generate':
             runGenerate();
@@ -73,11 +78,17 @@ function printHelp() {
     console.log('  discover   Scan local Claude/Codex state');
     console.log('  doctor     Report drift, security issues, and gaps');
     console.log('  migrate    Normalize discovered state into the registry');
+    console.log('  migrate-schema Upgrade registry.yaml from v0 to v1');
     console.log('  generate   Generate host-native outputs from the registry');
     console.log('  diff       Show differences between registry and live state');
     console.log('  apply      Apply generated outputs');
     console.log('  approve    Approve grouped migration proposals into registry.d');
     console.log('  restore    Restore files from the latest or specified backup');
+    console.log('');
+    console.log('Flags:');
+    console.log('  discover --scope project|account');
+    console.log('  apply --dry-run --yes --force --backup');
+    console.log('  migrate-schema --apply [--force]');
 }
 
 function resolveRootDir() {
@@ -111,7 +122,7 @@ function runGenerate() {
     console.log('Issues: 0');
     const generated = generateOutputs(ROOT, loaded);
     for (const item of generated) {
-        console.log(`Generated: ${item.generatedPath}`);
+        console.log(`Generated: ${item.applyPath}`);
     }
 }
 
@@ -126,12 +137,12 @@ function runDiscover() {
         return;
     }
 
-    const discovery = discoverState(ROOT, {});
-    const persisted = persistDiscovery(ROOT, discovery);
+    const scope = getFlagValue('--scope');
+    const discovery = discoverState(ROOT, { scope });
 
     console.log(`Discovered assets: ${discovery.assets.length}`);
-    console.log(`Latest: ${persisted.latestPath}`);
-    console.log(`Snapshot: ${persisted.timestampPath}`);
+    console.log(`Scope: ${discovery.scope}`);
+    console.log(`Tmp: ${discovery.tmpPath}`);
 }
 
 function runDoctorCommand() {
@@ -141,7 +152,7 @@ function runDoctorCommand() {
     }
 
     const loaded = loadRegistry(ROOT);
-    const discovery = discoverState(ROOT, {});
+    const discovery = discoverState(ROOT, { scope: 'project' });
     const findings = runDoctor(ROOT, loaded, discovery);
 
     if (findings.length === 0) {
@@ -266,10 +277,9 @@ function runDiscoverAll() {
     }
 
     for (const workspace of loaded.registry.workspaces) {
-        const discovery = discoverState(workspace.path, {});
-        const persisted = persistDiscovery(workspace.path, discovery);
+        const discovery = discoverState(workspace.path, { scope: 'project' });
         console.log(`[ok] ${workspace.id} assets=${discovery.assets.length}`);
-        console.log(`  latest: ${persisted.latestPath}`);
+        console.log(`  tmp: ${discovery.tmpPath}`);
     }
 }
 
@@ -307,7 +317,7 @@ function runDoctorAll() {
         }
 
         const loaded = loadRegistry(workspace.path);
-        const discovery = discoverState(workspace.path, {});
+        const discovery = discoverState(workspace.path, { scope: 'project' });
         const findings = runDoctor(workspace.path, loaded, discovery);
         const errorCount = findings.filter((finding) => finding.level === 'error').length;
         const warningCount = findings.filter((finding) => finding.level === 'warning').length;
@@ -336,11 +346,10 @@ function runAccountInit() {
 }
 
 function runAccountDiscover() {
-    const result = discoverAccountHarness();
-    console.log(`Harness root: ${result.harnessRoot}`);
-    console.log(`Discovered assets: ${result.discovery.assets.length}`);
-    console.log(`Latest: ${result.persisted.latestPath}`);
-    console.log(`Snapshot: ${result.persisted.timestampPath}`);
+    const discovery = discoverState(ROOT, { scope: 'account' });
+    console.log(`Discovered assets: ${discovery.assets.length}`);
+    console.log(`Scope: ${discovery.scope}`);
+    console.log(`Tmp: ${discovery.tmpPath}`);
 }
 
 function runAccountDoctor() {
@@ -369,7 +378,7 @@ function runAccountGenerate() {
     const result = generateAccountOutputs();
     console.log(`Harness root: ${result.harnessRoot}`);
     for (const item of result.generated) {
-        console.log(`Generated: ${item.generatedPath}`);
+        console.log(`Generated: ${item.applyPath}`);
     }
 }
 
@@ -377,7 +386,7 @@ function runAccountApply() {
     const result = applyAccountOutputs();
     console.log(`Harness root: ${result.harnessRoot}`);
     for (const item of result.applied) {
-        console.log(`Applied (${item.applyMode}): ${item.applyPath}`);
+        console.log(`Applied (${item.status}): ${item.applyPath}`);
     }
 }
 
@@ -391,23 +400,49 @@ function runAccountDiff() {
 
     for (const diff of result.diffs) {
         console.log(`[${diff.status}] ${diff.id}`);
-        console.log(`  generated: ${diff.generatedPath}`);
-        console.log(`  applied:   ${diff.applyPath}`);
+        console.log(`  apply: ${diff.applyPath}`);
     }
 }
 
 function runMigrate() {
-    const discovery = discoverState(ROOT, {});
+    const scope = getFlagValue('--scope') || 'project';
     const loaded = loadRegistry(ROOT);
-    const result = createMigrationProposal(ROOT, discovery, loaded);
+    const result = createMigrationProposal(ROOT, { scope }, loaded);
 
     console.log(`Proposal directory: ${result.proposalDir}`);
     console.log(`Summary: ${result.summaryPath}`);
+    console.log(`Scope: ${result.scope}`);
     console.log(`Proposal files: ${result.proposalFiles.length}`);
     console.log(`Copied guides: ${result.copiedGuideCount}`);
     console.log(`Capability proposals: ${result.capabilityCount}`);
     console.log(`Backup: ${result.backup.manifestPath}`);
     console.log(`Backed up files: ${result.backup.entryCount}`);
+}
+
+function runMigrateSchema() {
+    const apply = hasFlag('--apply');
+    const force = hasFlag('--force');
+    const result = migrateSchema(ROOT, {
+        dryRun: !apply,
+        apply,
+        force
+    });
+
+    console.log('Changes:');
+    for (const change of result.changes) {
+        console.log(`  - ${change}`);
+    }
+
+    if (result.warnings.length > 0) {
+        console.log('Warnings:');
+        for (const warning of result.warnings) {
+            console.log(`  - ${warning}`);
+        }
+    }
+
+    if (!apply) {
+        console.log('Dry run only. Pass --apply to write changes.');
+    }
 }
 
 function runDiff() {
@@ -421,8 +456,7 @@ function runDiff() {
 
     for (const diff of diffs) {
         console.log(`[${diff.status}] ${diff.id}`);
-        console.log(`  generated: ${diff.generatedPath}`);
-        console.log(`  applied:   ${diff.applyPath}`);
+        console.log(`  apply: ${diff.applyPath}`);
     }
 }
 
@@ -436,10 +470,43 @@ function runApply() {
         return;
     }
 
-    generateOutputs(ROOT, loaded);
-    const applied = applyOutputs(ROOT, loaded);
+    const dryRun = hasFlag('--dry-run');
+    const yes = hasFlag('--yes');
+    const force = hasFlag('--force');
+    const backup = hasFlag('--backup');
+    const preview = applyOutputs(ROOT, loaded, {
+        dryRun: true,
+        force
+    });
+
+    for (const item of preview) {
+        const unmanaged = item.unmanaged ? ' unmanaged' : '';
+        console.log(`[${item.status}] ${item.id}${unmanaged}`);
+        console.log(`  apply: ${item.applyPath}`);
+    }
+
+    if (dryRun) {
+        return;
+    }
+
+    let proceed = yes || force;
+    if (!proceed) {
+        proceed = promptToProceed();
+    }
+
+    if (!proceed) {
+        console.log('Apply cancelled.');
+        return;
+    }
+
+    const applied = applyOutputs(ROOT, loaded, {
+        yes: true,
+        force,
+        backup,
+        reason: backup ? 'apply --backup' : 'apply'
+    });
     for (const item of applied) {
-        console.log(`Applied (${item.applyMode}): ${item.applyPath}`);
+        console.log(`Applied (${item.status}): ${item.applyPath}`);
     }
 }
 
@@ -496,6 +563,29 @@ function groupFindings(findings) {
 
 function hasFlag(flag) {
     return process.argv.includes(flag);
+}
+
+function getFlagValue(flag) {
+    const inline = process.argv.find((arg) => arg.startsWith(`${flag}=`));
+    if (inline) {
+        return inline.slice(flag.length + 1);
+    }
+
+    const index = process.argv.indexOf(flag);
+    if (index >= 0 && process.argv[index + 1] && !process.argv[index + 1].startsWith('--')) {
+        return process.argv[index + 1];
+    }
+
+    return undefined;
+}
+
+function promptToProceed() {
+    const prompt = 'Proceed with apply? [y/N] ';
+    fs.writeSync(process.stdout.fd, prompt);
+    const buffer = Buffer.alloc(1024);
+    const bytesRead = fs.readSync(process.stdin.fd, buffer, 0, buffer.length, null);
+    const answer = buffer.toString('utf8', 0, bytesRead).trim().toLowerCase();
+    return answer === 'y' || answer === 'yes';
 }
 
 if (require.main === module) {

@@ -12,7 +12,7 @@ test('migrate creates a proposal file and copies discovered instruction guides',
     fs.cpSync(path.join(__dirname, 'fixtures', 'migrate-project'), tempRoot, { recursive: true });
     const userHome = path.join(__dirname, 'fixtures', 'discovery-home');
 
-    const discovery = discoverState(tempRoot, { userHome });
+    const discovery = discoverState(tempRoot, { scope: 'project', userHome });
     const result = createMigrationProposal(tempRoot, discovery);
 
     assert.equal(fs.existsSync(result.summaryPath), true);

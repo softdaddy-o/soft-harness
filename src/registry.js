@@ -9,7 +9,8 @@ const VALID_SCOPES = new Set(['account', 'project']);
 const VALID_MANAGEMENT = new Set(['generated', 'linked', 'external', 'discovered']);
 const VALID_GUIDE_BUCKETS = ['shared', 'claude', 'codex'];
 const VALID_OUTPUT_GUIDE_BUCKETS = new Set(['shared', 'claude', 'codex']);
-const VALID_APPLY_MODES = new Set(['copy', 'stub']);
+const VALID_APPLY_MODES_V0 = new Set(['copy', 'stub']);
+const VALID_APPLY_MODES_V1 = new Set(['copy']);
 const VALID_CONTENT_TYPES = new Set(['guide-bundle', 'mcp-json']);
 
 function loadRegistry(rootDir) {
@@ -34,7 +35,8 @@ function loadRegistryFromHarnessRoot(harnessRoot) {
         registryPath,
         importPaths,
         registry: mergedRegistry,
-        issues
+        issues,
+        errors: issues
     };
 }
 
@@ -145,6 +147,10 @@ function validateRegistry(registry, harnessRoot) {
         ? path.resolve(harnessRoot, registry.defaults.guides_root)
         : path.join(harnessRoot, 'guides');
 
+    if (registry.version === undefined || ![0, 1].includes(registry.version)) {
+        issues.push(error('invalid-registry-version', `Registry version must be 0 or 1. Got: ${registry.version}`));
+    }
+
     for (const capability of registry.capabilities) {
         validateCapability(capability, issues);
 
@@ -168,7 +174,7 @@ function validateRegistry(registry, harnessRoot) {
     }
 
     for (const output of registry.outputs || []) {
-        validateOutput(output, issues);
+        validateOutput(output, registry.version, issues);
     }
 
     return issues;
@@ -207,6 +213,24 @@ function validateCapability(capability, issues) {
     if (capability.kind === 'mcp' && capability.server !== undefined && typeof capability.server !== 'object') {
         issues.push(error('invalid-mcp-server', `Capability ${capability.id || '<unknown>'} must provide server as an object`));
     }
+
+    if (capability.management === 'external') {
+        if (capability.source !== undefined && capability.source !== null && typeof capability.source !== 'object') {
+            issues.push(error('invalid-capability-source', `Capability ${capability.id || '<unknown>'} must provide source as an object or null`));
+        }
+
+        if (capability.source && !isNonEmptyString(capability.source.registry)) {
+            issues.push(error('invalid-capability-source-registry', `Capability ${capability.id || '<unknown>'} source.registry must be a non-empty string`));
+        }
+
+        if (capability.source && !isNonEmptyString(capability.source.package)) {
+            issues.push(error('invalid-capability-source-package', `Capability ${capability.id || '<unknown>'} source.package must be a non-empty string`));
+        }
+
+        if (capability.install_cmd !== undefined && capability.install_cmd !== null && !isNonEmptyString(capability.install_cmd)) {
+            issues.push(error('invalid-capability-install-cmd', `Capability ${capability.id || '<unknown>'} install_cmd must be a non-empty string or null`));
+        }
+    }
 }
 
 function validateGuideEntry(bucket, guideEntry, guidesRoot, issues) {
@@ -230,7 +254,7 @@ function validateGuideEntry(bucket, guideEntry, guidesRoot, issues) {
     }
 }
 
-function validateOutput(output, issues) {
+function validateOutput(output, version, issues) {
     if (!output || typeof output !== 'object') {
         issues.push(error('invalid-output', 'Output entries must be objects'));
         return;
@@ -269,16 +293,32 @@ function validateOutput(output, issues) {
         }
     }
 
-    if (!isNonEmptyString(output.generated_path)) {
-        issues.push(error('missing-output-generated-path', `Output ${output.id || '<unknown>'} is missing generated_path`));
-    }
-
     if (!isNonEmptyString(output.apply_path)) {
         issues.push(error('missing-output-apply-path', `Output ${output.id || '<unknown>'} is missing apply_path`));
     }
 
-    if (output.apply_mode !== undefined && !VALID_APPLY_MODES.has(output.apply_mode)) {
+    if (version === 0) {
+        if (!isNonEmptyString(output.generated_path) && !output._legacy_stub) {
+            issues.push(error('missing-output-generated-path', `Output ${output.id || '<unknown>'} is missing generated_path`));
+        }
+
+        if (output.apply_mode !== undefined && !VALID_APPLY_MODES_V0.has(output.apply_mode)) {
+            issues.push(error('invalid-output-apply-mode', `Output ${output.id || '<unknown>'} has invalid apply_mode: ${output.apply_mode}`));
+        }
+
+        return;
+    }
+
+    if (output.apply_mode !== undefined && !VALID_APPLY_MODES_V1.has(output.apply_mode)) {
         issues.push(error('invalid-output-apply-mode', `Output ${output.id || '<unknown>'} has invalid apply_mode: ${output.apply_mode}`));
+    }
+
+    if (output.apply_mode === 'stub') {
+        issues.push(error('invalid-output-apply-mode', `Output ${output.id || '<unknown>'}: apply_mode "stub" is not allowed in v1 registries`));
+    }
+
+    if (output.generated_path) {
+        issues.push(error('invalid-output-generated-path', `Output ${output.id || '<unknown>'}: generated_path is not used in v1 registries`));
     }
 }
 

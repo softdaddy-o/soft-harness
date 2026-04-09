@@ -13,7 +13,7 @@ test('approve promotes grouped migration proposals into registry.d', () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soft-harness-approve-'));
     fs.cpSync(path.join(__dirname, 'fixtures', 'migrate-project'), tempRoot, { recursive: true });
     const userHome = path.join(__dirname, 'fixtures', 'discovery-home');
-    const discovery = discoverState(tempRoot, { userHome });
+    const discovery = discoverState(tempRoot, { scope: 'project', userHome });
     const loaded = loadRegistry(tempRoot);
     const proposal = createMigrationProposal(tempRoot, discovery, loaded);
 

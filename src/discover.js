@@ -4,19 +4,38 @@ const path = require('path');
 const { ensureDir, exists, toPosixRelative, writeJson } = require('./fs-util');
 
 function discoverState(projectRoot, options) {
-    const userHome = options.userHome || os.homedir();
+    const settings = Object.assign({}, options);
+    const scope = settings.scope;
+    const userHome = settings.userHome || os.homedir();
+
+    if (!scope || !['project', 'account'].includes(scope)) {
+        throw new Error(`discover requires --scope project|account. Got: ${scope || 'none'}`);
+    }
+
     const discoveredAt = new Date().toISOString();
     const assets = [];
 
-    discoverProjectAssets(projectRoot, assets);
-    discoverAccountAssets(userHome, assets);
+    if (scope === 'project') {
+        discoverProjectAssets(projectRoot, assets);
+    } else {
+        discoverAccountAssets(userHome, assets);
+    }
 
-    return {
+    const harnessRoot = path.join(projectRoot, 'harness');
+    const tmpPath = path.join(harnessRoot, 'state', `discover-${scope}-tmp.json`);
+    ensureDir(path.dirname(tmpPath));
+
+    const discovery = {
         discoveredAt,
         projectRoot,
         userHome,
-        assets
+        scope,
+        assets,
+        tmpPath
     };
+
+    writeJson(tmpPath, discovery);
+    return discovery;
 }
 
 function discoverAccountState(options) {
@@ -30,6 +49,7 @@ function discoverAccountState(options) {
         discoveredAt,
         projectRoot: null,
         userHome,
+        scope: 'account',
         assets
     };
 }
@@ -70,6 +90,7 @@ function discoverProjectAssets(projectRoot, assets) {
 
 function discoverAccountAssets(userHome, assets) {
     const accountChecks = [
+        { path: path.join(userHome, 'AGENTS.md'), type: 'instruction', target: 'codex', scope: 'account' },
         { path: path.join(userHome, '.claude', 'CLAUDE.md'), type: 'instruction', target: 'claude', scope: 'account' },
         { path: path.join(userHome, '.claude', 'settings.json'), type: 'settings', target: 'claude', scope: 'account' }
     ];
@@ -189,7 +210,7 @@ function describeAsset(baseRoot, fullPath, meta) {
 function classifyAsset(type, scope, fullPath) {
     const normalized = String(fullPath).replace(/\\/g, '/').toLowerCase();
 
-    if (normalized.includes('/.claude/plugins/cache/') || normalized.includes('/.agents/skills/') || normalized.includes('/.codex/skills/')) {
+    if (normalized.includes('/.claude/plugins/cache/')) {
         return 'vendor-cache';
     }
 
@@ -213,16 +234,15 @@ function persistDiscovery(rootDir, discovery) {
 }
 
 function persistDiscoveryAtHarnessRoot(harnessRoot, discovery) {
-    const discoveryDir = path.join(harnessRoot, 'state', 'discovered');
-    ensureDir(discoveryDir);
-    const latestPath = path.join(discoveryDir, 'latest.json');
-    const timestampPath = path.join(discoveryDir, `${discovery.discoveredAt.replace(/[:.]/g, '-')}.json`);
-    writeJson(latestPath, discovery);
-    writeJson(timestampPath, discovery);
+    const scope = discovery.scope || 'account';
+    const tmpPath = path.join(harnessRoot, 'state', `discover-${scope}-tmp.json`);
+    ensureDir(path.dirname(tmpPath));
+    writeJson(tmpPath, Object.assign({}, discovery, { tmpPath }));
 
     return {
-        latestPath,
-        timestampPath
+        latestPath: tmpPath,
+        timestampPath: tmpPath,
+        tmpPath
     };
 }
 

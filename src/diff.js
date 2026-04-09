@@ -1,34 +1,33 @@
 const path = require('path');
-const { exists, readUtf8 } = require('./fs-util');
+const { exists, readUtf8, resolveTemplatePath } = require('./fs-util');
+const { buildOutputContent, createPathVariables, getRegistryObject } = require('./generate');
 
 function diffOutputs(rootDir, loadedRegistry, options) {
     const harnessRoot = (options && options.harnessRoot) || path.join(rootDir, 'harness');
+    const variables = createPathVariables(rootDir, harnessRoot, options || {});
+    const registry = getRegistryObject(loadedRegistry);
+    const guidesRoot = registry.defaults && registry.defaults.guides_root
+        ? path.resolve(harnessRoot, registry.defaults.guides_root)
+        : path.join(harnessRoot, 'guides');
     const diffs = [];
 
-    for (const output of loadedRegistry.registry.outputs || []) {
+    for (const output of registry.outputs || []) {
         if (output.enabled === false) {
             continue;
         }
 
-        const generatedPath = path.resolve(harnessRoot, output.generated_path);
-        const applyPath = path.resolve(harnessRoot, output.apply_path);
-
-        if (!exists(generatedPath)) {
-            diffs.push({ id: output.id, status: 'missing-generated', generatedPath, applyPath });
-            continue;
-        }
+        const applyPath = resolveTemplatePath(output.apply_path, variables, harnessRoot);
+        const desiredContent = buildOutputContent(output, registry, guidesRoot, rootDir);
 
         if (!exists(applyPath)) {
-            diffs.push({ id: output.id, status: 'missing-applied', generatedPath, applyPath });
+            diffs.push({ id: output.id, status: 'missing-applied', applyPath });
             continue;
         }
 
-        const generatedContent = readUtf8(generatedPath);
         const appliedContent = readUtf8(applyPath);
         diffs.push({
             id: output.id,
-            status: generatedContent === appliedContent ? 'in-sync' : 'different',
-            generatedPath,
+            status: appliedContent === desiredContent ? 'in-sync' : 'different',
             applyPath
         });
     }

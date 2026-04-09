@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { ensureDir, exists, readUtf8, toPosixRelative, writeJson, writeUtf8 } = require('./fs-util');
+const { ensureDir, exists, readUtf8, resolveTemplatePath, writeJson, writeUtf8 } = require('./fs-util');
 
 function backupAssets(rootDir, assets, label) {
     const backupId = createBackupId(label);
@@ -66,12 +66,34 @@ function restoreBackup(rootDir, backupId) {
     const manifest = JSON.parse(readUtf8(manifestPath));
     let restoredCount = 0;
 
-    for (const entry of manifest.entries) {
-        if (!entry.backedUp || !entry.backupPath) {
-            continue;
+    if (Array.isArray(manifest.entries)) {
+        for (const entry of manifest.entries) {
+            if (!entry.backedUp || !entry.backupPath) {
+                continue;
+            }
+            writeUtf8(entry.path, readUtf8(entry.backupPath));
+            restoredCount += 1;
         }
-        writeUtf8(entry.path, readUtf8(entry.backupPath));
-        restoredCount += 1;
+    }
+
+    if (Array.isArray(manifest.files)) {
+        const harnessRoot = path.join(rootDir, 'harness');
+        const pathVariables = {
+            rootDir,
+            harnessRoot,
+            userHome: process.env.HOME || process.env.USERPROFILE || ''
+        };
+
+        for (const entry of manifest.files) {
+            if (!entry.original || !entry.backed_up_as) {
+                continue;
+            }
+
+            const originalPath = resolveTemplatePath(entry.original, pathVariables, harnessRoot);
+            const backupPath = path.join(backupRoot, entry.backed_up_as);
+            writeUtf8(originalPath, readUtf8(backupPath));
+            restoredCount += 1;
+        }
     }
 
     return {

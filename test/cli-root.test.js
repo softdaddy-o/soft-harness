@@ -9,11 +9,11 @@ const cliPath = path.join(__dirname, '..', 'src', 'cli.js');
 
 test('cli uses the current working directory as the harness root', () => {
     const projectRoot = path.join(fixturesRoot, 'valid-project');
-    const latestPath = path.join(projectRoot, 'harness', 'state', 'discovered', 'latest.json');
+    const latestPath = path.join(projectRoot, 'harness', 'state', 'discover-project-tmp.json');
 
     fs.rmSync(path.join(projectRoot, 'harness', 'state'), { recursive: true, force: true });
 
-    const result = spawnSync(process.execPath, [cliPath, 'discover'], {
+    const result = spawnSync(process.execPath, [cliPath, 'discover', '--scope', 'project'], {
         cwd: projectRoot,
         encoding: 'utf8'
     });
@@ -25,11 +25,11 @@ test('cli uses the current working directory as the harness root', () => {
 
 test('cli accepts an explicit --root override', () => {
     const projectRoot = path.join(fixturesRoot, 'valid-project');
-    const latestPath = path.join(projectRoot, 'harness', 'state', 'discovered', 'latest.json');
+    const latestPath = path.join(projectRoot, 'harness', 'state', 'discover-project-tmp.json');
 
     fs.rmSync(path.join(projectRoot, 'harness', 'state'), { recursive: true, force: true });
 
-    const result = spawnSync(process.execPath, [cliPath, 'discover', '--root', projectRoot], {
+    const result = spawnSync(process.execPath, [cliPath, 'discover', '--scope', 'project', '--root', projectRoot], {
         cwd: __dirname,
         encoding: 'utf8'
     });

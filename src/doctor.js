@@ -2,17 +2,20 @@ const path = require('path');
 const os = require('os');
 const { exists, readUtf8, replaceTemplateVariables, resolveTemplatePath } = require('./fs-util');
 const { matchesAnyPattern, normalize } = require('./match');
+const { MANAGED_MARKER } = require('./generate');
 
 function runDoctor(rootDir, loadedRegistry, discovery, options) {
-    const findings = [...loadedRegistry.issues];
+    const normalizedLoaded = normalizeLoadedRegistry(loadedRegistry);
+    const findings = [...normalizedLoaded.issues];
+    const registry = normalizedLoaded.registry;
     const harnessRoot = (options && options.harnessRoot) || path.join(rootDir, 'harness');
     const pathVariables = createPathVariables(rootDir, harnessRoot, discovery);
-    const guidesRoot = loadedRegistry.registry.defaults && loadedRegistry.registry.defaults.guides_root
-        ? resolveTemplatePath(loadedRegistry.registry.defaults.guides_root, pathVariables, harnessRoot)
+    const guidesRoot = registry.defaults && registry.defaults.guides_root
+        ? resolveTemplatePath(registry.defaults.guides_root, pathVariables, harnessRoot)
         : path.join(harnessRoot, 'guides');
 
     for (const bucket of ['shared', 'claude', 'codex']) {
-        for (const guideEntry of loadedRegistry.registry.guides[bucket] || []) {
+        for (const guideEntry of registry.guides[bucket] || []) {
             const entry = typeof guideEntry === 'string' ? { path: guideEntry, scope: 'project' } : guideEntry;
             const guidePath = path.resolve(guidesRoot, bucket, entry.path);
             if (!exists(guidePath)) {
@@ -25,26 +28,73 @@ function runDoctor(rootDir, loadedRegistry, discovery, options) {
         }
     }
 
-    for (const output of loadedRegistry.registry.outputs || []) {
-        const generatedPath = path.resolve(harnessRoot, output.generated_path);
-        if (output.enabled !== false && !exists(generatedPath)) {
-            findings.push({
-                level: 'warning',
-                code: 'missing-generated-output',
-                message: `Output has not been generated yet: ${generatedPath}`
-            });
-        }
-    }
-
-    const unmanaged = findUnmanagedDiscoveredAssets(loadedRegistry.registry, discovery.assets || [], pathVariables);
+    const unmanaged = findUnmanagedDiscoveredAssets(registry, (discovery && discovery.assets) || [], pathVariables);
     findings.push(...unmanaged.map((asset) => ({
         level: 'warning',
         code: 'unmanaged-discovered-asset',
         message: `Discovered asset is not represented in the registry: ${asset.path}`
     })));
 
+    findings.push(...findMissingInstallCmds(registry));
+    findings.push(...findUnmanagedApplyTargets(rootDir, registry, pathVariables));
+
     if (!options || options.includeProjectMcp !== false) {
         findings.push(...findPlaintextSecretFindings(rootDir));
+    }
+
+    return findings;
+}
+
+function normalizeLoadedRegistry(loadedRegistry) {
+    if (loadedRegistry && loadedRegistry.registry) {
+        return loadedRegistry;
+    }
+
+    return {
+        issues: loadedRegistry && Array.isArray(loadedRegistry.issues) ? loadedRegistry.issues : [],
+        registry: loadedRegistry || { capabilities: [], guides: { shared: [], claude: [], codex: [] }, outputs: [] }
+    };
+}
+
+function findMissingInstallCmds(registry) {
+    const findings = [];
+    for (const capability of registry.capabilities || []) {
+        if (capability.management === 'external' && !capability.install_cmd) {
+            findings.push({
+                level: 'warning',
+                code: 'MISSING_INSTALL_CMD',
+                message: `External capability "${capability.id}" has no install_cmd. Set source.registry or add install_cmd manually.`
+            });
+        }
+    }
+    return findings;
+}
+
+function findUnmanagedApplyTargets(rootDir, registry, pathVariables) {
+    const findings = [];
+
+    for (const output of registry.outputs || []) {
+        if (output.enabled === false) {
+            continue;
+        }
+
+        if ((output.content_type || 'guide-bundle') === 'mcp-json') {
+            continue;
+        }
+
+        const applyPath = resolveTemplatePath(output.apply_path, pathVariables, pathVariables.harnessRoot);
+        if (!exists(applyPath)) {
+            continue;
+        }
+
+        const content = readUtf8(applyPath);
+        if (!content.startsWith(MANAGED_MARKER)) {
+            findings.push({
+                level: 'warning',
+                code: 'UNMANAGED_APPLY_TARGET',
+                message: `Output "${output.id}" target "${output.apply_path}" exists but is not managed by soft-harness. Run 'apply --force' to take ownership or move the file.`
+            });
+        }
     }
 
     return findings;

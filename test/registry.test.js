@@ -56,9 +56,9 @@ test('resolves known output presets', () => {
     const projectRoot = path.join(fixturesRoot, 'preset-project');
     const loaded = loadRegistry(projectRoot);
 
-    assert.equal(loaded.registry.outputs[0].generated_path, './generated/project/codex/AGENTS.generated.md');
     assert.equal(loaded.registry.outputs[0].apply_path, '../AGENTS.md');
-    assert.equal(loaded.registry.outputs[1].generated_path, './generated/project/claude/CLAUDE.generated.md');
+    assert.equal(loaded.registry.outputs[0].content_type, 'guide-bundle');
+    assert.equal(loaded.registry.outputs[1].apply_path, '../CLAUDE.md');
     assert.equal(loaded.issues.length, 0);
 });
 
@@ -66,8 +66,8 @@ test('supports account-level output presets', () => {
     const projectRoot = path.join(fixturesRoot, 'account-preset-project');
     const loaded = loadRegistry(projectRoot);
 
-    assert.equal(loaded.registry.outputs[0].generated_path, './generated/account/claude/CLAUDE.generated.md');
-    assert.equal(loaded.registry.outputs[1].generated_path, './generated/account/codex/AGENTS.generated.md');
+    assert.equal(loaded.registry.outputs[0].apply_path, '{userHome}/.claude/CLAUDE.md');
+    assert.equal(loaded.registry.outputs[1].apply_path, '{userHome}/AGENTS.md');
     assert.equal(loaded.issues.length, 0);
 });
 

@@ -15,7 +15,7 @@ test('generate writes project mcp output from mcp capabilities', () => {
     const generated = generateOutputs(tempRoot, loaded);
 
     assert.equal(generated.length, 1);
-    const content = fs.readFileSync(generated[0].generatedPath, 'utf8');
+    const content = fs.readFileSync(generated[0].applyPath, 'utf8');
     const parsed = JSON.parse(content);
     assert.equal(typeof parsed.mcpServers.demo, 'object');
     assert.equal(parsed.mcpServers.demo.command, 'demo-server');

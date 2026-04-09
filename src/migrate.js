@@ -1,19 +1,26 @@
+const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { backupAssets } = require('./backup');
 const { ensureDir, exists, readUtf8, replaceTemplateVariables, writeJson, writeUtf8 } = require('./fs-util');
 const { matchesAnyPattern, normalize } = require('./match');
+const { loadRegistry } = require('./registry');
+const { MANAGED_MARKER } = require('./generate');
 
-function createMigrationProposal(rootDir, discovery, loadedRegistry) {
+function createMigrationProposal(rootDir, discoveryOrOptions, loadedRegistry) {
     const harnessRoot = path.join(rootDir, 'harness');
     const guidesRoot = path.join(harnessRoot, 'guides');
     const proposalDir = path.join(harnessRoot, 'registry.d', 'discovered');
     ensureDir(proposalDir);
 
-    const filteredAssets = filterMigratableAssets(rootDir, discovery, loadedRegistry);
+    const loaded = loadedRegistry || loadRegistry(rootDir);
+    const discoveryInfo = resolveDiscoveryInput(rootDir, discoveryOrOptions);
+    const discovery = discoveryInfo.discovery;
+    const filteredAssets = filterMigratableAssets(rootDir, discovery, loaded);
     const backup = backupAssets(rootDir, filterBackupAssets(filteredAssets), 'migrate');
 
     const groupedGuides = {
+        shared: [],
         claude: [],
         codex: []
     };
@@ -41,16 +48,7 @@ function createMigrationProposal(rootDir, discovery, loadedRegistry) {
             groupedCapabilities.set(groupKey, []);
         }
 
-        groupedCapabilities.get(groupKey).push({
-            id: buildCapabilityId(asset),
-            kind: mapAssetTypeToCapabilityKind(asset.type),
-            target: asset.target,
-            scope: asset.scope,
-            management: asset.type === 'plugin' ? 'external' : 'discovered',
-            truth: {
-                path: asset.path
-            }
-        });
+        groupedCapabilities.get(groupKey).push(buildCapabilityProposal(asset));
     }
 
     const proposalFiles = [];
@@ -58,14 +56,12 @@ function createMigrationProposal(rootDir, discovery, loadedRegistry) {
         const filePath = path.join(proposalDir, `${groupKey}.generated.yaml`);
         const yamlLines = ['capabilities:'];
 
+        if (entries.length === 0) {
+            yamlLines.push('  []');
+        }
+
         for (const block of entries) {
-            yamlLines.push(`  - id: ${block.id}`);
-            yamlLines.push(`    kind: ${block.kind}`);
-            yamlLines.push(`    target: ${block.target}`);
-            yamlLines.push(`    scope: ${block.scope}`);
-            yamlLines.push(`    management: ${block.management}`);
-            yamlLines.push('    truth:');
-            yamlLines.push(`      path: ${block.truth.path}`);
+            yamlLines.push(...renderCapabilityBlock(block));
         }
 
         yamlLines.push('guides:');
@@ -78,9 +74,9 @@ function createMigrationProposal(rootDir, discovery, loadedRegistry) {
 
     const guidesFile = path.join(proposalDir, 'guides.generated.yaml');
     const guideLines = [
-        'capabilities:',
+        'capabilities: []',
         'guides:',
-        ...renderGuideEntries('shared', []),
+        ...renderGuideEntries('shared', groupedGuides.shared),
         ...renderGuideEntries('claude', groupedGuides.claude),
         ...renderGuideEntries('codex', groupedGuides.codex)
     ];
@@ -90,17 +86,46 @@ function createMigrationProposal(rootDir, discovery, loadedRegistry) {
     const summaryPath = path.join(proposalDir, 'summary.json');
     const summary = {
         createdAt: new Date().toISOString(),
+        scope: discovery.scope || discoveryInfo.scope,
         proposalFiles,
-        copiedGuideCount: groupedGuides.claude.length + groupedGuides.codex.length,
+        copiedGuideCount: groupedGuides.shared.length + groupedGuides.claude.length + groupedGuides.codex.length,
         capabilityCount: Array.from(groupedCapabilities.values()).reduce((sum, items) => sum + items.length, 0),
         backup
     };
     writeJson(summaryPath, summary);
 
+    if (discoveryInfo.tmpPath && exists(discoveryInfo.tmpPath)) {
+        fs.rmSync(discoveryInfo.tmpPath, { force: true });
+    }
+
     return Object.assign({
         proposalDir,
         summaryPath
     }, summary);
+}
+
+function resolveDiscoveryInput(rootDir, discoveryOrOptions) {
+    if (discoveryOrOptions && Array.isArray(discoveryOrOptions.assets)) {
+        return {
+            scope: discoveryOrOptions.scope || 'project',
+            discovery: discoveryOrOptions,
+            tmpPath: discoveryOrOptions.tmpPath || null
+        };
+    }
+
+    const options = discoveryOrOptions || {};
+    const scope = options.scope || 'project';
+    const tmpPath = path.join(rootDir, 'harness', 'state', `discover-${scope}-tmp.json`);
+
+    if (!exists(tmpPath)) {
+        throw new Error(`No discover output found for scope "${scope}". Run 'soft-harness discover --scope ${scope}' first.`);
+    }
+
+    return {
+        scope,
+        tmpPath,
+        discovery: JSON.parse(readUtf8(tmpPath))
+    };
 }
 
 function filterMigratableAssets(rootDir, discovery, loadedRegistry) {
@@ -139,6 +164,78 @@ function renderGuideEntries(bucket, entries) {
         lines.push(`      scope: ${entry.scope}`);
     }
     return lines;
+}
+
+function buildCapabilityProposal(asset) {
+    const block = {
+        id: buildCapabilityId(asset),
+        kind: mapAssetTypeToCapabilityKind(asset.type),
+        target: asset.target,
+        scope: asset.scope,
+        management: asset.type === 'plugin' ? 'external' : 'discovered'
+    };
+
+    if (asset.type === 'plugin') {
+        block.source = inferPluginSource(asset);
+        block.install_cmd = null;
+        return block;
+    }
+
+    block.truth = {
+        path: asset.path
+    };
+
+    return block;
+}
+
+function renderCapabilityBlock(block) {
+    const lines = [
+        `  - id: ${block.id}`,
+        `    kind: ${block.kind}`,
+        `    target: ${block.target}`,
+        `    scope: ${block.scope}`,
+        `    management: ${block.management}`
+    ];
+
+    if (block.source !== undefined) {
+        if (block.source === null) {
+            lines.push('    source: null');
+        } else {
+            lines.push('    source:');
+            lines.push(`      registry: ${block.source.registry}`);
+            lines.push(`      package: ${block.source.package}`);
+            if (block.source.version) {
+                lines.push(`      version: "${block.source.version}"`);
+            }
+        }
+        lines.push(`    install_cmd: ${block.install_cmd === null ? 'null' : block.install_cmd}`);
+    }
+
+    if (block.truth) {
+        lines.push('    truth:');
+        lines.push(`      path: ${block.truth.path}`);
+    }
+
+    return lines;
+}
+
+function inferPluginSource(asset) {
+    const normalized = String(asset.path).replace(/\\/g, '/');
+    const match = normalized.match(/\/\.claude\/plugins\/cache\/([^/]+)\/([^/]+)(?:\/([^/]+))?$/i);
+    if (!match) {
+        return null;
+    }
+
+    const source = {
+        registry: match[1],
+        package: match[2]
+    };
+
+    if (match[3] && /^\d/.test(match[3])) {
+        source.version = match[3];
+    }
+
+    return source;
 }
 
 function buildCapabilityId(asset) {

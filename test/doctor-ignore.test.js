@@ -11,7 +11,7 @@ test('doctor ignore patterns suppress unmanaged findings', () => {
     const projectRoot = path.join(fixturesRoot, 'doctor-ignore-project');
     const userHome = path.join(fixturesRoot, 'discovery-home');
     const loaded = loadRegistry(projectRoot);
-    const discovery = discoverState(projectRoot, { userHome });
+    const discovery = discoverState(projectRoot, { scope: 'project', userHome });
     const findings = runDoctor(projectRoot, loaded, discovery);
 
     assert.equal(findings.some((finding) => finding.code === 'unmanaged-discovered-asset'), false);
@@ -21,7 +21,7 @@ test('doctor expands template variables inside ignore patterns', () => {
     const projectRoot = path.join(fixturesRoot, 'policy-pack-project');
     const userHome = path.join(fixturesRoot, 'discovery-home');
     const loaded = loadRegistry(projectRoot);
-    const discovery = discoverState(projectRoot, { userHome });
+    const discovery = discoverState(projectRoot, { scope: 'project', userHome });
     const findings = runDoctor(projectRoot, loaded, discovery);
 
     assert.equal(

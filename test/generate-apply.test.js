@@ -52,12 +52,12 @@ test('preset outputs resolve to real CLAUDE.md and AGENTS.md stubs', () => {
     assert.match(fs.readFileSync(claudePath, 'utf8'), /Managed by soft-harness/);
 });
 
-test('account presets resolve to account-level stub targets', () => {
+test('account presets resolve to account-level v1 targets', () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soft-harness-account-preset-'));
     fs.cpSync(path.join(__dirname, 'fixtures', 'account-preset-project'), tempRoot, { recursive: true });
 
     const loaded = loadRegistry(tempRoot);
     const outputs = loaded.registry.outputs;
     assert.equal(outputs[0].apply_path.includes('{userHome}/.claude/CLAUDE.md'), true);
-    assert.equal(outputs[1].apply_path.includes('{userHome}/.agents/AGENTS.md'), true);
+    assert.equal(outputs[1].apply_path.includes('{userHome}/AGENTS.md'), true);
 });

@@ -14,7 +14,7 @@ test('migrate creates backups and restore reverts file changes', () => {
     const userHome = path.join(__dirname, 'fixtures', 'discovery-home');
 
     const originalAgents = fs.readFileSync(path.join(tempRoot, 'AGENTS.md'), 'utf8');
-    const discovery = discoverState(tempRoot, { userHome });
+    const discovery = discoverState(tempRoot, { scope: 'project', userHome });
     const result = createMigrationProposal(tempRoot, discovery);
 
     const agentsPath = path.join(tempRoot, 'AGENTS.md');
