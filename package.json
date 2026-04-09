@@ -1,6 +1,6 @@
 {
   "name": "soft-harness",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Governance-first harness for Claude and Codex environments",
   "repository": {
     "type": "git",

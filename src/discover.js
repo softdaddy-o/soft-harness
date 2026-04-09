@@ -7,6 +7,7 @@ function discoverState(projectRoot, options) {
     const settings = Object.assign({}, options);
     const scope = settings.scope;
     const userHome = settings.userHome || os.homedir();
+    const persist = settings.persist !== false;
 
     if (!scope || !['project', 'account'].includes(scope)) {
         throw new Error(`discover requires --scope project|account. Got: ${scope || 'none'}`);
@@ -34,7 +35,10 @@ function discoverState(projectRoot, options) {
         tmpPath
     };
 
-    writeJson(tmpPath, discovery);
+    if (persist) {
+        writeJson(tmpPath, discovery);
+    }
+
     return discovery;
 }
 

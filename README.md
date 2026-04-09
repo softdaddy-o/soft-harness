@@ -113,6 +113,7 @@ Trusted Publishing is the preferred long-term path over a bypass-2FA token.
 soft-harness init
 soft-harness discover --scope project|account
 soft-harness doctor
+soft-harness preview
 soft-harness migrate
 soft-harness migrate-schema [--apply] [--force]
 soft-harness generate
@@ -131,6 +132,7 @@ soft-harness account discover
 - scoped discovery to `harness/state/discover-project-tmp.json` and `harness/state/discover-account-tmp.json`
 - doctor checks for registry issues, unmanaged assets, and possible plaintext secrets
 - doctor warnings for unmanaged apply targets and missing external `install_cmd`
+- preview command for combined registry, discovery, proposal, diff, and apply state
 - grouped migration proposal generation under `harness/registry.d/discovered/`
 - migration backups under `harness/state/backups/`
 - direct output generation to `apply_path` targets
@@ -178,6 +180,7 @@ Then run:
 ```text
 soft-harness init
 soft-harness discover --scope project
+soft-harness preview
 soft-harness migrate
 soft-harness approve
 soft-harness generate
@@ -214,6 +217,7 @@ For a new or existing project:
 ```text
 soft-harness init
 soft-harness discover --scope project
+soft-harness preview
 soft-harness migrate
 soft-harness approve
 soft-harness generate
@@ -238,6 +242,15 @@ soft-harness apply
 - `soft-harness apply --yes` skips the prompt for managed targets
 - `soft-harness apply --force` takes ownership of unmanaged targets
 - `soft-harness apply --backup` stores target backups in `harness/state/backups/`
+
+`preview` behavior:
+
+- shows registry/import/output counts
+- shows live discovery counts without writing discover tmp files
+- shows pending proposal summary from `harness/registry.d/discovered/`
+- shows doctor warning/error totals
+- shows diff status summary
+- shows apply dry-run status summary
 
 ## Layout
 

@@ -14,6 +14,7 @@ const { generateOutputs } = require('./generate');
 const { createMigrationProposal } = require('./migrate');
 const { migrateSchema } = require('./migrate-schema');
 const { initProjectHarness } = require('./project');
+const { collectPreview } = require('./preview');
 const { loadRegistry } = require('./registry');
 const { addWorkspace, getWorkspaceRegistryPath, hasWorkspaceMarkers, listWorkspaces, removeWorkspace } = require('./workspaces');
 
@@ -37,6 +38,9 @@ function main() {
             break;
         case 'doctor':
             runDoctorCommand();
+            break;
+        case 'preview':
+            runPreview();
             break;
         case 'migrate':
             runMigrate();
@@ -77,6 +81,7 @@ function printHelp() {
     console.log('  workspace  Manage registered workspaces');
     console.log('  discover   Scan local Claude/Codex state');
     console.log('  doctor     Report drift, security issues, and gaps');
+    console.log('  preview    Show a combined preview of registry, discovery, diff, and apply state');
     console.log('  migrate    Normalize discovered state into the registry');
     console.log('  migrate-schema Upgrade registry.yaml from v0 to v1');
     console.log('  generate   Generate host-native outputs from the registry');
@@ -87,6 +92,7 @@ function printHelp() {
     console.log('');
     console.log('Flags:');
     console.log('  discover --scope project|account');
+    console.log('  preview');
     console.log('  apply --dry-run --yes --force --backup');
     console.log('  migrate-schema --apply [--force]');
 }
@@ -169,6 +175,39 @@ function runDoctorCommand() {
     }
 
     if (findings.some((finding) => finding.level === 'error')) {
+        process.exitCode = 1;
+    }
+}
+
+function runPreview() {
+    const loaded = loadRegistry(ROOT);
+    const preview = collectPreview(ROOT, loaded);
+
+    console.log(`Root: ${preview.rootDir}`);
+    console.log(`Registry: ${preview.registry.path}`);
+    console.log(`Imports: ${preview.registry.imports}`);
+    console.log(`Capabilities: ${preview.registry.capabilities}`);
+    console.log(`Guides: ${preview.registry.guides}`);
+    console.log(`Outputs: ${preview.registry.outputs}`);
+    console.log(`Registry issues: ${preview.registry.issues}`);
+    console.log(`Discovery scope: ${preview.discovery.scope}`);
+    console.log(`Discovery assets: ${preview.discovery.assets}`);
+    console.log(`Discovery tmp persisted: ${preview.discovery.persisted ? 'yes' : 'no'}`);
+    console.log(`Pending proposals: ${preview.proposals.pending}`);
+    console.log(`Proposal guides: ${preview.proposals.copiedGuides}`);
+    console.log(`Proposal capabilities: ${preview.proposals.capabilityProposals}`);
+    console.log(`Doctor errors: ${preview.doctor.errors}`);
+    console.log(`Doctor warnings: ${preview.doctor.warnings}`);
+    console.log(`Diff total: ${preview.diff.total}`);
+    printStatusSummary('Diff', preview.diff.counts);
+    console.log(`Apply preview total: ${preview.apply.total}`);
+    printStatusSummary('Apply', preview.apply.counts);
+
+    for (const group of preview.doctor.groups.slice(0, 5)) {
+        console.log(`Doctor group: [${group.level}] [${group.code}] ${group.count}`);
+    }
+
+    if (preview.doctor.errors > 0 || preview.registry.issues > 0) {
         process.exitCode = 1;
     }
 }
@@ -559,6 +598,16 @@ function groupFindings(findings) {
     }
 
     return Array.from(grouped.values());
+}
+
+function printStatusSummary(label, counts) {
+    const entries = Object.entries(counts);
+    if (entries.length === 0) {
+        console.log(`${label} statuses: none`);
+        return;
+    }
+
+    console.log(`${label} statuses: ${entries.map(([status, count]) => `${status}=${count}`).join(', ')}`);
 }
 
 function hasFlag(flag) {
