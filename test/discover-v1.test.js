@@ -12,6 +12,9 @@ function makeFixture() {
 
     fs.mkdirSync(path.join(projectRoot, 'harness'), { recursive: true });
     fs.writeFileSync(path.join(projectRoot, 'AGENTS.md'), '# Project agents\n', 'utf8');
+    fs.mkdirSync(path.join(projectRoot, '.claude', 'skills', 'reviewer'), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, '.claude', 'CLAUDE.md'), '# Project claude\n', 'utf8');
+    fs.writeFileSync(path.join(projectRoot, '.claude', 'skills', 'reviewer', 'SKILL.md'), '# Claude skill\n', 'utf8');
 
     fs.mkdirSync(path.join(userHome, '.agents', 'skills', 'writer'), { recursive: true });
     fs.writeFileSync(path.join(userHome, '.agents', 'skills', 'writer', 'SKILL.md'), '# Skill\n', 'utf8');
@@ -44,6 +47,8 @@ test('discover --scope project writes a project tmp file and excludes account as
     assert.equal(fs.existsSync(result.tmpPath), true);
     assert.equal(result.assets.some((asset) => asset.path.startsWith(fixture.userHome)), false);
     assert.equal(result.assets.some((asset) => asset.path === path.join(fixture.projectRoot, 'AGENTS.md')), true);
+    assert.equal(result.assets.some((asset) => asset.path === path.join(fixture.projectRoot, '.claude', 'CLAUDE.md')), true);
+    assert.equal(result.assets.some((asset) => asset.path === path.join(fixture.projectRoot, '.claude', 'skills', 'reviewer', 'SKILL.md') && asset.target === 'claude'), true);
     fixture.cleanup();
 });
 

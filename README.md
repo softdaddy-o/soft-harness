@@ -130,6 +130,7 @@ soft-harness account discover
 - `registry.d` fragment support
 - guide buckets for shared, Claude-only, and Codex-only content
 - scoped discovery to `harness/state/discover-project-tmp.json` and `harness/state/discover-account-tmp.json`
+- project discovery covers `AGENTS.md`, `CLAUDE.md`, `.claude/CLAUDE.md`, `.claude/agents`, `.claude/skills`, `.codex/skills`, and `.mcp.json`
 - doctor checks for registry issues, unmanaged assets, and possible plaintext secrets
 - doctor warnings for unmanaged apply targets and missing external `install_cmd`
 - preview command for combined registry, discovery, proposal, diff, and apply state

@@ -62,6 +62,7 @@ function discoverProjectAssets(projectRoot, assets) {
     const projectChecks = [
         { path: path.join(projectRoot, 'AGENTS.md'), type: 'instruction', target: 'codex', scope: 'project' },
         { path: path.join(projectRoot, 'CLAUDE.md'), type: 'instruction', target: 'claude', scope: 'project' },
+        { path: path.join(projectRoot, '.claude', 'CLAUDE.md'), type: 'instruction', target: 'claude', scope: 'project' },
         { path: path.join(projectRoot, '.mcp.json'), type: 'mcp-config', target: 'both', scope: 'project' },
         { path: path.join(projectRoot, '.claude', 'settings.json'), type: 'settings', target: 'claude', scope: 'project' }
     ];
@@ -76,6 +77,13 @@ function discoverProjectAssets(projectRoot, assets) {
         const skillFile = path.join(fullPath, 'SKILL.md');
         return fs.statSync(fullPath).isDirectory() && exists(skillFile)
             ? describeAsset(projectRoot, skillFile, { type: 'skill', target: 'codex', scope: 'project', idHint: name })
+            : null;
+    });
+
+    discoverDirectoryEntries(projectRoot, path.join(projectRoot, '.claude', 'skills'), assets, (fullPath, name) => {
+        const skillFile = path.join(fullPath, 'SKILL.md');
+        return fs.statSync(fullPath).isDirectory() && exists(skillFile)
+            ? describeAsset(projectRoot, skillFile, { type: 'skill', target: 'claude', scope: 'project', idHint: name })
             : null;
     });
 
