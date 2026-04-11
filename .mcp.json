@@ -1,0 +1,77 @@
+{
+  "mcpServers": {
+    "Logseq_Unreal": {
+      "command": "node",
+      "args": [
+        "D:/bin/logseq-mcp-file/dist/index.js"
+      ],
+      "env": {
+        "LOGSEQ_GRAPH_PATH": "D:/Logseq_Unreal"
+      }
+    },
+    "LogseqData": {
+      "command": "node",
+      "args": [
+        "D:/bin/logseq-mcp-file/dist/index.js"
+      ],
+      "env": {
+        "LOGSEQ_GRAPH_PATH": "D:/LogseqData"
+      }
+    },
+    "notionApi": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@notionhq/notion-mcp-server"
+      ],
+      "env": {
+        "OPENAPI_MCP_HEADERS": "{\"Authorization\": \"Bearer ${NOTION_API_TOKEN}\", \"Notion-Version\": \"2022-06-28\" }"
+      }
+    },
+    "todoist": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://ai.todoist.net/mcp"]
+    },
+    "atlassian": {
+      "type": "sse",
+      "url": "https://mcp.atlassian.com/v1/sse"
+    },
+    "threads": {
+      "command": "threads-mcp-server",
+      "env": {
+        "THREADS_ACCESS_TOKEN": "YOUR_TOKEN_HERE"
+      }
+    },
+    "email": {
+      "command": "npx",
+      "args": ["-y", "@marlinjai/email-mcp"]
+    },
+    "telegram": {
+      "command": "npx",
+      "args": ["-y", "mcp-communicator-telegram"],
+      "env": {
+        "TELEGRAM_TOKEN": "${TELEGRAM_TOKEN}",
+        "CHAT_ID": "${TELEGRAM_CHAT_ID}"
+      }
+    },
+    "sentry": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@sentry/mcp-server",
+        "--organization-slug=seconddive"
+      ],
+      "env": {
+        "SENTRY_AUTH_TOKEN": "${SENTRY_AUTH_TOKEN}"
+      }
+    },
+    "google-docs": {
+      "command": "npx",
+      "args": ["-y", "google-docs-mcp"],
+      "env": {
+        "GOOGLE_CLIENT_ID": "${GOOGLE_CLIENT_ID}",
+        "GOOGLE_CLIENT_SECRET": "${GOOGLE_CLIENT_SECRET}"
+      }
+    }
+  }
+}

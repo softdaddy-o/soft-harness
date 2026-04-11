@@ -1,3 +1,0 @@
-# Reviewer
-
-Example Claude agent.

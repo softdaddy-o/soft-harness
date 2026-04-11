@@ -1,7 +1,7 @@
 {
   "name": "soft-harness",
-  "version": "0.2.3",
-  "description": "Governance-first harness for Claude and Codex environments",
+  "version": "0.3.0",
+  "description": "Single-source harness sync for Claude, Codex, and Gemini environments",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/softdaddy-o/soft-harness.git"
@@ -17,9 +17,6 @@
     "src",
     "docs",
     "examples",
-    "harness/guides",
-    "harness/policies",
-    "harness/registry.yaml",
     "LICENSE",
     "README.md"
   ],
@@ -31,10 +28,7 @@
   },
   "scripts": {
     "start": "node src/cli.js",
-    "test": "node --test",
-    "doctor": "node src/cli.js doctor",
-    "discover": "node src/cli.js discover",
-    "generate": "node src/cli.js generate"
+    "test": "node --test"
   },
   "keywords": [
     "claude",

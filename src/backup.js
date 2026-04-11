@@ -1,135 +1,159 @@
-const fs = require('fs');
-const path = require('path');
-const { ensureDir, exists, readUtf8, resolveTemplatePath, writeJson, writeUtf8 } = require('./fs-util');
+const fs = require('node:fs');
+const path = require('node:path');
+const { copyPath, ensureDir, exists, kstTimestamp, readJson, removePath, writeJson } = require('./fs-util');
+const { getHarnessDir } = require('./state');
 
-function backupAssets(rootDir, assets, label) {
-    const backupId = createBackupId(label);
-    const backupRoot = path.join(rootDir, 'harness', 'state', 'backups', backupId);
-    const filesRoot = path.join(backupRoot, 'files');
-    const manifest = {
-        backupId,
-        createdAt: new Date().toISOString(),
-        label,
-        entries: []
-    };
+function getBackupsDir(rootDir) {
+    return path.join(getHarnessDir(rootDir), 'backups');
+}
 
-    ensureDir(filesRoot);
+function getBackupDir(rootDir, timestamp) {
+    return path.join(getBackupsDir(rootDir), timestamp);
+}
 
-    for (const asset of assets) {
-        if (!asset.path || !exists(asset.path)) {
-            continue;
-        }
+function normalizeBackupPaths(paths) {
+    return Array.from(new Set((paths || []).filter(Boolean))).sort();
+}
 
-        const stat = fs.statSync(asset.path);
-        if (!stat.isFile()) {
-            manifest.entries.push({
-                path: asset.path,
-                type: asset.type,
-                scope: asset.scope,
-                backedUp: false,
-                reason: 'not-a-file'
+function createBackup(rootDir, paths, options) {
+    const uniquePaths = normalizeBackupPaths(paths);
+    if (uniquePaths.length === 0) {
+        return null;
+    }
+
+    const timestamp = getAvailableTimestamp(rootDir, (options && options.timestamp) || kstTimestamp());
+    const backupDir = getBackupDir(rootDir, timestamp);
+    ensureDir(backupDir);
+
+    const entries = [];
+    for (const relativePath of uniquePaths) {
+        const absolutePath = path.join(rootDir, relativePath);
+        if (!exists(absolutePath)) {
+            entries.push({
+                path: relativePath,
+                kind: 'missing'
             });
             continue;
         }
 
-        const relativeName = sanitizeBackupPath(asset.path);
-        const backupPath = path.join(filesRoot, relativeName);
-        ensureDir(path.dirname(backupPath));
-        writeUtf8(backupPath, readUtf8(asset.path));
-        manifest.entries.push({
-            path: asset.path,
-            type: asset.type,
-            scope: asset.scope,
-            backedUp: true,
-            backupPath
+        const stats = fs.lstatSync(absolutePath);
+        if (stats.isSymbolicLink()) {
+            entries.push({
+                path: relativePath,
+                kind: 'symlink',
+                linkTarget: fs.readlinkSync(absolutePath),
+                linkType: inferLinkType(absolutePath)
+            });
+            continue;
+        }
+
+        const kind = stats.isDirectory() ? 'directory' : 'file';
+        entries.push({
+            path: relativePath,
+            kind
         });
+        copyPath(absolutePath, path.join(backupDir, relativePath));
     }
 
-    const manifestPath = path.join(backupRoot, 'manifest.json');
-    writeJson(manifestPath, manifest);
+    const manifest = {
+        timestamp,
+        reason: options && options.reason,
+        created_at: new Date().toString(),
+        entries
+    };
+    writeJson(path.join(backupDir, 'manifest.json'), manifest);
 
     return {
-        backupId,
-        backupRoot,
-        manifestPath,
-        entryCount: manifest.entries.filter((entry) => entry.backedUp).length
+        timestamp,
+        backupDir,
+        manifestPath: path.join(backupDir, 'manifest.json'),
+        entryCount: entries.length
     };
 }
 
-function restoreBackup(rootDir, backupId) {
-    const backupRoot = path.join(rootDir, 'harness', 'state', 'backups', backupId);
-    const manifestPath = path.join(backupRoot, 'manifest.json');
+function getAvailableTimestamp(rootDir, baseTimestamp) {
+    if (!exists(getBackupDir(rootDir, baseTimestamp))) {
+        return baseTimestamp;
+    }
+
+    let counter = 1;
+    while (exists(getBackupDir(rootDir, `${baseTimestamp}-${counter}`))) {
+        counter += 1;
+    }
+    return `${baseTimestamp}-${counter}`;
+}
+
+function readManifest(rootDir, timestamp) {
+    const manifestPath = path.join(getBackupDir(rootDir, timestamp), 'manifest.json');
     if (!exists(manifestPath)) {
-        throw new Error(`Backup manifest not found: ${manifestPath}`);
+        throw new Error(`backup not found: ${timestamp}`);
     }
-
-    const manifest = JSON.parse(readUtf8(manifestPath));
-    let restoredCount = 0;
-
-    if (Array.isArray(manifest.entries)) {
-        for (const entry of manifest.entries) {
-            if (!entry.backedUp || !entry.backupPath) {
-                continue;
-            }
-            writeUtf8(entry.path, readUtf8(entry.backupPath));
-            restoredCount += 1;
-        }
-    }
-
-    if (Array.isArray(manifest.files)) {
-        const harnessRoot = path.join(rootDir, 'harness');
-        const pathVariables = {
-            rootDir,
-            harnessRoot,
-            userHome: process.env.HOME || process.env.USERPROFILE || ''
-        };
-
-        for (const entry of manifest.files) {
-            if (!entry.original || !entry.backed_up_as) {
-                continue;
-            }
-
-            const originalPath = resolveTemplatePath(entry.original, pathVariables, harnessRoot);
-            const backupPath = path.join(backupRoot, entry.backed_up_as);
-            writeUtf8(originalPath, readUtf8(backupPath));
-            restoredCount += 1;
-        }
-    }
-
-    return {
-        backupId,
-        restoredCount,
-        manifestPath
-    };
+    return readJson(manifestPath);
 }
 
 function listBackups(rootDir) {
-    const backupsRoot = path.join(rootDir, 'harness', 'state', 'backups');
-    if (!exists(backupsRoot)) {
+    const backupsDir = getBackupsDir(rootDir);
+    if (!exists(backupsDir)) {
         return [];
     }
 
-    return fs.readdirSync(backupsRoot, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-        .sort();
+    return fs.readdirSync(backupsDir)
+        .filter((entry) => exists(path.join(backupsDir, entry, 'manifest.json')))
+        .sort()
+        .map((timestamp) => {
+            const manifest = readManifest(rootDir, timestamp);
+            return {
+                timestamp,
+                fileCount: manifest.entries.length,
+                reason: manifest.reason
+            };
+        });
 }
 
-function createBackupId(label) {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    return `${label || 'backup'}-${timestamp}`;
+function restoreBackup(rootDir, timestamp) {
+    const manifest = readManifest(rootDir, timestamp);
+    createBackup(
+        rootDir,
+        manifest.entries.map((entry) => entry.path),
+        { reason: `revert:${timestamp}` }
+    );
+
+    const backupDir = getBackupDir(rootDir, timestamp);
+    for (const entry of manifest.entries) {
+        const targetPath = path.join(rootDir, entry.path);
+        if (entry.kind === 'missing') {
+            removePath(targetPath);
+            continue;
+        }
+
+        if (entry.kind === 'symlink') {
+            removePath(targetPath);
+            ensureDir(path.dirname(targetPath));
+            fs.symlinkSync(entry.linkTarget, targetPath, entry.linkType || 'junction');
+            continue;
+        }
+
+        removePath(targetPath);
+        copyPath(path.join(backupDir, entry.path), targetPath);
+    }
+
+    return {
+        timestamp,
+        restoredCount: manifest.entries.length
+    };
 }
 
-function sanitizeBackupPath(inputPath) {
-    return inputPath
-        .replace(/^[A-Za-z]:/, '')
-        .replace(/[<>:"|?*]/g, '_')
-        .replace(/\\/g, '/')
-        .replace(/^\/+/, '');
+function inferLinkType(absolutePath) {
+    try {
+        const stats = fs.statSync(absolutePath);
+        return stats.isDirectory() ? 'junction' : 'file';
+    } catch (error) {
+        return 'junction';
+    }
 }
 
 module.exports = {
-    backupAssets,
+    createBackup,
     listBackups,
     restoreBackup
 };

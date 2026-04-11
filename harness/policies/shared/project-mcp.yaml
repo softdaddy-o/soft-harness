@@ -1,8 +1,0 @@
-capabilities: []
-guides:
-  shared: []
-  claude: []
-  codex: []
-outputs:
-  - id: project-mcp
-    preset: project-mcp
