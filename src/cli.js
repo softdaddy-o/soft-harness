@@ -15,15 +15,24 @@ Sync options:
   --dry-run                           Report planned changes and write nothing
   --no-import                         Skip project -> .harness import and pull-back
   --no-export                         Skip .harness -> project export
+  --link-mode=<mode>                  Export skill/agent links using copy, symlink, or junction
+  --force-export-untracked-hosts      Allow repo-internal link exports even when target paths are not gitignored
   --no-run-installs                   Skip plugin install commands
   --no-run-uninstalls                 Skip plugin uninstall commands
 `;
 
 function parseSyncArgs(args) {
     const flags = new Set(args);
+    const linkModeArg = args.find((arg) => arg.startsWith('--link-mode='));
+    const linkMode = linkModeArg ? linkModeArg.split('=')[1] : 'copy';
+    if (!['copy', 'symlink', 'junction'].includes(linkMode)) {
+        throw new Error(`invalid --link-mode: ${linkMode}`);
+    }
 
     return {
         dryRun: flags.has('--dry-run') || flags.has('-n'),
+        forceExportUntrackedHosts: flags.has('--force-export-untracked-hosts'),
+        linkMode,
         manualReview: flags.has('--manual-review') || flags.has('-i'),
         noImport: flags.has('--no-import'),
         noExport: flags.has('--no-export'),
@@ -34,7 +43,15 @@ function parseSyncArgs(args) {
 
 async function runSync(args, io) {
     const { runSync: runSyncImpl } = require('./sync');
-    const result = await runSyncImpl(process.cwd(), parseSyncArgs(args), io);
+    let syncOptions;
+    try {
+        syncOptions = parseSyncArgs(args);
+    } catch (error) {
+        process.stderr.write(`sync failed: ${error.message}\n`);
+        return 1;
+    }
+
+    const result = await runSyncImpl(process.cwd(), syncOptions, io);
 
     if (result.phase === 'dry-run') {
         process.stdout.write(`dry-run: import=${result.plan.import.length} export=${result.plan.export.length} drift=${result.plan.drift.length} conflicts=${result.plan.conflicts.length}\n`);

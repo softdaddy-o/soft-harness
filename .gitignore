@@ -10,3 +10,9 @@ harness/generated/
 harness/state/
 harness/state/discover-project-tmp.json
 harness/state/discover-account-tmp.json
+.claude/skills/
+.claude/agents/
+.codex/skills/
+.codex/agents/
+.gemini/skills/
+.gemini/agents/

@@ -54,8 +54,8 @@ Out of scope: secrets, runtime state, vendor marketplaces themselves, agent runt
 | `CLAUDE.md` / `.claude/CLAUDE.md` | import-stub (if host supports imports) or concat-stub | `HARNESS.md` + `llm/claude.md` |
 | `AGENTS.md` | import-stub or concat-stub | `HARNESS.md` + `llm/codex.md` |
 | `GEMINI.md` | import-stub or concat-stub | `HARNESS.md` + `llm/gemini.md` |
-| `.claude/skills/<name>/` | symlink (preferred) or copy+marker | `.harness/skills/common/<name>` or `.harness/skills/claude/<name>` |
-| `.claude/agents/<name>` | symlink or copy+marker | `.harness/agents/common/<name>` or `.harness/agents/claude/<name>` |
+| `.claude/skills/<name>/` | copy+marker (default), symlink or junction only by opt-in | `.harness/skills/common/<name>` or `.harness/skills/claude/<name>` |
+| `.claude/agents/<name>` | copy+marker (default), symlink only by opt-in | `.harness/agents/common/<name>` or `.harness/agents/claude/<name>` |
 | Installed plugins | **not written as files** | `plugins.yaml` `install` / `uninstall` commands |
 
 ## LLM Profiles (Built-in)
@@ -100,6 +100,8 @@ sync --manual-review        # confirm each change interactively
 sync --dry-run              # report planned changes, write nothing
 sync --no-import            # skip project → .harness direction
 sync --no-export            # skip .harness → project direction
+sync --link-mode=<mode>     # copy (default), symlink, or junction for skill/agent exports
+sync --force-export-untracked-hosts  # allow repo-internal link exports on non-gitignored paths
 sync --no-run-installs      # files only, skip plugin installs
 sync --no-run-uninstalls    # files only, skip plugin uninstalls
 ```
@@ -196,22 +198,25 @@ When instruction files are imported into `.harness/`, `sync` tries to split them
 - Content outside any block → default to `llm/<name>.md` tail
 - `--manual-review` confirms each routing decision
 
-### Skills / Agents — Symlink Mode (Preferred)
+Repo-internal host paths no longer default to links. Skills and agents export as managed copies by default; link modes are explicit and advanced.
+
+### Skills / Agents — Symlink Mode (Opt-In)
 
 ```
 .claude/skills/my-skill/  →  .harness/skills/common/my-skill/   (symlink)
 ```
 
 - POSIX: `symlink(2)`
-- Windows: directory symlink via `mklink /D` or junction
+- Windows: directory symlink via `mklink /D`
+- Windows junctions are compatibility-only and opt-in
 - No additional marker — the symlink itself is the management signal
 
 **Drift rule**: target is no longer a symlink, or points elsewhere → drift.
-**Drift pull-back**: if the project-side replaced the symlink with real files, `sync` copies those files back into the `.harness/` source, then restores the symlink.
+**Drift pull-back**: if the project-side replaced the symlink with real files, `sync` copies those files back into the `.harness/` source, then restores the requested link mode.
 
 ### Skills / Agents — Copy Mode (Fallback)
 
-When symlink creation fails (Windows without developer mode, cross-filesystem restrictions, etc.), `sync` copies the directory and drops a hidden marker inside:
+Repo-internal skill and agent exports default to this mode. `sync` also falls back here when explicit link creation fails (Windows without developer mode, cross-filesystem restrictions, etc.):
 
 ```
 .claude/skills/my-skill/.harness-managed
@@ -227,6 +232,22 @@ regenerate: soft-harness sync
 
 **Drift rule**: recomputed content hash of `.claude/skills/my-skill/` (excluding the marker file) differs from `content_hash` in the marker.
 **Drift pull-back**: diff the project-side copy against the `.harness/` source, propagate changes file-by-file back into `.harness/`, then update the marker's hash.
+
+### Git Safety Rule
+
+- `.harness/**` is the only Git source of truth for skills and agents.
+- Repo-internal host exports such as `.claude/skills/`, `.claude/agents/`, `.codex/skills/`, and `.codex/agents/` default to copy+marker.
+- If a repo-internal link export is explicitly requested but the target path is not Git-ignored, `sync` downgrades that export back to copy+marker unless a force override is provided.
+- Recommended root `.gitignore` entries:
+
+```
+.claude/skills/
+.claude/agents/
+.codex/skills/
+.codex/agents/
+.gemini/skills/
+.gemini/agents/
+```
 
 ### Plugins — No File Stub
 
@@ -332,7 +353,7 @@ revert <timestamp>
 |---|---|---|
 | Import-stub instruction | File != expected stub content | New content → `llm/<name>.md` tail; removed `@import` lines → warning only (or prompt in `--manual-review`) |
 | Concat-stub instruction | Byte mismatch vs regenerated content | Route edits by BEGIN/END marker back to source path |
-| Symlink skill/agent | Not a symlink, or wrong target | Copy back to `.harness/`, restore symlink |
+| Opt-in linked skill/agent | Not a symlink, or wrong target | Copy back to `.harness/`, restore the requested link mode |
 | Copy skill/agent | Content hash mismatch | File-by-file diff propagated to `.harness/` source |
 | Plugin | Installed set differs from `plugins.yaml` | Import prompts "adopt into plugins.yaml?" for unknowns; export runs install/uninstall |
 
@@ -372,7 +393,7 @@ The soft-harness repository eats its own dogfood:
 - Exact `supports_imports` capabilities for Codex and Gemini must be verified against their current documentation before implementing profiles.
 - Plugin install/uninstall command execution: shell escaping, error handling, and partial-failure recovery semantics.
 - Conflict resolution policy when both `.harness/` and project sides were edited since last sync (beyond simple mtime comparison).
-- Windows symlink capability detection: how to decide symlink-vs-copy per asset without a failed attempt first.
+- Whether explicit repo-internal link modes should be exposed as stable CLI flags or remain an internal advanced option.
 - Whether LLM profiles should be overridable by a project-level `.harness/profiles.yaml` (current design: no, keep them tool-internal).
 
 ## Non-Goals
@@ -388,7 +409,7 @@ The soft-harness repository eats its own dogfood:
 **Decision log:**
 
 - 2026-04-10: single `sync` command instead of separate `discover` / `migrate` / `generate` / `doctor`
-- 2026-04-10: stub references (not symlinks) as default mechanism for instruction markdown; symlinks for skills/agents with copy fallback
+- 2026-04-10: stub references (not symlinks) as default mechanism for instruction markdown; repo-internal skills/agents default to copy+marker, with links as opt-in
 - 2026-04-10: directory-based common/LLM split (not frontmatter-based)
 - 2026-04-10: plugins tracked as install metadata, never as backed-up bytes; auto-install and auto-uninstall by default
 - 2026-04-10: section-level exact-match heuristic for common-content extraction; fuzzy matches surfaced but not auto-applied

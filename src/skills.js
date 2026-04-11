@@ -1,4 +1,5 @@
 const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const { hashDirectory, hashFile } = require('./hash');
 const { createLink, isSymlink, readLink } = require('./symlink');
@@ -152,18 +153,21 @@ function exportSkillsAndAgents(rootDir, options) {
 function ensureManagedTarget(rootDir, entry, options) {
     const absoluteSource = path.join(rootDir, entry.source);
     const absoluteTarget = path.join(rootDir, entry.target);
+    const desiredMode = resolveManagedMode(rootDir, entry, options);
 
-    if (targetMatches(rootDir, entry)) {
+    if (targetMatches(rootDir, entry, desiredMode)) {
         return null;
     }
 
     if (options && options.dryRun) {
-        return 'planned';
+        return desiredMode === 'copy' ? 'planned-copy' : `planned-${desiredMode}`;
     }
 
-    const link = createLink(absoluteSource, absoluteTarget);
-    if (link.mode !== 'copy') {
-        return link.mode;
+    if (desiredMode !== 'copy') {
+        const link = createLink(absoluteSource, absoluteTarget, { prefer: desiredMode });
+        if (link.mode !== 'copy') {
+            return link.mode;
+        }
     }
 
     removePath(absoluteTarget);
@@ -186,7 +190,7 @@ function ensureManagedTarget(rootDir, entry, options) {
     return 'copy';
 }
 
-function targetMatches(rootDir, entry) {
+function targetMatches(rootDir, entry, desiredMode) {
     const absoluteSource = path.join(rootDir, entry.source);
     const absoluteTarget = path.join(rootDir, entry.target);
     if (!exists(absoluteTarget)) {
@@ -194,9 +198,16 @@ function targetMatches(rootDir, entry) {
     }
 
     if (isSymlink(absoluteTarget)) {
+        if (desiredMode === 'copy') {
+            return false;
+        }
         const targetValue = readLink(absoluteTarget).replace(/\\/g, '/');
         return targetValue.endsWith(entry.source.replace(/\\/g, '/'))
             || path.resolve(path.dirname(absoluteTarget), targetValue) === absoluteSource;
+    }
+
+    if (desiredMode !== 'copy') {
+        return false;
     }
 
     if (entry.type === 'skill') {
@@ -263,6 +274,40 @@ function detectSkillsAndAgentsDrift(rootDir) {
     return drift;
 }
 
+function resolveManagedMode(rootDir, entry, options) {
+    const settings = options || {};
+    const requestedMode = settings.linkMode || 'copy';
+    if (requestedMode === 'copy') {
+        return 'copy';
+    }
+
+    const absoluteTarget = path.resolve(rootDir, entry.target);
+    if (isRepoInternalPath(rootDir, absoluteTarget)
+        && !settings.forceExportUntrackedHosts
+        && !isGitIgnored(rootDir, entry.target)) {
+        return 'copy';
+    }
+
+    if (requestedMode === 'junction' && entry.type === 'skill') {
+        return 'junction';
+    }
+
+    return 'symlink';
+}
+
+function isRepoInternalPath(rootDir, absoluteTarget) {
+    const relativePath = path.relative(path.resolve(rootDir), absoluteTarget);
+    return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+}
+
+function isGitIgnored(rootDir, relativePath) {
+    const result = spawnSync('git', ['check-ignore', '--quiet', relativePath], {
+        cwd: rootDir,
+        stdio: 'ignore'
+    });
+    return result.status === 0;
+}
+
 function pullBackSkillsAndAgents(rootDir, driftEntries, options) {
     const pulledBack = [];
 
@@ -279,6 +324,9 @@ function pullBackSkillsAndAgents(rootDir, driftEntries, options) {
 
         removePath(absoluteSource);
         copyPath(absoluteTarget, absoluteSource);
+        if (entry.type === 'skill') {
+            removePath(path.join(absoluteSource, MANAGED_MARKER));
+        }
         pulledBack.push({
             from: entry.target,
             to: entry.source

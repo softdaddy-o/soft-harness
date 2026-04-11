@@ -41,7 +41,7 @@ soft-harness help
 ## Commands
 
 ```text
-soft-harness sync [--manual-review] [--dry-run] [--no-import] [--no-export] [--no-run-installs] [--no-run-uninstalls]
+soft-harness sync [--manual-review] [--dry-run] [--no-import] [--no-export] [--link-mode=copy|symlink|junction] [--force-export-untracked-hosts] [--no-run-installs] [--no-run-uninstalls]
 soft-harness revert --list
 soft-harness revert <timestamp>
 soft-harness help
@@ -89,16 +89,17 @@ External host files are regenerated from `.harness/`:
 - Codex: `AGENTS.md`
 - Gemini: `GEMINI.md`
 
-Skills and agents are exported as symlinks when possible, with managed copy fallback when symlinks are unavailable.
+Skills and agents default to managed copy+marker exports for repo-internal host directories. Link exports are opt-in, and Windows junctions are treated as a compatibility mode instead of the default.
 
 ## Behavior
 
 - Import: project edits and unmanaged files can be pulled into `.harness/`
-- Export: missing or stale stubs, links, and managed copies are regenerated
+- Export: missing or stale stubs, managed copies, and explicitly requested links are regenerated
 - Drift: managed targets are compared against regenerated expectations
 - Conflict detection: if both `.harness/` and a project target changed since the last sync, `sync` reports a conflict instead of silently choosing one side
 - Backup: non-dry-run syncs create a timestamped backup before writing
 - Revert: restores a chosen backup snapshot without running plugin install or uninstall commands
+- Git safety: repo-internal skill and agent exports stay Git-friendly by defaulting to managed copies instead of symlinks or junctions
 
 ## Trusted Publishing
 

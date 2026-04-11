@@ -28,7 +28,7 @@ The refactor ships in five phases. Each phase produces working, testable softwar
 |---|---|---|---|
 | **1. Core Sync (Instructions)** | `sync` + `revert` work end-to-end for root instruction files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`). Wholesale move, no common extraction yet. Backups, drift detection, revert. | Unit + E2E | Yes — v0.3.0-alpha |
 | **2. Common Extraction + Pull-back** | Section-level `HARNESS.md` extraction during import. Drift pull-back to correct source file. `--manual-review` mode. | Unit + E2E | Yes — v0.3.0-beta |
-| **3. Skills & Agents** | Symlink mode (with Windows junction fallback) and copy+marker mode. Discovery and bucket classification. | Unit + E2E (fs-dependent) | Yes — v0.3.0-rc |
+| **3. Skills & Agents** | Copy+marker default for repo-internal exports, with explicit opt-in link modes. Discovery and bucket classification. | Unit + E2E (fs-dependent) | Yes — v0.3.0-rc |
 | **4. Plugins** | `plugins.yaml` parse, install/uninstall execution, drift detection against LLM plugin manifests. | Unit + command mocks | Yes — v0.3.0 |
 | **5. Dogfood + Ship** | Run `sync` against soft-harness repo itself. Delete legacy `harness/`. Update README and docs. Publish v0.3.0. | Manual + release checks | Ships |
 
@@ -2293,7 +2293,7 @@ After Task 17:
 
 # PHASE 3 — Skills & Agents
 
-**Goal:** Extend sync to cover directories under `.claude/skills/`, `.claude/agents/`, and their Codex/Gemini equivalents. Support symlink mode with copy+marker fallback.
+**Goal:** Extend sync to cover directories under `.claude/skills/`, `.claude/agents/`, and their Codex/Gemini equivalents. Repo-internal exports default to copy+marker; link modes stay explicit and advanced.
 
 **Shippable after Phase 3:** v0.3.0-rc. `sync` now handles all three asset types except plugins.
 
@@ -2301,9 +2301,9 @@ After Task 17:
 
 **Files:** `src/symlink.js`, `test/symlink.test.js`
 
-**Purpose:** Wrap `fs.symlinkSync` with platform-aware fallback:
-- POSIX: try `symlink(2)`
-- Windows: try directory symlink, fall back to junction
+**Purpose:** Wrap `fs.symlinkSync` with platform-aware behavior:
+- POSIX: try `symlink(2)` when link mode is explicitly requested
+- Windows: try directory/file symlink when requested; junction only for explicit compatibility mode
 - Any platform: on failure, return `{ mode: 'copy' }` so caller can fall back
 
 **Key test cases:**
@@ -2337,13 +2337,14 @@ After Task 17:
 **Files:** `src/skills.js` (extend), `test/skills.test.js`
 
 **Purpose:** For each `.harness/skills/*/<name>/`, create/update the external target.
-- First attempt: symlink
-- On failure: copy directory + write `.harness-managed` marker
+- Default: copy directory + write `.harness-managed` marker
+- Explicit opt-in: try the requested link mode
+- On link failure or Git-safety downgrade: use copy+marker
 
 **Key test cases:**
-- Symlink path when `fs.symlinkSync` works
-- Copy+marker path on simulated failure (inject via option)
-- Existing symlink with wrong target → replace
+- Copy+marker path is the repo-internal default
+- Explicit link mode downgrades to copy when the target path is not Git-ignored
+- Existing symlink with wrong target → replace or normalize back to copy, depending on the desired mode
 
 ## Task 29: Skills/agents drift detection + pull-back
 
