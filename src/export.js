@@ -37,6 +37,7 @@ function buildInstructionExports(rootDir, options) {
 function exportInstructions(rootDir, options) {
     const exports = buildInstructionExports(rootDir, options);
     const written = [];
+    const routes = [];
 
     for (const entry of exports) {
         const absolutePath = path.join(rootDir, entry.relativePath);
@@ -48,6 +49,12 @@ function exportInstructions(rootDir, options) {
         written.push({
             llm: entry.llm,
             path: entry.relativePath
+        });
+        routes.push({
+            action: 'export-instruction',
+            llm: entry.llm,
+            from: [`.harness/HARNESS.md`, `.harness/llm/${entry.llm}.md`],
+            to: entry.relativePath
         });
 
         if (options && options.dryRun) {
@@ -63,7 +70,8 @@ function exportInstructions(rootDir, options) {
 
     return {
         exported: written,
-        plan: exports
+        plan: exports,
+        routes
     };
 }
 

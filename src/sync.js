@@ -14,11 +14,17 @@ const { loadState, saveState } = require('./state');
 
 async function runSync(rootDir, options, io) {
     const state = loadState(rootDir);
-    const discovered = await discoverInstructions(rootDir, {
-        ...options,
+    const effectiveOptions = {
+        ...(options || {}),
         ...(io || {}),
         state
-    });
+    };
+    const firstSync = isFirstSync(state);
+    effectiveOptions.firstSync = firstSync;
+    effectiveOptions.reviewImports = Boolean(options && options.manualReview)
+        || Boolean(options && options.interactive && firstSync && !options.yes);
+
+    const discovered = await discoverInstructions(rootDir, effectiveOptions);
     const backupTargets = collectInitialBackupTargets(rootDir, discovered, state);
     const backup = (options && options.dryRun)
         ? null
@@ -36,20 +42,29 @@ async function runSync(rootDir, options, io) {
     const exported = [];
     const pulledBack = [];
     let pluginActions = [];
+    const details = {
+        imports: [],
+        exports: [],
+        drift: [],
+        conflicts: []
+    };
 
     if (!options || !options.noImport) {
-        const importResult = await importInstructions(rootDir, discovered, options);
+        const importResult = await importInstructions(rootDir, discovered, effectiveOptions);
         imported.push(...importResult.imported);
         plan.import.push(...importResult.imported);
+        details.imports.push(...(importResult.routes || []));
 
         const skillImportResult = importSkillsAndAgents(rootDir, options);
         imported.push(...skillImportResult.imported);
         plan.import.push(...skillImportResult.imported);
+        details.imports.push(...(skillImportResult.routes || []));
     }
 
     const instructionDrift = detectInstructionDrift(rootDir, { state });
     const conflicts = detectInstructionConflicts(rootDir, state, instructionDrift);
     plan.conflicts.push(...conflicts);
+    details.conflicts.push(...conflicts);
     const conflictDecisions = (options && options.dryRun)
         ? new Map()
         : await resolveInstructionConflicts(conflicts, {
@@ -69,6 +84,7 @@ async function runSync(rootDir, options, io) {
         return conflictDecisions.get(entry.relativePath) === 'import';
     });
     plan.drift.push(...remainingInstructionDrift);
+    details.drift.push(...remainingInstructionDrift);
 
     if ((!options || !options.noImport) && remainingInstructionDrift.length > 0) {
         pulledBack.push(...await pullBackInstructionDrift(rootDir, remainingInstructionDrift, {
@@ -79,6 +95,7 @@ async function runSync(rootDir, options, io) {
 
     const otherDrift = detectAllDrift(rootDir, { state }).filter((entry) => entry.type !== 'instruction');
     plan.drift.push(...otherDrift);
+    details.drift.push(...otherDrift);
     if ((!options || !options.noImport) && otherDrift.length > 0) {
         pulledBack.push(...pullBackSkillsAndAgents(rootDir, otherDrift, options));
     }
@@ -87,10 +104,12 @@ async function runSync(rootDir, options, io) {
         const exportResult = exportInstructions(rootDir, { ...options, state });
         exported.push(...exportResult.exported);
         plan.export.push(...exportResult.exported);
+        details.exports.push(...(exportResult.routes || []));
 
         const assetExportResult = exportSkillsAndAgents(rootDir, options);
         exported.push(...assetExportResult.exported);
         plan.export.push(...assetExportResult.exported);
+        details.exports.push(...(assetExportResult.routes || []));
     }
 
     const pluginResult = syncPlugins(rootDir, state, options || {});
@@ -105,6 +124,7 @@ async function runSync(rootDir, options, io) {
             exported,
             pulledBack,
             pluginActions,
+            details,
             backupTs: null
         };
     }
@@ -119,6 +139,7 @@ async function runSync(rootDir, options, io) {
         exported,
         pulledBack,
         pluginActions,
+        details,
         backupTs: backup ? backup.timestamp : null
     };
 }
@@ -262,3 +283,10 @@ function getCurrentSourceHash(rootDir, llm) {
 module.exports = {
     runSync
 };
+
+function isFirstSync(state) {
+    return !state.synced_at
+        && (state.assets.instructions || []).length === 0
+        && (state.assets.skills || []).length === 0
+        && (state.assets.agents || []).length === 0;
+}

@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { parseSyncArgs } = require('../src/cli');
+const { formatSyncReport, parseSyncArgs } = require('../src/cli');
 
 const CLI = path.join(__dirname, '..', 'src', 'cli.js');
 
@@ -30,4 +30,33 @@ test('cli: invalid link mode exits non-zero', () => {
     const result = spawnSync('node', [CLI, 'sync', '--link-mode=bogus'], { encoding: 'utf8' });
     assert.equal(result.status, 1);
     assert.match(result.stderr, /invalid --link-mode/i);
+});
+
+test('cli: formatSyncReport shows routing details', () => {
+    const output = formatSyncReport({
+        phase: 'dry-run',
+        plan: {
+            import: [1],
+            export: [1],
+            drift: [],
+            conflicts: [],
+            plugins: []
+        },
+        details: {
+            imports: [
+                { action: 'adopt', from: 'CLAUDE.md', to: '.harness/llm/claude.md' },
+                { action: 'extract-common', heading: 'Code Style', from: ['CLAUDE.md', 'AGENTS.md'], to: '.harness/HARNESS.md' }
+            ],
+            exports: [
+                { action: 'export-instruction', from: ['.harness/HARNESS.md', '.harness/llm/claude.md'], to: 'CLAUDE.md' }
+            ],
+            drift: [],
+            conflicts: []
+        },
+        pluginActions: []
+    }, { explain: false });
+
+    assert.match(output, /CLAUDE\.md -> \.harness\/llm\/claude\.md/);
+    assert.match(output, /section "Code Style" from CLAUDE\.md, AGENTS\.md -> \.harness\/HARNESS\.md/);
+    assert.match(output, /\.harness\/HARNESS\.md \+ \.harness\/llm\/claude\.md -> CLAUDE\.md/);
 });

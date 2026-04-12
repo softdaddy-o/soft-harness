@@ -28,6 +28,7 @@ test('import: first run extracts common content and llm-specific content', async
     assert.match(readUtf8(path.join(root, '.harness', 'HARNESS.md')), /## Common/);
     assert.match(readUtf8(path.join(root, '.harness', 'llm', 'claude.md')), /## Claude/);
     assert.match(readUtf8(path.join(root, '.harness', 'llm', 'codex.md')), /## Codex/);
+    assert.ok(result.routes.some((entry) => entry.action === 'extract-common' && entry.to === '.harness/HARNESS.md'));
 });
 
 test('export: builds expected root instruction files from harness sources', () => {
@@ -41,4 +42,5 @@ test('export: builds expected root instruction files from harness sources', () =
     const result = exportInstructions(root, { state: { assets: { instructions: [] } } });
     assert.equal(result.exported.length, 1);
     assert.match(readUtf8(path.join(root, 'AGENTS.md')), /BEGIN HARNESS.md/);
+    assert.ok(result.routes.some((entry) => entry.action === 'export-instruction' && entry.to === 'AGENTS.md'));
 });

@@ -13,6 +13,9 @@ Commands:
 Sync options:
   --manual-review                     Confirm extraction and conflict decisions
   --dry-run                           Report planned changes and write nothing
+  --verbose                           Show file-level sync details
+  --explain                           Show routing reasons and merge details
+  --yes                               Auto-approve first-sync review prompts
   --no-import                         Skip project -> .harness import and pull-back
   --no-export                         Skip .harness -> project export
   --link-mode=<mode>                  Export skill/agent links using copy, symlink, or junction
@@ -31,13 +34,16 @@ function parseSyncArgs(args) {
 
     return {
         dryRun: flags.has('--dry-run') || flags.has('-n'),
+        explain: flags.has('--explain'),
         forceExportUntrackedHosts: flags.has('--force-export-untracked-hosts'),
         linkMode,
         manualReview: flags.has('--manual-review') || flags.has('-i'),
         noImport: flags.has('--no-import'),
         noExport: flags.has('--no-export'),
         noRunInstalls: flags.has('--no-run-installs'),
-        noRunUninstalls: flags.has('--no-run-uninstalls')
+        noRunUninstalls: flags.has('--no-run-uninstalls'),
+        verbose: flags.has('--verbose') || flags.has('--explain'),
+        yes: flags.has('--yes')
     };
 }
 
@@ -50,24 +56,11 @@ async function runSync(args, io) {
         process.stderr.write(`sync failed: ${error.message}\n`);
         return 1;
     }
+    syncOptions.interactive = !syncOptions.yes && Boolean(process.stdin.isTTY && process.stdout.isTTY);
 
     const result = await runSyncImpl(process.cwd(), syncOptions, io);
 
-    if (result.phase === 'dry-run') {
-        process.stdout.write(`dry-run: import=${result.plan.import.length} export=${result.plan.export.length} drift=${result.plan.drift.length} conflicts=${result.plan.conflicts.length}\n`);
-        if (result.plan.plugins.length > 0) {
-            process.stdout.write(`plugins: ${result.plan.plugins.length}\n`);
-        }
-        return 0;
-    }
-
-    process.stdout.write(`sync completed: imported=${result.imported.length} exported=${result.exported.length} pulled_back=${result.pulledBack.length}\n`);
-    if (result.backupTs) {
-        process.stdout.write(`backup: ${result.backupTs}\n`);
-    }
-    if (result.pluginActions.length > 0) {
-        process.stdout.write(`plugin actions: ${result.pluginActions.length}\n`);
-    }
+    process.stdout.write(formatSyncReport(result, syncOptions));
     return 0;
 }
 
@@ -127,6 +120,100 @@ if (require.main === module) {
 
 module.exports = {
     HELP,
+    formatSyncReport,
     main,
     parseSyncArgs
 };
+
+function formatSyncReport(result, options) {
+    const lines = [];
+    if (result.phase === 'dry-run') {
+        lines.push(`dry-run: import=${result.plan.import.length} export=${result.plan.export.length} drift=${result.plan.drift.length} conflicts=${result.plan.conflicts.length}`);
+    } else {
+        lines.push(`sync completed: imported=${result.imported.length} exported=${result.exported.length} pulled_back=${result.pulledBack.length}`);
+        if (result.backupTs) {
+            lines.push(`backup: ${result.backupTs}`);
+        }
+    }
+
+    appendSection(lines, 'imports', formatImportDetails(result.details && result.details.imports, options));
+    appendSection(lines, 'exports', formatExportDetails(result.details && result.details.exports, options));
+    appendSection(lines, 'drift', formatDriftDetails(result.details && result.details.drift));
+    appendSection(lines, 'conflicts', formatConflictDetails(result.details && result.details.conflicts));
+
+    if (result.pluginActions && result.pluginActions.length > 0) {
+        lines.push('plugins:');
+        for (const action of result.pluginActions) {
+            lines.push(`  - ${action.status}: ${action.name}${action.version ? `@${action.version}` : ''}`);
+        }
+    }
+
+    return `${lines.join('\n')}\n`;
+}
+
+function appendSection(lines, label, entries) {
+    if (!entries || entries.length === 0) {
+        return;
+    }
+
+    lines.push(`${label}:`);
+    for (const entry of entries) {
+        lines.push(`  - ${entry}`);
+    }
+}
+
+function formatImportDetails(entries, options) {
+    const items = [];
+    for (const entry of entries || []) {
+        if (entry.action === 'adopt') {
+            items.push(`${entry.from} -> ${entry.to}`);
+            continue;
+        }
+        if (entry.action === 'extract-common') {
+            const sourceList = Array.isArray(entry.from) ? entry.from.join(', ') : entry.from;
+            items.push(`section "${entry.heading || '(untitled)'}" from ${sourceList} -> ${entry.to}`);
+            continue;
+        }
+        if (entry.action === 'extract-specific') {
+            items.push(`section "${entry.heading || '(untitled)'}" from ${entry.from} -> ${entry.to}`);
+            continue;
+        }
+        if (entry.action === 'maybe-common' && options && options.explain) {
+            items.push(`section "${entry.heading || '(untitled)'}" left LLM-specific (near match across ${entry.llms.join(', ')}, similarity=${entry.similarity.toFixed(2)})`);
+            continue;
+        }
+        if (entry.action === 'bucket') {
+            const reason = options && options.explain ? ` (${entry.reason})` : '';
+            items.push(`${entry.type} "${entry.name}" ${entry.from} -> ${entry.to}${reason}`);
+        }
+    }
+    return items;
+}
+
+function formatExportDetails(entries, options) {
+    const items = [];
+    for (const entry of entries || []) {
+        if (entry.action === 'export-instruction') {
+            items.push(`${entry.from.join(' + ')} -> ${entry.to}`);
+            continue;
+        }
+        if (entry.action === 'export') {
+            const reason = options && options.explain && entry.reason ? ` (${entry.reason})` : '';
+            items.push(`${entry.from} -> ${entry.to} [${entry.mode}]${reason}`);
+        }
+    }
+    return items;
+}
+
+function formatDriftDetails(entries) {
+    return (entries || []).map((entry) => {
+        if (entry.relativePath) {
+            return `${entry.type}: ${entry.relativePath}`;
+        }
+        return `${entry.type}: ${entry.target}`;
+    });
+}
+
+function formatConflictDetails(entries) {
+    return (entries || []).map((entry) => `${entry.type}: ${entry.relativePath}`);
+}

@@ -94,6 +94,7 @@ function importSkillsAndAgents(rootDir, options) {
     const discovered = discoverSkillsAndAgents(rootDir);
     const plan = planBuckets(discovered, options);
     const imported = [];
+    const routes = [];
 
     for (const item of plan) {
         const relativeTarget = item.type === 'skill'
@@ -107,8 +108,19 @@ function importSkillsAndAgents(rootDir, options) {
         imported.push({
             type: item.type,
             llm: item.llm,
+            bucket: item.bucket,
             from: item.relativePath,
             to: relativeTarget
+        });
+        routes.push({
+            action: 'bucket',
+            type: item.type,
+            name: item.name,
+            llm: item.llm,
+            bucket: item.bucket,
+            from: item.relativePath,
+            to: relativeTarget,
+            reason: item.bucket === 'common' ? 'identical-across-llms' : 'llm-specific'
         });
 
         if (options && options.dryRun) {
@@ -123,16 +135,19 @@ function importSkillsAndAgents(rootDir, options) {
     }
 
     return {
-        imported
+        imported,
+        routes
     };
 }
 
 function exportSkillsAndAgents(rootDir, options) {
     const plan = discoverHarnessAssets(rootDir);
     const exported = [];
+    const routes = [];
 
     for (const entry of plan) {
-        const mode = ensureManagedTarget(rootDir, entry, options);
+        const outcome = ensureManagedTarget(rootDir, entry, options);
+        const mode = outcome && outcome.mode;
         if (!mode) {
             continue;
         }
@@ -143,30 +158,47 @@ function exportSkillsAndAgents(rootDir, options) {
             to: entry.target,
             mode
         });
+        routes.push({
+            action: 'export',
+            type: entry.type,
+            llm: entry.llm,
+            from: entry.source,
+            to: entry.target,
+            mode,
+            reason: outcome.reason || null
+        });
     }
 
     return {
-        exported
+        exported,
+        routes
     };
 }
 
 function ensureManagedTarget(rootDir, entry, options) {
     const absoluteSource = path.join(rootDir, entry.source);
     const absoluteTarget = path.join(rootDir, entry.target);
-    const desiredMode = resolveManagedMode(rootDir, entry, options);
+    const desired = resolveManagedMode(rootDir, entry, options);
+    const desiredMode = desired.mode;
 
     if (targetMatches(rootDir, entry, desiredMode)) {
         return null;
     }
 
     if (options && options.dryRun) {
-        return desiredMode === 'copy' ? 'planned-copy' : `planned-${desiredMode}`;
+        return {
+            mode: desiredMode === 'copy' ? 'planned-copy' : `planned-${desiredMode}`,
+            reason: desired.reason || null
+        };
     }
 
     if (desiredMode !== 'copy') {
         const link = createLink(absoluteSource, absoluteTarget, { prefer: desiredMode });
         if (link.mode !== 'copy') {
-            return link.mode;
+            return {
+                mode: link.mode,
+                reason: desired.reason || null
+            };
         }
     }
 
@@ -187,7 +219,10 @@ function ensureManagedTarget(rootDir, entry, options) {
             ''
         ].join('\n'));
     }
-    return 'copy';
+    return {
+        mode: 'copy',
+        reason: desired.reason || null
+    };
 }
 
 function targetMatches(rootDir, entry, desiredMode) {
@@ -278,21 +313,33 @@ function resolveManagedMode(rootDir, entry, options) {
     const settings = options || {};
     const requestedMode = settings.linkMode || 'copy';
     if (requestedMode === 'copy') {
-        return 'copy';
+        return {
+            mode: 'copy',
+            reason: 'default-copy'
+        };
     }
 
     const absoluteTarget = path.resolve(rootDir, entry.target);
     if (isRepoInternalPath(rootDir, absoluteTarget)
         && !settings.forceExportUntrackedHosts
         && !isGitIgnored(rootDir, entry.target)) {
-        return 'copy';
+        return {
+            mode: 'copy',
+            reason: 'downgraded-not-gitignored'
+        };
     }
 
     if (requestedMode === 'junction' && entry.type === 'skill') {
-        return 'junction';
+        return {
+            mode: 'junction',
+            reason: 'explicit-junction'
+        };
     }
 
-    return 'symlink';
+    return {
+        mode: 'symlink',
+        reason: 'explicit-symlink'
+    };
 }
 
 function isRepoInternalPath(rootDir, absoluteTarget) {

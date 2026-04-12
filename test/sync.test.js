@@ -23,6 +23,25 @@ test('sync: first run imports instruction files, exports stubs, and saves state'
     assert.equal(state.assets.instructions.length, 3);
     assert.ok(state.assets.instructions.some((entry) => entry.target === '.claude/CLAUDE.md'));
     assert.ok(listBackups(root).length >= 1);
+    assert.ok(result.details.imports.some((entry) => entry.action === 'adopt'));
+});
+
+test('sync: first interactive sync requests adoption and common-section review', async () => {
+    const root = makeTempDir('soft-harness-first-sync-review-');
+    writeUtf8(path.join(root, 'CLAUDE.md'), '## Common\nsame\n\n## Claude\nonly');
+    writeUtf8(path.join(root, 'AGENTS.md'), '## Common\nsame\n\n## Codex\nonly');
+
+    const prompts = [];
+    await runSync(root, {
+        interactive: true,
+        confirm(question) {
+            prompts.push(question);
+            return true;
+        }
+    }, {});
+
+    assert.ok(prompts.some((question) => question.includes('Adopt CLAUDE.md')));
+    assert.ok(prompts.some((question) => question.includes('Promote section "Common"')));
 });
 
 test('sync: dry-run reports instruction drift after manual root edit', async () => {

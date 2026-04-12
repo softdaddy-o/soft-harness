@@ -98,6 +98,9 @@ gemini:
 sync                        # bidirectional, auto-apply, install + uninstall (default)
 sync --manual-review        # confirm each change interactively
 sync --dry-run              # report planned changes, write nothing
+sync --verbose              # show file-level routing details
+sync --explain              # show routing reasons and downgrade decisions
+sync --yes                  # auto-approve first-sync review prompts
 sync --no-import            # skip project → .harness direction
 sync --no-export            # skip .harness → project direction
 sync --link-mode=<mode>     # copy (default), symlink, or junction for skill/agent exports
@@ -106,7 +109,7 @@ sync --no-run-installs      # files only, skip plugin installs
 sync --no-run-uninstalls    # files only, skip plugin uninstalls
 ```
 
-**Default is auto-apply.** `--manual-review` walks through each proposed change and asks for confirmation. `--dry-run` writes nothing.
+**Default is auto-apply after first sync.** First sync is review-driven when running in an interactive terminal. `--manual-review` forces the same review flow later. `--yes` auto-approves first-sync review prompts. `--dry-run` writes nothing.
 
 **Default is bidirectional.** Both `import` (project → `.harness/`) and `export` (`.harness/` → project) run. Opt out with `--no-import` / `--no-export`.
 
@@ -128,7 +131,7 @@ Answers are cached in `.sync-state.json` so follow-up syncs don't re-ask.
 
 ### First Run vs Steady State
 
-- **First run** (`.harness/` absent or nearly empty): discovers all matching assets, runs the common-content extraction heuristic (§ Common-Content Extraction), prompts for every ambiguous classification. Slow and interactive.
+- **First run** (`.harness/` absent or nearly empty): discovers all matching assets, runs the common-content extraction heuristic (§ Common-Content Extraction), prompts for ownership/adoption/common-section review, and prints a file-by-file routing summary. Slow and interactive.
 - **Steady state**: most syncs are near no-ops. Only newly added or edited files trigger work. Usually zero prompts.
 
 ## Common-Content Extraction

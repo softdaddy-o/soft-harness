@@ -24,7 +24,10 @@ function extractInstructionBuckets(files, options) {
     if (parsed.length === 1) {
         llmSections[parsed[0].llm] = parsed[0].sections.slice();
         return {
+            allSectionsByLlm: Object.fromEntries(parsed.map((file) => [file.llm, file.sections.slice()])),
             commonContent: '',
+            commonSections,
+            llmSections,
             llmContents: renderLlmContents(llmSections),
             maybeSections
         };
@@ -95,7 +98,10 @@ function extractInstructionBuckets(files, options) {
     }
 
     return {
+        allSectionsByLlm: Object.fromEntries(parsed.map((file) => [file.llm, file.sections.slice()])),
         commonContent: renderSections(commonSections),
+        commonSections,
+        llmSections,
         llmContents: renderLlmContents(llmSections),
         maybeSections
     };
