@@ -24,3 +24,12 @@ test('hash: hashDirectory ignores marker files when asked', () => {
     const after = hashDirectory(dir, { ignore: ['.harness-managed'] });
     assert.equal(before, after);
 });
+
+test('hash: hashDirectory walks nested directories', () => {
+    const dir = makeTempDir('soft-harness-dirhash-nested-');
+    fs.mkdirSync(path.join(dir, 'nested'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'nested', 'a.txt'), 'A');
+    fs.writeFileSync(path.join(dir, 'nested', 'b.txt'), 'B');
+
+    assert.match(hashDirectory(dir), /^[a-f0-9]{64}$/);
+});

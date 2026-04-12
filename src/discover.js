@@ -7,14 +7,8 @@ async function discoverInstructions(rootDir, options) {
     const state = (options && options.state) || { classifications: {} };
     const callback = (options && options.classifyAmbiguous) || classifyAmbiguous;
     const discovered = [];
-    const visited = new Set();
 
     for (const relativePath of getCandidateInstructionFiles()) {
-        if (visited.has(relativePath)) {
-            continue;
-        }
-        visited.add(relativePath);
-
         const absolutePath = path.join(rootDir, relativePath);
         if (!exists(absolutePath)) {
             continue;

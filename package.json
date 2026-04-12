@@ -1,6 +1,6 @@
 {
   "name": "soft-harness",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Single-source harness sync for Claude, Codex, and Gemini environments",
   "repository": {
     "type": "git",
@@ -28,7 +28,8 @@
   },
   "scripts": {
     "start": "node src/cli.js",
-    "test": "node --test"
+    "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage"
   },
   "keywords": [
     "claude",
@@ -37,7 +38,8 @@
     "agents",
     "skills",
     "plugins",
-    "registry"
+    "harness",
+    "analyze"
   ],
   "author": "softdaddy-o",
   "license": "MIT",

@@ -100,3 +100,19 @@ test('sync: pull-back routes concat-stub edits back to llm source', async () => 
 
     assert.match(readUtf8(path.join(root, '.harness', 'llm', 'codex.md')), /manual tail/);
 });
+
+test('sync: backup targets include existing harness assets and discovered project skills', async () => {
+    const root = makeTempDir('soft-harness-sync-backups-');
+    writeUtf8(path.join(root, '.harness', 'skills', 'claude', 'built-in', 'SKILL.md'), '# Built In');
+    writeUtf8(path.join(root, '.claude', 'skills', 'local', 'SKILL.md'), '# Local');
+
+    const result = await runSync(root, {}, {});
+    const backups = listBackups(root);
+    const latest = backups[backups.length - 1];
+    const manifest = JSON.parse(readUtf8(path.join(root, '.harness', 'backups', latest.timestamp, 'manifest.json')));
+
+    assert.equal(result.phase, 'completed');
+    assert.ok(manifest.entries.some((entry) => entry.path === '.harness/skills/claude/built-in'));
+    assert.ok(manifest.entries.some((entry) => entry.path === '.claude/skills/built-in'));
+    assert.ok(manifest.entries.some((entry) => entry.path === '.claude/skills/local'));
+});

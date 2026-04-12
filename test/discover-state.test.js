@@ -4,7 +4,7 @@ const path = require('node:path');
 const { discoverInstructions } = require('../src/discover');
 const { loadState, saveState } = require('../src/state');
 const { writeUtf8 } = require('../src/fs-util');
-const { makeTempDir } = require('./helpers');
+const { loadFresh, makeTempDir } = require('./helpers');
 
 test('discover: finds known instruction files and uses explicit classification callback', async () => {
     const root = makeTempDir('soft-harness-discover-');
@@ -37,4 +37,64 @@ test('state: saveState persists and loadState restores values', () => {
     const loaded = loadState(root);
     assert.equal(loaded.classifications['AGENTS.md'], 'codex');
     assert.equal(loaded.assets.instructions.length, 1);
+});
+
+test('discover: honors saved classifications and can skip unmatched files', async () => {
+    const profiles = require('../src/profiles');
+    const original = profiles.matchInstructionFile;
+    profiles.matchInstructionFile = (relativePath) => {
+        if (relativePath === 'CLAUDE.md') {
+            return [];
+        }
+        if (relativePath === 'GEMINI.md') {
+            return ['gemini', 'claude'];
+        }
+        return original(relativePath);
+    };
+
+    try {
+        const { discoverInstructions: discoverFresh } = loadFresh('../src/discover');
+        const root = makeTempDir('soft-harness-discover-stateful-');
+        writeUtf8(path.join(root, 'CLAUDE.md'), '# Claude');
+        writeUtf8(path.join(root, 'GEMINI.md'), '# Gemini');
+
+        const discovered = await discoverFresh(root, {
+            state: {
+                classifications: {
+                    'GEMINI.md': 'gemini'
+                }
+            }
+        });
+
+        assert.deepEqual(discovered.map((entry) => entry.relativePath), ['GEMINI.md']);
+        assert.equal(discovered[0].llm, 'gemini');
+    } finally {
+        profiles.matchInstructionFile = original;
+        delete require.cache[require.resolve('../src/discover')];
+    }
+});
+
+test('discover: ambiguous matches can use an explicit classifier callback', async () => {
+    const profiles = require('../src/profiles');
+    const original = profiles.matchInstructionFile;
+    profiles.matchInstructionFile = (relativePath) => relativePath === 'GEMINI.md' ? ['gemini', 'claude'] : original(relativePath);
+
+    try {
+        const { discoverInstructions: discoverFresh } = loadFresh('../src/discover');
+        const root = makeTempDir('soft-harness-discover-ambiguous-');
+        writeUtf8(path.join(root, 'GEMINI.md'), '# Gemini');
+
+        const discovered = await discoverFresh(root, {
+            classifyAmbiguous(relativePath, matches) {
+                assert.equal(relativePath, 'GEMINI.md');
+                assert.deepEqual(matches, ['gemini', 'claude']);
+                return 'claude';
+            }
+        });
+
+        assert.equal(discovered[0].llm, 'claude');
+    } finally {
+        profiles.matchInstructionFile = original;
+        delete require.cache[require.resolve('../src/discover')];
+    }
 });

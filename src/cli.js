@@ -6,6 +6,7 @@ const HELP = `soft-harness - single source of truth for LLM harness files
 
 Commands:
   soft-harness sync [options]         Reconcile .harness/ with the project
+  soft-harness analyze [options]      Compare prompts, settings, and skills across hosts
   soft-harness revert --list          List available backups
   soft-harness revert <timestamp>     Restore files from a backup
   soft-harness help                   Show this message
@@ -22,6 +23,13 @@ Sync options:
   --force-export-untracked-hosts      Allow repo-internal link exports even when target paths are not gitignored
   --no-run-installs                   Skip plugin install commands
   --no-run-uninstalls                 Skip plugin uninstall commands
+
+Analyze options:
+  --category=<name>                   Analyze prompts, settings, skills, or all
+  --llms=<names>                      Limit analysis to a comma-separated llm list
+  --verbose                           Show file-level analysis details
+  --explain                           Show classification reasons
+  --json                              Emit JSON instead of text
 `;
 
 function parseSyncArgs(args) {
@@ -47,6 +55,28 @@ function parseSyncArgs(args) {
     };
 }
 
+function parseAnalyzeArgs(args) {
+    const flags = new Set(args);
+    const categoryArg = args.find((arg) => arg.startsWith('--category='));
+    const llmsArg = args.find((arg) => arg.startsWith('--llms='));
+    const category = categoryArg ? categoryArg.split('=')[1] : 'all';
+    if (!['all', 'prompts', 'settings', 'skills'].includes(category)) {
+        throw new Error(`invalid --category: ${category}`);
+    }
+
+    const llms = llmsArg
+        ? llmsArg.split('=')[1].split(',').map((value) => value.trim()).filter(Boolean)
+        : [];
+
+    return {
+        category,
+        explain: flags.has('--explain'),
+        json: flags.has('--json'),
+        llms,
+        verbose: flags.has('--verbose') || flags.has('--explain')
+    };
+}
+
 async function runSync(args, io) {
     const { runSync: runSyncImpl } = require('./sync');
     let syncOptions;
@@ -62,6 +92,29 @@ async function runSync(args, io) {
 
     process.stdout.write(formatSyncReport(result, syncOptions));
     return 0;
+}
+
+async function runAnalyze(args) {
+    const { runAnalyze: runAnalyzeImpl } = require('./analyze');
+    let analyzeOptions;
+    try {
+        analyzeOptions = parseAnalyzeArgs(args);
+    } catch (error) {
+        process.stderr.write(`analyze failed: ${error.message}\n`);
+        return 1;
+    }
+
+    try {
+        const result = await runAnalyzeImpl(process.cwd(), analyzeOptions);
+        const report = analyzeOptions.json
+            ? `${JSON.stringify(result, null, 2)}\n`
+            : formatAnalyzeReport(result, analyzeOptions);
+        process.stdout.write(report);
+        return 0;
+    } catch (error) {
+        process.stderr.write(`analyze failed: ${error.message}\n`);
+        return 1;
+    }
 }
 
 function runRevert(args) {
@@ -106,6 +159,8 @@ async function main(argv, io) {
             return 0;
         case 'sync':
             return runSync(argv.slice(3), io);
+        case 'analyze':
+            return runAnalyze(argv.slice(3));
         case 'revert':
             return runRevert(argv.slice(3));
         default:
@@ -120,8 +175,10 @@ if (require.main === module) {
 
 module.exports = {
     HELP,
+    formatAnalyzeReport,
     formatSyncReport,
     main,
+    parseAnalyzeArgs,
     parseSyncArgs
 };
 
@@ -216,4 +273,33 @@ function formatDriftDetails(entries) {
 
 function formatConflictDetails(entries) {
     return (entries || []).map((entry) => `${entry.type}: ${entry.relativePath}`);
+}
+
+function formatAnalyzeReport(result, options) {
+    const lines = [];
+    lines.push(`analyze: common=${result.summary.common} similar=${result.summary.similar} conflicts=${result.summary.conflicts} host_only=${result.summary.host_only} unknown=${result.summary.unknown}`);
+
+    appendSection(lines, 'common', formatAnalyzeEntries(result.common, options));
+    appendSection(lines, 'similar', formatAnalyzeEntries(result.similar, options));
+    appendSection(lines, 'conflicts', formatAnalyzeEntries(result.conflicts, options));
+    appendSection(lines, 'host_only', formatAnalyzeEntries(result.host_only, options));
+    appendSection(lines, 'unknown', formatAnalyzeEntries(result.unknown, options));
+
+    return `${lines.join('\n')}\n`;
+}
+
+function formatAnalyzeEntries(entries, options) {
+    return (entries || []).map((entry) => {
+        const sources = (entry.sources || [])
+            .map((source) => `${source.llm}:${source.path || source.file}`)
+            .join(', ');
+        const detail = [`${entry.category}.${entry.kind} ${entry.key}`];
+        if (options && options.verbose && sources) {
+            detail.push(`from ${sources}`);
+        }
+        if (options && options.explain && entry.reason) {
+            detail.push(`(${entry.reason})`);
+        }
+        return detail.join(' ');
+    });
 }

@@ -11,7 +11,7 @@ It manages:
 
 ## Status
 
-`v0.3.0` is a clean break from the old registry-based prototype. The registry schema, `harness/` tree, and legacy commands are gone. The active model is:
+`v0.4.0` keeps the `.harness/` sync model and adds a read-only `analyze` command for comparing prompts, settings, skills, and agents across hosts. The old registry schema, `harness/` tree, and legacy commands are gone. The active model is:
 
 - `.harness/` is the source of truth
 - `soft-harness sync` reconciles `.harness/` and the project
@@ -42,6 +42,7 @@ soft-harness help
 
 ```text
 soft-harness sync [--manual-review] [--dry-run] [--verbose] [--explain] [--yes] [--no-import] [--no-export] [--link-mode=copy|symlink|junction] [--force-export-untracked-hosts] [--no-run-installs] [--no-run-uninstalls]
+soft-harness analyze [--category=all|prompts|settings|skills] [--llms=claude,codex,gemini] [--verbose] [--explain] [--json]
 soft-harness revert --list
 soft-harness revert <timestamp>
 soft-harness help
@@ -57,6 +58,14 @@ soft-harness sync
 ```
 
 On the first run, `soft-harness` imports discovered instruction files into `.harness/`, asks for review on adoption and common-section promotion, creates managed stubs at external locations, and writes sync state and backups.
+
+Use `analyze` when you want a read-only comparison before deciding whether content should be merged or normalized:
+
+```text
+soft-harness analyze
+soft-harness analyze --category=prompts --llms=claude,codex --explain
+soft-harness analyze --json
+```
 
 ## Layout
 
@@ -96,6 +105,7 @@ Skills and agents default to managed copy+marker exports for repo-internal host 
 - Import: project edits and unmanaged files can be pulled into `.harness/`
 - Export: missing or stale stubs, managed copies, and explicitly requested links are regenerated
 - Summary: `sync` explains file moves, section routing, bucket assignment, and export targets; `--explain` adds downgrade and merge reasons
+- Analyze: `analyze` is always read-only and groups prompts, settings, and skills into `common`, `similar`, `conflicts`, `host_only`, and `unknown`
 - Drift: managed targets are compared against regenerated expectations
 - Conflict detection: if both `.harness/` and a project target changed since the last sync, `sync` reports a conflict instead of silently choosing one side
 - Backup: non-dry-run syncs create a timestamped backup before writing
