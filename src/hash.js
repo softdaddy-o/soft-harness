@@ -1,6 +1,6 @@
 const crypto = require('node:crypto');
-const fs = require('node:fs');
 const path = require('node:path');
+const { getFsBackend } = require('./fs-backend');
 
 function normalize(content) {
     return String(content || '').replace(/\r\n/g, '\n');
@@ -11,7 +11,7 @@ function hashString(content) {
 }
 
 function hashFile(filePath) {
-    return hashString(fs.readFileSync(filePath, 'utf8'));
+    return hashString(getFsBackend().readFileSync(filePath, 'utf8'));
 }
 
 function hashDirectory(dirPath, options) {
@@ -33,7 +33,7 @@ function hashDirectory(dirPath, options) {
 
 function walk(rootDir, relativeDir, entries, ignore) {
     const currentDir = relativeDir ? path.join(rootDir, relativeDir) : rootDir;
-    const items = fs.readdirSync(currentDir, { withFileTypes: true });
+    const items = getFsBackend().readdirSync(currentDir, { withFileTypes: true });
 
     for (const item of items) {
         if (ignore.has(item.name)) {

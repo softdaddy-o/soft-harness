@@ -39,6 +39,35 @@ test('state: saveState persists and loadState restores values', () => {
     assert.equal(loaded.assets.instructions.length, 1);
 });
 
+test('state: loadState returns merged defaults when no state file exists or partial state is saved', () => {
+    const root = makeTempDir('soft-harness-state-defaults-');
+    const missing = loadState(root);
+    assert.deepEqual(missing.assets, {
+        instructions: [],
+        skills: [],
+        agents: []
+    });
+    assert.deepEqual(missing.classifications, {});
+
+    saveState(root, { assets: { instructions: [{ target: 'CLAUDE.md' }] } }, new Date('2026-04-13T10:00:00+09:00'));
+    const loaded = loadState(root);
+    assert.equal(loaded.assets.instructions.length, 1);
+    assert.deepEqual(loaded.assets.skills, []);
+    assert.deepEqual(loaded.assets.agents, []);
+    assert.match(loaded.synced_at, /^2026-04-13T10:00:00\+09:00$/);
+});
+
+test('state: saveState without explicit input still writes defaults and a timestamp', () => {
+    const root = makeTempDir('soft-harness-state-save-defaults-');
+    const saved = saveState(root);
+    assert.equal(saved.version, 1);
+    assert.ok(saved.synced_at);
+
+    const loaded = loadState(root);
+    assert.deepEqual(loaded.plugins, []);
+    assert.deepEqual(loaded.classifications, {});
+});
+
 test('discover: honors saved classifications and can skip unmatched files', async () => {
     const profiles = require('../src/profiles');
     const original = profiles.matchInstructionFile;

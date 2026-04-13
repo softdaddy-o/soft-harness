@@ -121,3 +121,38 @@ test('analyze/settings: parse-error inventory preserves toml format metadata', (
     assert.equal(result.settings[0].format, 'toml');
     assert.equal(result.settings[0].status, 'parse-error');
 });
+
+test('analyze: runAnalyze selects categories explicitly and by default', async () => {
+    const root = makeProjectTree('soft-harness-analyze-run-', {
+        'CLAUDE.md': '## Shared\nhello\n',
+        '.claude': {
+            skills: {
+                one: {
+                    'SKILL.md': '# One'
+                }
+            }
+        }
+    });
+
+    const { runAnalyze } = require('../src/analyze');
+    const promptsOnly = await runAnalyze(root, { category: 'prompts' });
+    assert.ok(promptsOnly.inventory.documents.length > 0);
+    assert.deepEqual(promptsOnly.inventory.settings, []);
+
+    const settingsOnly = await runAnalyze(root, { category: 'settings' });
+    assert.deepEqual(settingsOnly.inventory.documents, []);
+    assert.ok(Array.isArray(settingsOnly.inventory.settings));
+
+    const skillsOnly = await runAnalyze(root, { category: 'skills' });
+    assert.deepEqual(skillsOnly.inventory.documents, []);
+    assert.deepEqual(skillsOnly.inventory.settings, []);
+    assert.ok(skillsOnly.summary.host_only >= 1);
+
+    const explicitAll = await runAnalyze(root, { category: 'all' });
+    assert.ok(explicitAll.summary.host_only >= 1);
+
+    const allCategories = await runAnalyze(root, {});
+    assert.ok(allCategories.inventory.documents.length > 0);
+    assert.ok(Array.isArray(allCategories.inventory.settings));
+    assert.ok(allCategories.summary.host_only >= 1);
+});

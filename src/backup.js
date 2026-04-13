@@ -1,5 +1,5 @@
-const fs = require('node:fs');
 const path = require('node:path');
+const { getFsBackend } = require('./fs-backend');
 const { copyPath, ensureDir, exists, kstTimestamp, readJson, removePath, writeJson } = require('./fs-util');
 const { getHarnessDir } = require('./state');
 
@@ -36,12 +36,12 @@ function createBackup(rootDir, paths, options) {
             continue;
         }
 
-        const stats = fs.lstatSync(absolutePath);
+        const stats = getFsBackend().lstatSync(absolutePath);
         if (stats.isSymbolicLink()) {
             entries.push({
                 path: relativePath,
                 kind: 'symlink',
-                linkTarget: fs.readlinkSync(absolutePath),
+                linkTarget: getFsBackend().readlinkSync(absolutePath),
                 linkType: inferLinkType(absolutePath)
             });
             continue;
@@ -97,7 +97,7 @@ function listBackups(rootDir) {
         return [];
     }
 
-    return fs.readdirSync(backupsDir)
+    return getFsBackend().readdirSync(backupsDir)
         .filter((entry) => exists(path.join(backupsDir, entry, 'manifest.json')))
         .sort()
         .map((timestamp) => {
@@ -129,7 +129,7 @@ function restoreBackup(rootDir, timestamp) {
         if (entry.kind === 'symlink') {
             removePath(targetPath);
             ensureDir(path.dirname(targetPath));
-            fs.symlinkSync(entry.linkTarget, targetPath, entry.linkType || 'junction');
+            getFsBackend().symlinkSync(entry.linkTarget, targetPath, entry.linkType || 'junction');
             continue;
         }
 
@@ -145,7 +145,7 @@ function restoreBackup(rootDir, timestamp) {
 
 function inferLinkType(absolutePath) {
     try {
-        const stats = fs.statSync(absolutePath);
+        const stats = getFsBackend().statSync(absolutePath);
         return stats.isDirectory() ? 'junction' : 'file';
     } catch (error) {
         return 'junction';

@@ -474,6 +474,13 @@ function formatAnalyzeSummaryLine(entry) {
 
 function formatAnalyzeExplainLines(entry) {
     const lines = [];
+    if (entry.key) {
+        lines.push(`id: ${entry.key}`);
+    }
+    if (entry.sources && entry.sources.length > 0) {
+        lines.push(`present: ${uniqueLlms(entry).join(', ')}`);
+        lines.push(`shared: ${entry.bucket === 'common' ? 'yes' : 'no'}`);
+    }
     if (entry.reason && entry.bucket !== 'unknown') {
         lines.push(`reason: ${entry.reason}`);
     }

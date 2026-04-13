@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { createMemoryFs } = require('../test-support/memory-fs');
 
 function makeTempDir(prefix) {
     return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -73,6 +74,7 @@ function loadFresh(modulePath) {
 
 module.exports = {
     copyFixture,
+    createMemoryFs,
     initGitRepo,
     loadFresh,
     makeProjectTree,

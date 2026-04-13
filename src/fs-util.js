@@ -1,29 +1,29 @@
-const fs = require('node:fs');
 const path = require('node:path');
+const { getFsBackend } = require('./fs-backend');
 
 function ensureDir(dirPath) {
-    fs.mkdirSync(dirPath, { recursive: true });
+    getFsBackend().mkdirSync(dirPath, { recursive: true });
 }
 
 function exists(filePath) {
-    return fs.existsSync(filePath);
+    return getFsBackend().existsSync(filePath);
 }
 
 function isFile(filePath) {
-    return exists(filePath) && fs.statSync(filePath).isFile();
+    return exists(filePath) && getFsBackend().statSync(filePath).isFile();
 }
 
 function isDirectory(filePath) {
-    return exists(filePath) && fs.statSync(filePath).isDirectory();
+    return exists(filePath) && getFsBackend().statSync(filePath).isDirectory();
 }
 
 function readUtf8(filePath) {
-    return fs.readFileSync(filePath, 'utf8');
+    return getFsBackend().readFileSync(filePath, 'utf8');
 }
 
 function writeUtf8(filePath, content) {
     ensureDir(path.dirname(filePath));
-    fs.writeFileSync(filePath, content, 'utf8');
+    getFsBackend().writeFileSync(filePath, content, 'utf8');
 }
 
 function readJson(filePath, fallback) {
@@ -39,7 +39,7 @@ function writeJson(filePath, value) {
 
 function copyPath(sourcePath, targetPath) {
     ensureDir(path.dirname(targetPath));
-    fs.cpSync(sourcePath, targetPath, {
+    getFsBackend().cpSync(sourcePath, targetPath, {
         recursive: true,
         force: true
     });
@@ -47,7 +47,7 @@ function copyPath(sourcePath, targetPath) {
 
 function removePath(targetPath) {
     if (exists(targetPath)) {
-        fs.rmSync(targetPath, { recursive: true, force: true });
+        getFsBackend().rmSync(targetPath, { recursive: true, force: true });
     }
 }
 
@@ -55,7 +55,7 @@ function getMtime(filePath) {
     if (!exists(filePath)) {
         return 0;
     }
-    return fs.statSync(filePath).mtimeMs;
+    return getFsBackend().statSync(filePath).mtimeMs;
 }
 
 function toPosixRelative(fromPath, toPath) {
@@ -103,7 +103,7 @@ function walkFiles(rootDir, predicate) {
 
 function walkInto(rootDir, relativeDir, results, predicate) {
     const currentDir = relativeDir ? path.join(rootDir, relativeDir) : rootDir;
-    const items = fs.readdirSync(currentDir, { withFileTypes: true });
+    const items = getFsBackend().readdirSync(currentDir, { withFileTypes: true });
 
     for (const item of items) {
         const relativePath = relativeDir ? path.posix.join(relativeDir, item.name) : item.name;

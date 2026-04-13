@@ -426,6 +426,7 @@ test('cli: formatAnalyzeReport renders verbose and explain details', () => {
             }]
         },
         common: [{
+            bucket: 'common',
             category: 'prompts',
             kind: 'section',
             key: 'prompts.section:Shared',
@@ -435,6 +436,7 @@ test('cli: formatAnalyzeReport renders verbose and explain details', () => {
         similar: [],
         conflicts: [],
         host_only: [{
+            bucket: 'host_only',
             category: 'skills',
             kind: 'skill',
             key: 'skills.skill.foo',
@@ -449,6 +451,11 @@ test('cli: formatAnalyzeReport renders verbose and explain details', () => {
     assert.match(output, /└─ Shared/u);
     assert.match(output, /📍 Host Only \(한 호스트에만 존재\)/u);
     assert.match(output, /└─ foo/u);
+    assert.match(output, /id: prompts\.section:Shared/);
+    assert.match(output, /present: claude/);
+    assert.match(output, /shared: yes/);
+    assert.match(output, /id: skills\.skill\.foo/);
+    assert.match(output, /shared: no/);
     assert.match(output, /📄 Documents/u);
     assert.match(output, /└─ claude:CLAUDE\.md  \[import-stub\]  headings=1  sources=\.harness\/HARNESS\.md, \.harness\/llm\/claude\.md  sections=Shared/u);
     assert.match(output, /⚙️ Settings/u);

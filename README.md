@@ -11,9 +11,10 @@ It manages:
 
 ## Status
 
-`v0.4.6` keeps the `.harness/` sync model, adds a read-only `analyze` command for comparing prompts, settings, skills, and agents across hosts, fixes fenced-code heading parsing, adds `remember` for writing memory directly into project or account harness truth before regenerating affected outputs, renders `sync --dry-run` import trees destination-first with explicit source attribution, and lets `sync` and `analyze` target either an explicit `--root` or the current account home with `--account`. The old registry schema, `harness/` tree, and legacy commands are gone. The active model is:
+`v0.4.7` keeps the `.harness/` sync model, adds an in-memory filesystem test backend for broader unit coverage, keeps symlink and junction checks in focused real-filesystem tests, starts the `analyze -> curate -> sync` workflow with stable analyze item metadata, and lets `sync` and `analyze` target either an explicit `--root` or the current account home with `--account`. The old registry schema, `harness/` tree, and legacy commands are gone. The active model is:
 
 - `.harness/` is the source of truth
+- the intended workflow is `analyze -> curate -> sync`
 - `soft-harness sync` reconciles `.harness/` and the project
 - `soft-harness remember` records memory into harness truth and regenerates outputs
 - `soft-harness revert` restores a backup snapshot
@@ -70,6 +71,7 @@ soft-harness analyze --json
 ```
 
 The text report always lists discovered prompt documents and settings files first. `--explain` adds per-item details such as stub source files, discovered section headings, MCP server names, host-only keys, and parse errors.
+It also emits stable item metadata such as `id`, `present`, and `shared` so the upcoming `curate` workflow can target the same items without guessing.
 
 Use `remember` when a user asks you to record guidance or memory into the harness source of truth instead of editing generated host files directly:
 
