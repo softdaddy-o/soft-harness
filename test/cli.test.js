@@ -65,8 +65,15 @@ test('cli: formatSyncReport shows routing details', () => {
                     to: '.harness/llm/claude.md',
                     sections: [
                         { heading: 'Code Style', level: 2, nearMatch: null },
-                        { heading: 'Markdown', level: 3, nearMatch: { otherLlms: ['codex'], similarity: 0.62 } }
+                        { heading: 'Markdown', level: 3, nearMatch: { otherLlms: ['codex'], similarity: 0.62 } },
+                        { heading: 'Git Conventions', level: 2, nearMatch: null }
                     ]
+                },
+                {
+                    action: 'adopt-plan',
+                    from: 'AGENTS.md',
+                    to: '.harness/llm/codex.md',
+                    sections: []
                 },
                 { action: 'extract-common', heading: 'Code Style', from: ['CLAUDE.md', 'AGENTS.md'], to: '.harness/HARNESS.md' }
             ],
@@ -79,10 +86,12 @@ test('cli: formatSyncReport shows routing details', () => {
         pluginActions: []
     }, { explain: false });
 
-    assert.match(output, /📦 import=1  export=1  drift=0  conflicts=0/);
+    assert.match(output, /📦 import=1  export=1  drift=0  conflicts=0/u);
     assert.match(output, /CLAUDE\.md  \.harness\/llm\/claude\.md/);
-    assert.match(output, /Code Style/);
-    assert.match(output, /Markdown   \(codex와 near match 62%, LLM-specific 유지\)/);
+    assert.match(output, /├─ Code Style/u);
+    assert.match(output, /│  └─ Markdown \(codex와 near match 62%, LLM-specific 유지\)/u);
+    assert.match(output, /└─ Git Conventions/u);
+    assert.match(output, /AGENTS\.md  \.harness\/llm\/codex\.md/);
     assert.match(output, /section "Code Style" from CLAUDE\.md, AGENTS\.md -> \.harness\/HARNESS\.md/);
     assert.match(output, /\.harness\/HARNESS\.md \+ \.harness\/llm\/claude\.md -> CLAUDE\.md/);
 });
@@ -114,9 +123,9 @@ test('cli: formatSyncReport includes plugins, drift targets, bucket reasons, and
         ]
     }, { explain: true });
 
-    assert.match(output, /✅ imported=0  exported=0  pulled_back=0/);
+    assert.match(output, /✅ imported=0  exported=0  pulled_back=0/u);
     assert.match(output, /backup: 2026-04-13-120000/);
-    assert.match(output, /exports:/);
+    assert.match(output, /\nexports\n/u);
     assert.match(output, /\.harness\/skills\/common\/foo -> \.claude\/skills\/foo \[copy\] \(default-copy\)/);
     assert.match(output, /skill: \.claude\/skills\/foo/);
     assert.match(output, /instruction: CLAUDE\.md/);
@@ -168,9 +177,9 @@ test('cli: formatSyncReport explain covers maybe-common legacy imports and group
 
     assert.match(output, /left LLM-specific \(near match across claude, codex, similarity=0\.62\)/);
     assert.match(output, /\.claude\/skills\/  \.harness\/skills\/claude\/ \(1 skills, .*llm-specific\)/);
-    assert.match(output, /monitor-sentry/);
+    assert.match(output, /└─ monitor-sentry/u);
     assert.match(output, /solo-agent\.md  \.harness\/agents\/common\/ \(1 agents, identical-across-llms\)/);
-    assert.match(output, /solo-agent/);
+    assert.match(output, /└─ solo-agent/u);
 });
 
 test('cli: formatAnalyzeReport renders verbose and explain details', () => {
@@ -213,14 +222,14 @@ test('cli: formatAnalyzeReport renders verbose and explain details', () => {
         unknown: []
     }, { verbose: true, explain: true });
 
-    assert.match(output, /📊 common=1  similar=0  conflicts=0  host_only=1  unknown=0/);
-    assert.match(output, /✅ Common \(동일 내용\)/);
-    assert.match(output, /Shared/);
-    assert.match(output, /📍 Host Only \(한 호스트에만 존재\)/);
-    assert.match(output, /foo/);
-    assert.match(output, /📄 Documents/);
-    assert.match(output, /claude:CLAUDE\.md  \[import-stub\]  headings=1  sources=\.harness\/HARNESS\.md, \.harness\/llm\/claude\.md  sections=Shared/);
-    assert.match(output, /⚙️ Settings/);
+    assert.match(output, /📊 common=1  similar=0  conflicts=0  host_only=1  unknown=0/u);
+    assert.match(output, /✅ Common \(동일 내용\)/u);
+    assert.match(output, /└─ Shared/u);
+    assert.match(output, /📍 Host Only \(한 호스트에만 존재\)/u);
+    assert.match(output, /└─ foo/u);
+    assert.match(output, /📄 Documents/u);
+    assert.match(output, /└─ claude:CLAUDE\.md  \[import-stub\]  headings=1  sources=\.harness\/HARNESS\.md, \.harness\/llm\/claude\.md  sections=Shared/u);
+    assert.match(output, /⚙️ Settings/u);
     assert.match(output, /claude:\.claude\/settings\.json  \[json\/parsed\]  mcp=1  keys=1  servers=shared  keys=theme/);
 });
 
@@ -261,13 +270,22 @@ test('cli: formatAnalyzeReport shows similar percentages and unknown reasons', (
                 key: 'settings.key:custom_flag',
                 sources: [{ llm: 'claude', file: '.claude/settings.json' }],
                 reason: 'manual review required'
+            },
+            {
+                bucket: 'unknown',
+                category: 'prompts',
+                kind: 'section',
+                key: 'untitled',
+                sources: [{ llm: 'gemini', path: 'GEMINI.md#untitled' }],
+                reason: 'needs manual review'
             }
         ]
     }, { explain: false });
 
-    assert.match(output, /Repository Overview\s+\(claude  codex, 62%\)/);
-    assert.match(output, /\(codex, .*헤딩 없는 내용.*\)/);
+    assert.match(output, /└─ Repository Overview\s+\(claude  codex, 62%\)/u);
+    assert.match(output, /\(codex, 헤딩 없는 내용\)/u);
     assert.match(output, /\(claude, manual review required\)/);
+    assert.match(output, /\(gemini, needs manual review\)/);
 });
 
 test('cli: formatAnalyzeReport includes untitled prompt counts and settings parse errors', () => {

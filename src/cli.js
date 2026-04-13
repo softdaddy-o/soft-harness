@@ -32,6 +32,19 @@ Analyze options:
   --json                              Emit JSON instead of text
 `;
 
+const ICONS = {
+    analyze: '📊',
+    common: '✅ Common',
+    completed: '✅',
+    conflicts: '⚠️ Conflicts',
+    documents: '📄 Documents',
+    hostOnly: '📍 Host Only',
+    settings: '⚙️ Settings',
+    similar: '🔀 Similar',
+    syncPlan: '📦',
+    unknown: '❓ Unknown'
+};
+
 function parseSyncArgs(args) {
     const flags = new Set(args);
     const linkModeArg = args.find((arg) => arg.startsWith('--link-mode='));
@@ -185,10 +198,10 @@ module.exports = {
 function formatSyncReport(result, options) {
     const lines = [];
     if (result.phase === 'dry-run') {
-        lines.push(`📦 import=${result.plan.import.length}  export=${result.plan.export.length}  drift=${result.plan.drift.length}  conflicts=${result.plan.conflicts.length}`);
+        lines.push(`${ICONS.syncPlan} import=${result.plan.import.length}  export=${result.plan.export.length}  drift=${result.plan.drift.length}  conflicts=${result.plan.conflicts.length}`);
         appendSyncDryRunPlan(lines, result.details, options);
     } else {
-        lines.push(`✅ imported=${result.imported.length}  exported=${result.exported.length}  pulled_back=${result.pulledBack.length}`);
+        lines.push(`${ICONS.completed} imported=${result.imported.length}  exported=${result.exported.length}  pulled_back=${result.pulledBack.length}`);
         if (result.backupTs) {
             lines.push(`backup: ${result.backupTs}`);
         }
@@ -198,10 +211,11 @@ function formatSyncReport(result, options) {
     }
 
     if (result.pluginActions && result.pluginActions.length > 0) {
-        lines.push('plugins:');
-        for (const action of result.pluginActions) {
-            lines.push(`  - ${action.status}: ${action.name}${action.version ? `@${action.version}` : ''}`);
-        }
+        lines.push('');
+        lines.push('plugins');
+        appendTreeItems(lines, result.pluginActions.map((action) => ({
+            text: `${action.status}: ${action.name}${action.version ? `@${action.version}` : ''}`
+        })));
     }
 
     return `${lines.join('\n')}\n`;
@@ -212,10 +226,9 @@ function appendSection(lines, label, entries) {
         return;
     }
 
-    lines.push(`${label}:`);
-    for (const entry of entries) {
-        lines.push(`  - ${entry}`);
-    }
+    lines.push('');
+    lines.push(label);
+    appendTreeItems(lines, entries.map((entry) => ({ text: entry })));
 }
 
 function formatImportDetails(entries, options) {
@@ -276,27 +289,27 @@ function formatConflictDetails(entries) {
 
 function formatAnalyzeReport(result, options) {
     const lines = [];
-    lines.push(`📊 common=${result.summary.common}  similar=${result.summary.similar}  conflicts=${result.summary.conflicts}  host_only=${result.summary.host_only}  unknown=${result.summary.unknown}`);
+    lines.push(`${ICONS.analyze} common=${result.summary.common}  similar=${result.summary.similar}  conflicts=${result.summary.conflicts}  host_only=${result.summary.host_only}  unknown=${result.summary.unknown}`);
 
     if (options && options.verbose) {
-        appendAnalyzeBucket(lines, '✅ Common', '동일 내용', result.common, options);
+        appendAnalyzeBucket(lines, ICONS.common, '동일 내용', result.common, options);
     }
-    appendAnalyzeBucket(lines, '🔀 Similar', '같은 제목, 내용 유사', result.similar, options);
-    appendAnalyzeBucket(lines, '⚠️ Conflicts', '같은 제목, 내용 충돌', result.conflicts, options);
+    appendAnalyzeBucket(lines, ICONS.similar, '같은 제목, 내용 유사', result.similar, options);
+    appendAnalyzeBucket(lines, ICONS.conflicts, '같은 제목, 내용 충돌', result.conflicts, options);
     if (options && options.verbose) {
-        appendAnalyzeBucket(lines, '📍 Host Only', '한 호스트에만 존재', result.host_only, options);
+        appendAnalyzeBucket(lines, ICONS.hostOnly, '한 호스트에만 존재', result.host_only, options);
     }
-    appendAnalyzeBucket(lines, '❓ Unknown', '자동 분류 불가', result.unknown, options);
+    appendAnalyzeBucket(lines, ICONS.unknown, '자동 분류 불가', result.unknown, options);
 
     if (options && options.explain) {
-        appendSection(lines, '📄 Documents', formatAnalyzeDocuments(result.inventory && result.inventory.documents, options));
-        appendSection(lines, '⚙️ Settings', formatAnalyzeSettings(result.inventory && result.inventory.settings, options));
+        appendSection(lines, ICONS.documents, formatAnalyzeDocuments(result.inventory && result.inventory.documents));
+        appendSection(lines, ICONS.settings, formatAnalyzeSettings(result.inventory && result.inventory.settings));
     }
 
     return `${lines.join('\n')}\n`;
 }
 
-function formatAnalyzeDocuments(entries, options) {
+function formatAnalyzeDocuments(entries) {
     return (entries || []).map((entry) => {
         const parts = [`${entry.llm}:${entry.file}`, `[${entry.mode}]`, `headings=${entry.sectionHeadings.length}`];
         if (entry.sourceFiles && entry.sourceFiles.length > 0) {
@@ -335,14 +348,12 @@ function appendAnalyzeBucket(lines, title, subtitle, entries, options) {
 
     lines.push('');
     lines.push(`${title} (${subtitle})`);
-    for (const entry of entries) {
-        lines.push(` ${formatAnalyzeSummaryLine(entry)}`);
-        if (options && options.explain) {
-            for (const detail of formatAnalyzeExplainLines(entry)) {
-                lines.push(`   ${detail}`);
-            }
-        }
-    }
+    appendTreeItems(lines, (entries || []).map((entry) => ({
+        text: formatAnalyzeSummaryLine(entry),
+        children: options && options.explain
+            ? formatAnalyzeExplainLines(entry).map((detail) => ({ text: detail }))
+            : []
+    })));
 }
 
 function formatAnalyzeSummaryLine(entry) {
@@ -373,6 +384,10 @@ function getAnalyzeLabel(entry) {
     const index = value.lastIndexOf(':');
     if (index !== -1) {
         return value.slice(index + 1);
+    }
+    const dotIndex = value.lastIndexOf('.');
+    if (dotIndex !== -1) {
+        return value.slice(dotIndex + 1);
     }
     return value;
 }
@@ -406,15 +421,7 @@ function appendInstructionImportPlan(lines, imports, options) {
     for (const plan of plans) {
         lines.push('');
         lines.push(`${plan.from}  ${plan.to}`);
-        for (const section of plan.sections || []) {
-            const indent = ' '.repeat(Math.max(section.level, 0) * 3);
-            const heading = section.heading || '(untitled)';
-            let suffix = '';
-            if (section.nearMatch) {
-                suffix = `   (${section.nearMatch.otherLlms.join(', ')}와 near match ${Math.round(section.nearMatch.similarity * 100)}%, LLM-specific 유지)`;
-            }
-            lines.push(`${indent}${heading}${suffix}`);
-        }
+        appendTreeItems(lines, buildSectionTreeItems(plan.sections));
     }
 }
 
@@ -443,7 +450,7 @@ function appendSkillImportPlan(lines, imports, options) {
         const kindLabel = group.type === 'skill' ? 'skills' : 'agents';
         const reasonLabel = group.reason === 'llm-specific' ? '전부 llm-specific' : group.reason;
         lines.push(`${group.from}  ${group.to} (${group.names.length} ${kindLabel}, ${reasonLabel})`);
-        lines.push(` ${group.names.sort().join('   ')}`);
+        appendTreeItems(lines, group.names.sort().map((name) => ({ text: name })));
     }
 }
 
@@ -454,4 +461,53 @@ function getBucketSourceRoot(relativePath) {
         return normalized;
     }
     return `${parts.slice(0, parts.length - 1).join('/')}/`;
+}
+
+function buildSectionTreeItems(sections) {
+    if (!sections || sections.length === 0) {
+        return [];
+    }
+
+    const levels = sections.map((section) => Number.isFinite(section.level) ? section.level : 0);
+    const baseLevel = Math.min(...levels);
+    const roots = [];
+    const stack = [];
+
+    for (const section of sections) {
+        const rawLevel = Number.isFinite(section.level) ? section.level : baseLevel;
+        const normalizedLevel = Math.max(0, rawLevel - baseLevel);
+        const level = Math.min(normalizedLevel, stack.length);
+        const heading = section.heading || '(untitled)';
+        const suffix = section.nearMatch
+            ? ` (${section.nearMatch.otherLlms.join(', ')}와 near match ${Math.round(section.nearMatch.similarity * 100)}%, LLM-specific 유지)`
+            : '';
+        const item = { text: `${heading}${suffix}`, children: [] };
+
+        while (stack.length > level) {
+            stack.pop();
+        }
+
+        if (stack.length === 0) {
+            roots.push(item);
+        } else {
+            stack[stack.length - 1].children.push(item);
+        }
+        stack.push(item);
+    }
+
+    return roots;
+}
+
+function appendTreeItems(lines, items, prefix = '') {
+    for (let index = 0; index < items.length; index += 1) {
+        const item = items[index];
+        const isLast = index === items.length - 1;
+        const branch = isLast ? '└─ ' : '├─ ';
+        const childPrefix = `${prefix}${isLast ? '   ' : '│  '}`;
+
+        lines.push(`${prefix}${branch}${item.text}`);
+        if (item.children && item.children.length > 0) {
+            appendTreeItems(lines, item.children, childPrefix);
+        }
+    }
 }
