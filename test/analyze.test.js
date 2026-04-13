@@ -34,6 +34,7 @@ test('analyze: prompts classify common, similar, host-only, and unknown sections
 
     const result = await runAnalyze(root, { category: 'prompts' });
 
+    assert.deepEqual(result.inventory.documents.map((entry) => entry.file).sort(), ['AGENTS.md', 'CLAUDE.md']);
     assert.ok(result.common.some((entry) => entry.key === 'prompts.section:Shared'));
     assert.ok(result.similar.some((entry) => entry.key === 'prompts.section:Similar'));
     assert.ok(result.host_only.some((entry) => entry.key === 'prompts.section:Claude Only'));
@@ -78,6 +79,7 @@ test('analyze: settings classify common, similar, conflict, host-only, and unkno
 
     const result = await runAnalyze(root, { category: 'settings' });
 
+    assert.deepEqual(result.inventory.settings.map((entry) => entry.file).sort(), ['.claude/settings.json', '.codex/config.toml', '.gemini/settings.json']);
     assert.ok(result.common.some((entry) => entry.key === 'settings.mcp.shared'));
     assert.ok(result.similar.some((entry) => entry.key === 'settings.mcp.similar'));
     assert.ok(result.conflicts.some((entry) => entry.key === 'settings.mcp.conflict'));
@@ -191,6 +193,12 @@ test('analyze: managed prompt stubs resolve to backing harness content instead o
 
     const result = await runAnalyze(root, { category: 'prompts' });
 
+    const claudeDocument = result.inventory.documents.find((entry) => entry.file === 'CLAUDE.md');
+    const codexDocument = result.inventory.documents.find((entry) => entry.file === 'AGENTS.md');
+    assert.equal(claudeDocument.mode, 'import-stub');
+    assert.deepEqual(claudeDocument.sourceFiles, ['.harness/HARNESS.md', '.harness/llm/claude.md']);
+    assert.equal(codexDocument.mode, 'concat-stub');
+    assert.deepEqual(codexDocument.sourceFiles, ['HARNESS.md', 'llm/codex.md']);
     assert.ok(result.common.some((entry) => entry.key === 'prompts.section:Shared'));
     assert.ok(result.host_only.some((entry) => entry.key === 'prompts.section:Claude Only'));
     assert.ok(result.host_only.some((entry) => entry.key === 'prompts.section:Codex Only'));

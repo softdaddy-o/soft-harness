@@ -116,6 +116,24 @@ test('cli: formatSyncReport includes plugins, drift targets, bucket reasons, and
 test('cli: formatAnalyzeReport renders verbose and explain details', () => {
     const output = formatAnalyzeReport({
         summary: { common: 1, similar: 0, conflicts: 0, host_only: 1, unknown: 0 },
+        inventory: {
+            documents: [{
+                llm: 'claude',
+                file: 'CLAUDE.md',
+                mode: 'import-stub',
+                sourceFiles: ['.harness/HARNESS.md', '.harness/llm/claude.md'],
+                sectionHeadings: ['Shared'],
+                untitledCount: 0
+            }],
+            settings: [{
+                llm: 'claude',
+                file: '.claude/settings.json',
+                format: 'json',
+                status: 'parsed',
+                mcpServers: ['shared'],
+                hostOnlyKeys: ['theme']
+            }]
+        },
         common: [{
             category: 'prompts',
             kind: 'section',
@@ -136,8 +154,51 @@ test('cli: formatAnalyzeReport renders verbose and explain details', () => {
     }, { verbose: true, explain: true });
 
     assert.match(output, /analyze: common=1 similar=0 conflicts=0 host_only=1 unknown=0/);
+    assert.match(output, /documents:/);
+    assert.match(output, /claude:CLAUDE\.md \[import-stub\] headings=1 \(sources=\.harness\/HARNESS\.md, \.harness\/llm\/claude\.md; sections=Shared\)/);
+    assert.match(output, /settings:/);
+    assert.match(output, /claude:\.claude\/settings\.json \[json\/parsed\] mcp=1 keys=1 \(servers=shared; keys=theme\)/);
     assert.match(output, /prompts.section prompts\.section:Shared from claude:CLAUDE\.md#Shared \(normalized section bodies are identical\)/);
     assert.match(output, /skills.skill skills\.skill\.foo from claude:\.claude\/skills\/foo \(skill exists for only one host\)/);
+});
+
+test('cli: formatAnalyzeReport includes untitled prompt counts and settings parse errors', () => {
+    const output = formatAnalyzeReport({
+        summary: { common: 0, similar: 0, conflicts: 0, host_only: 0, unknown: 1 },
+        inventory: {
+            documents: [{
+                llm: 'claude',
+                file: 'CLAUDE.md',
+                mode: 'direct',
+                sourceFiles: ['CLAUDE.md'],
+                sectionHeadings: [],
+                untitledCount: 2
+            }],
+            settings: [{
+                llm: 'codex',
+                file: '.codex/config.toml',
+                format: 'toml',
+                status: 'parse-error',
+                mcpServers: [],
+                hostOnlyKeys: [],
+                error: 'bad toml'
+            }]
+        },
+        common: [],
+        similar: [],
+        conflicts: [],
+        host_only: [],
+        unknown: [{
+            category: 'prompts',
+            kind: 'section',
+            key: 'CLAUDE.md#(untitled)',
+            sources: [{ llm: 'claude', path: 'CLAUDE.md#(untitled)' }],
+            reason: 'headingless content cannot be classified reliably'
+        }]
+    }, { verbose: true, explain: true });
+
+    assert.match(output, /claude:CLAUDE\.md \[direct\] headings=0 \(sources=CLAUDE\.md; untitled=2\)/);
+    assert.match(output, /codex:\.codex\/config\.toml \[toml\/parse-error\] mcp=0 keys=0 \(error=bad toml\)/);
 });
 
 test('cli: main runs sync, analyze, and revert flows in-process', async () => {
@@ -175,6 +236,11 @@ test('cli: main runs sync, analyze, and revert flows in-process', async () => {
 
         assert.equal(await main(['node', 'cli.js', 'analyze', '--category=prompts'], {}), 0);
         assert.ok(stdout.join('').includes('analyze:'));
+        assert.ok(stdout.join('').includes('documents:'));
+        stdout.length = 0;
+
+        assert.equal(await main(['node', 'cli.js', 'analyze', '--category=settings', '--json'], {}), 0);
+        assert.ok(JSON.parse(stdout.join('')).inventory.settings);
         stdout.length = 0;
 
         assert.equal(await main(['node', 'cli.js', 'revert', '--list'], {}), 0);

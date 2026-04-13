@@ -278,6 +278,8 @@ function formatConflictDetails(entries) {
 function formatAnalyzeReport(result, options) {
     const lines = [];
     lines.push(`analyze: common=${result.summary.common} similar=${result.summary.similar} conflicts=${result.summary.conflicts} host_only=${result.summary.host_only} unknown=${result.summary.unknown}`);
+    appendSection(lines, 'documents', formatAnalyzeDocuments(result.inventory && result.inventory.documents, options));
+    appendSection(lines, 'settings', formatAnalyzeSettings(result.inventory && result.inventory.settings, options));
 
     appendSection(lines, 'common', formatAnalyzeEntries(result.common, options));
     appendSection(lines, 'similar', formatAnalyzeEntries(result.similar, options));
@@ -299,6 +301,56 @@ function formatAnalyzeEntries(entries, options) {
         }
         if (options && options.explain && entry.reason) {
             detail.push(`(${entry.reason})`);
+        }
+        return detail.join(' ');
+    });
+}
+
+function formatAnalyzeDocuments(entries, options) {
+    return (entries || []).map((entry) => {
+        const detail = [`${entry.llm}:${entry.file} [${entry.mode}]`];
+        if (options && options.verbose) {
+            detail.push(`headings=${entry.sectionHeadings.length}`);
+        }
+        if (options && options.explain) {
+            const parts = [];
+            if (entry.sourceFiles && entry.sourceFiles.length > 0) {
+                parts.push(`sources=${entry.sourceFiles.join(', ')}`);
+            }
+            if (entry.sectionHeadings && entry.sectionHeadings.length > 0) {
+                parts.push(`sections=${entry.sectionHeadings.join(', ')}`);
+            }
+            if (entry.untitledCount > 0) {
+                parts.push(`untitled=${entry.untitledCount}`);
+            }
+            if (parts.length > 0) {
+                detail.push(`(${parts.join('; ')})`);
+            }
+        }
+        return detail.join(' ');
+    });
+}
+
+function formatAnalyzeSettings(entries, options) {
+    return (entries || []).map((entry) => {
+        const detail = [`${entry.llm}:${entry.file} [${entry.format}/${entry.status}]`];
+        if (options && options.verbose) {
+            detail.push(`mcp=${entry.mcpServers.length} keys=${entry.hostOnlyKeys.length}`);
+        }
+        if (options && options.explain) {
+            const parts = [];
+            if (entry.mcpServers.length > 0) {
+                parts.push(`servers=${entry.mcpServers.join(', ')}`);
+            }
+            if (entry.hostOnlyKeys.length > 0) {
+                parts.push(`keys=${entry.hostOnlyKeys.join(', ')}`);
+            }
+            if (entry.error) {
+                parts.push(`error=${entry.error}`);
+            }
+            if (parts.length > 0) {
+                detail.push(`(${parts.join('; ')})`);
+            }
         }
         return detail.join(' ');
     });

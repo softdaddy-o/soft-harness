@@ -11,6 +11,7 @@ function analyzeSettings(rootDir, options) {
         hostOnly: [],
         unknown: []
     };
+    const settings = [];
     const llms = selectLlms(options);
     const mcpEntries = [];
 
@@ -28,6 +29,14 @@ function analyzeSettings(rootDir, options) {
 
         try {
             const parsed = parseSettingsFile(settingsPath, readUtf8(absolutePath));
+            settings.push({
+                llm,
+                file: settingsPath,
+                format: parsed.format,
+                status: 'parsed',
+                mcpServers: parsed.mcpServers.map((server) => server.name),
+                hostOnlyKeys: parsed.hostOnlyKeys
+            });
             mcpEntries.push(...parsed.mcpServers.map((server) => ({
                 ...server,
                 llm,
@@ -48,6 +57,15 @@ function analyzeSettings(rootDir, options) {
                 }));
             }
         } catch (error) {
+            settings.push({
+                llm,
+                file: settingsPath,
+                format: detectSettingsFormat(settingsPath),
+                status: 'parse-error',
+                mcpServers: [],
+                hostOnlyKeys: [],
+                error: error.message
+            });
             findings.unknown.push(createFinding('unknown', {
                 category: 'settings',
                 kind: 'file',
@@ -105,7 +123,10 @@ function analyzeSettings(rootDir, options) {
         }));
     }
 
-    return findings;
+    return {
+        findings,
+        settings
+    };
 }
 
 function parseSettingsFile(settingsPath, content) {
@@ -123,6 +144,7 @@ function parseJsonSettings(content) {
     const mcpServers = Object.entries(parsed.mcpServers || {}).map(([name, value]) => buildMcpServer(name, value));
     const hostOnlyKeys = Object.keys(parsed).filter((key) => key !== 'mcpServers');
     return {
+        format: 'json',
         mcpServers,
         hostOnlyKeys
     };
@@ -145,6 +167,9 @@ function parseTomlSettings(content) {
             section = sectionMatch[1];
             continue;
         }
+        if (line.startsWith('[')) {
+            throw new Error(`invalid TOML section: ${line}`);
+        }
 
         const kvMatch = /^([A-Za-z0-9_.-]+)\s*=\s*(.+)$/.exec(line);
         if (!kvMatch) {
@@ -165,9 +190,20 @@ function parseTomlSettings(content) {
     }
 
     return {
+        format: 'toml',
         mcpServers: Object.entries(mcpServers).map(([name, value]) => buildMcpServer(name, value)),
         hostOnlyKeys: Object.keys(root)
     };
+}
+
+function detectSettingsFormat(settingsPath) {
+    if (settingsPath.endsWith('.json')) {
+        return 'json';
+    }
+    if (settingsPath.endsWith('.toml')) {
+        return 'toml';
+    }
+    return 'unknown';
 }
 
 function parseTomlValue(rawValue) {

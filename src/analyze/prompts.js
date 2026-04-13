@@ -21,6 +21,7 @@ async function analyzePrompts(rootDir, options) {
         hostOnly: [],
         unknown: []
     };
+    const documents = [];
 
     const sections = [];
     for (const entry of discovered) {
@@ -29,6 +30,14 @@ async function analyzePrompts(rootDir, options) {
         }
         const resolved = resolvePromptContent(rootDir, entry);
         const parsed = parseMarkdownSections(resolved.content);
+        documents.push({
+            llm: entry.llm,
+            file: entry.relativePath,
+            mode: resolved.mode,
+            sourceFiles: resolved.sourceFiles,
+            sectionHeadings: parsed.filter((section) => section.heading).map((section) => section.heading),
+            untitledCount: parsed.filter((section) => !section.heading).length
+        });
         for (const section of parsed) {
             if (!section.heading) {
                 findings.unknown.push(createFinding('unknown', {
@@ -104,7 +113,10 @@ async function analyzePrompts(rootDir, options) {
         }
     }
 
-    return findings;
+    return {
+        findings,
+        documents
+    };
 }
 
 function comparePromptGroups(groups) {
@@ -144,7 +156,9 @@ function resolvePromptContent(rootDir, entry) {
         if (parts.length > 0) {
             return {
                 file: entry.relativePath,
-                content: parts.join('\n\n')
+                content: parts.join('\n\n'),
+                mode: 'import-stub',
+                sourceFiles: importRefs
             };
         }
     }
@@ -157,13 +171,17 @@ function resolvePromptContent(rootDir, entry) {
         }
         return {
             file: entry.relativePath,
-            content: parts.join('\n\n')
+            content: parts.join('\n\n'),
+            mode: 'concat-stub',
+            sourceFiles: parsedStub.blocks.map((block) => block.path)
         };
     }
 
     return {
         file: entry.relativePath,
-        content
+        content,
+        mode: 'direct',
+        sourceFiles: [entry.relativePath]
     };
 }
 

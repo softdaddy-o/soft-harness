@@ -11,7 +11,7 @@ It manages:
 
 ## Status
 
-`v0.4.0` keeps the `.harness/` sync model and adds a read-only `analyze` command for comparing prompts, settings, skills, and agents across hosts. The old registry schema, `harness/` tree, and legacy commands are gone. The active model is:
+`v0.4.1` keeps the `.harness/` sync model and adds a read-only `analyze` command for comparing prompts, settings, skills, and agents across hosts. `analyze` now also lists every discovered prompt document and settings file before showing common/similar/conflict findings. The old registry schema, `harness/` tree, and legacy commands are gone. The active model is:
 
 - `.harness/` is the source of truth
 - `soft-harness sync` reconciles `.harness/` and the project
@@ -67,6 +67,8 @@ soft-harness analyze --category=prompts --llms=claude,codex --explain
 soft-harness analyze --json
 ```
 
+The text report always lists discovered prompt documents and settings files first. `--explain` adds per-item details such as stub source files, discovered section headings, MCP server names, host-only keys, and parse errors.
+
 ## Layout
 
 ```text
@@ -105,7 +107,7 @@ Skills and agents default to managed copy+marker exports for repo-internal host 
 - Import: project edits and unmanaged files can be pulled into `.harness/`
 - Export: missing or stale stubs, managed copies, and explicitly requested links are regenerated
 - Summary: `sync` explains file moves, section routing, bucket assignment, and export targets; `--explain` adds downgrade and merge reasons
-- Analyze: `analyze` is always read-only and groups prompts, settings, and skills into `common`, `similar`, `conflicts`, `host_only`, and `unknown`
+- Analyze: `analyze` is always read-only, lists discovered documents and settings, and then groups prompts, settings, and skills into `common`, `similar`, `conflicts`, `host_only`, and `unknown`
 - Drift: managed targets are compared against regenerated expectations
 - Conflict detection: if both `.harness/` and a project target changed since the last sync, `sync` reports a conflict instead of silently choosing one side
 - Backup: non-dry-run syncs create a timestamped backup before writing

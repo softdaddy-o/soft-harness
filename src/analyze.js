@@ -6,12 +6,20 @@ const { mergeFindings } = require('./analyze/shared');
 async function runAnalyze(rootDir, options) {
     const categories = selectCategories(options);
     const parts = [];
+    const inventory = {
+        documents: [],
+        settings: []
+    };
 
     if (categories.includes('prompts')) {
-        parts.push(await analyzePrompts(rootDir, options || {}));
+        const promptResult = await analyzePrompts(rootDir, options || {});
+        parts.push(promptResult.findings);
+        inventory.documents.push(...(promptResult.documents || []));
     }
     if (categories.includes('settings')) {
-        parts.push(analyzeSettings(rootDir, options || {}));
+        const settingsResult = analyzeSettings(rootDir, options || {});
+        parts.push(settingsResult.findings);
+        inventory.settings.push(...(settingsResult.settings || []));
     }
     if (categories.includes('skills')) {
         parts.push(analyzeSkills(rootDir, options || {}));
@@ -30,7 +38,8 @@ async function runAnalyze(rootDir, options) {
         similar: findings.similar,
         conflicts: findings.conflicts,
         host_only: findings.hostOnly,
-        unknown: findings.unknown
+        unknown: findings.unknown,
+        inventory
     };
 }
 

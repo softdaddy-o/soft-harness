@@ -33,7 +33,7 @@ test('analyze/prompts: conflict path and explicit ambiguity callback are covered
     try {
         const { analyzePrompts } = loadFresh('../src/analyze/prompts');
         const result = await analyzePrompts(root, {});
-        assert.ok(result.conflicts.some((entry) => entry.key === 'prompts.section:Conflict'));
+        assert.ok(result.findings.conflicts.some((entry) => entry.key === 'prompts.section:Conflict'));
     } finally {
         discover.discoverInstructions = originalDiscoverInstructions;
         delete require.cache[require.resolve('../src/analyze/prompts')];
@@ -61,8 +61,8 @@ test('analyze/settings: unsupported manifest types and missing manifests become 
     try {
         const { analyzeSettings } = loadFresh('../src/analyze/settings');
         const result = analyzeSettings(root, {});
-        assert.ok(result.unknown.some((entry) => entry.key === 'settings.custom'));
-        assert.equal(result.hostOnly.length, 0);
+        assert.ok(result.findings.unknown.some((entry) => entry.key === 'settings.custom'));
+        assert.equal(result.findings.hostOnly.length, 0);
     } finally {
         profiles.listProfiles = originalListProfiles;
         profiles.getProfile = originalGetProfile;
@@ -102,9 +102,22 @@ test('analyze/settings: toml parser handles invalid lines, empty arrays, boolean
     try {
         const { analyzeSettings } = loadFresh('../src/analyze/settings');
         const result = analyzeSettings(root, {});
-        assert.ok(result.conflicts.some((entry) => entry.key === 'settings.mcp.edge'));
+        assert.ok(result.findings.conflicts.some((entry) => entry.key === 'settings.mcp.edge'));
     } finally {
         shared.similarity = originalSimilarity;
         delete require.cache[require.resolve('../src/analyze/settings')];
     }
+});
+
+test('analyze/settings: parse-error inventory preserves toml format metadata', () => {
+    const root = makeProjectTree('soft-harness-analyze-settings-toml-error-', {
+        '.codex': {
+            'config.toml': '[mcp_servers.edge\ncommand = "node"\n'
+        }
+    });
+
+    const { analyzeSettings } = require('../src/analyze/settings');
+    const result = analyzeSettings(root, { llms: ['codex'] });
+    assert.equal(result.settings[0].format, 'toml');
+    assert.equal(result.settings[0].status, 'parse-error');
 });
