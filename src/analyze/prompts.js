@@ -97,7 +97,8 @@ async function analyzePrompts(rootDir, options) {
                 kind: 'section',
                 key: `prompts.section:${heading}`,
                 sources: members.map((item) => createSource(item, item)),
-                reason: comparison.reason
+                reason: comparison.reason,
+                score: comparison.score
             }));
             continue;
         }
@@ -131,7 +132,8 @@ function comparePromptGroups(groups) {
     if (bestSimilarity >= 0.55) {
         return {
             bucket: 'similar',
-            reason: `same section heading, but body content differs (similarity=${bestSimilarity.toFixed(2)})`
+            reason: `same section heading, but body content differs (similarity=${bestSimilarity.toFixed(2)})`,
+            score: bestSimilarity
         };
     }
 

@@ -119,7 +119,8 @@ function analyzeSettings(rootDir, options) {
             kind: 'mcp',
             key: `settings.mcp.${name}`,
             sources: members.map((member) => createSettingsSource(member)),
-            reason: comparison.reason
+            reason: comparison.reason,
+            score: comparison.score
         }));
     }
 
@@ -271,7 +272,8 @@ function classifySettingsDifference(members) {
     if (score >= 0.8) {
         return {
             bucket: 'similar',
-            reason: `same MCP server name, but normalized definitions differ (similarity=${score.toFixed(2)})`
+            reason: `same MCP server name, but normalized definitions differ (similarity=${score.toFixed(2)})`,
+            score
         };
     }
 

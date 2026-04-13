@@ -185,18 +185,17 @@ module.exports = {
 function formatSyncReport(result, options) {
     const lines = [];
     if (result.phase === 'dry-run') {
-        lines.push(`dry-run: import=${result.plan.import.length} export=${result.plan.export.length} drift=${result.plan.drift.length} conflicts=${result.plan.conflicts.length}`);
+        lines.push(`📦 import=${result.plan.import.length}  export=${result.plan.export.length}  drift=${result.plan.drift.length}  conflicts=${result.plan.conflicts.length}`);
+        appendSyncDryRunPlan(lines, result.details, options);
     } else {
-        lines.push(`sync completed: imported=${result.imported.length} exported=${result.exported.length} pulled_back=${result.pulledBack.length}`);
+        lines.push(`✅ imported=${result.imported.length}  exported=${result.exported.length}  pulled_back=${result.pulledBack.length}`);
         if (result.backupTs) {
             lines.push(`backup: ${result.backupTs}`);
         }
+        appendSection(lines, 'exports', formatExportDetails(result.details && result.details.exports, options));
+        appendSection(lines, 'drift', formatDriftDetails(result.details && result.details.drift));
+        appendSection(lines, 'conflicts', formatConflictDetails(result.details && result.details.conflicts));
     }
-
-    appendSection(lines, 'imports', formatImportDetails(result.details && result.details.imports, options));
-    appendSection(lines, 'exports', formatExportDetails(result.details && result.details.exports, options));
-    appendSection(lines, 'drift', formatDriftDetails(result.details && result.details.drift));
-    appendSection(lines, 'conflicts', formatConflictDetails(result.details && result.details.conflicts));
 
     if (result.pluginActions && result.pluginActions.length > 0) {
         lines.push('plugins:');
@@ -277,81 +276,182 @@ function formatConflictDetails(entries) {
 
 function formatAnalyzeReport(result, options) {
     const lines = [];
-    lines.push(`analyze: common=${result.summary.common} similar=${result.summary.similar} conflicts=${result.summary.conflicts} host_only=${result.summary.host_only} unknown=${result.summary.unknown}`);
-    appendSection(lines, 'documents', formatAnalyzeDocuments(result.inventory && result.inventory.documents, options));
-    appendSection(lines, 'settings', formatAnalyzeSettings(result.inventory && result.inventory.settings, options));
+    lines.push(`📊 common=${result.summary.common}  similar=${result.summary.similar}  conflicts=${result.summary.conflicts}  host_only=${result.summary.host_only}  unknown=${result.summary.unknown}`);
 
-    appendSection(lines, 'common', formatAnalyzeEntries(result.common, options));
-    appendSection(lines, 'similar', formatAnalyzeEntries(result.similar, options));
-    appendSection(lines, 'conflicts', formatAnalyzeEntries(result.conflicts, options));
-    appendSection(lines, 'host_only', formatAnalyzeEntries(result.host_only, options));
-    appendSection(lines, 'unknown', formatAnalyzeEntries(result.unknown, options));
+    if (options && options.verbose) {
+        appendAnalyzeBucket(lines, '✅ Common', '동일 내용', result.common, options);
+    }
+    appendAnalyzeBucket(lines, '🔀 Similar', '같은 제목, 내용 유사', result.similar, options);
+    appendAnalyzeBucket(lines, '⚠️ Conflicts', '같은 제목, 내용 충돌', result.conflicts, options);
+    if (options && options.verbose) {
+        appendAnalyzeBucket(lines, '📍 Host Only', '한 호스트에만 존재', result.host_only, options);
+    }
+    appendAnalyzeBucket(lines, '❓ Unknown', '자동 분류 불가', result.unknown, options);
+
+    if (options && options.explain) {
+        appendSection(lines, '📄 Documents', formatAnalyzeDocuments(result.inventory && result.inventory.documents, options));
+        appendSection(lines, '⚙️ Settings', formatAnalyzeSettings(result.inventory && result.inventory.settings, options));
+    }
 
     return `${lines.join('\n')}\n`;
 }
 
-function formatAnalyzeEntries(entries, options) {
-    return (entries || []).map((entry) => {
-        const sources = (entry.sources || [])
-            .map((source) => `${source.llm}:${source.path || source.file}`)
-            .join(', ');
-        const detail = [`${entry.category}.${entry.kind} ${entry.key}`];
-        if (options && options.verbose && sources) {
-            detail.push(`from ${sources}`);
-        }
-        if (options && options.explain && entry.reason) {
-            detail.push(`(${entry.reason})`);
-        }
-        return detail.join(' ');
-    });
-}
-
 function formatAnalyzeDocuments(entries, options) {
     return (entries || []).map((entry) => {
-        const detail = [`${entry.llm}:${entry.file} [${entry.mode}]`];
-        if (options && options.verbose) {
-            detail.push(`headings=${entry.sectionHeadings.length}`);
+        const parts = [`${entry.llm}:${entry.file}`, `[${entry.mode}]`, `headings=${entry.sectionHeadings.length}`];
+        if (entry.sourceFiles && entry.sourceFiles.length > 0) {
+            parts.push(`sources=${entry.sourceFiles.join(', ')}`);
         }
-        if (options && options.explain) {
-            const parts = [];
-            if (entry.sourceFiles && entry.sourceFiles.length > 0) {
-                parts.push(`sources=${entry.sourceFiles.join(', ')}`);
-            }
-            if (entry.sectionHeadings && entry.sectionHeadings.length > 0) {
-                parts.push(`sections=${entry.sectionHeadings.join(', ')}`);
-            }
-            if (entry.untitledCount > 0) {
-                parts.push(`untitled=${entry.untitledCount}`);
-            }
-            if (parts.length > 0) {
-                detail.push(`(${parts.join('; ')})`);
-            }
+        if (entry.sectionHeadings && entry.sectionHeadings.length > 0) {
+            parts.push(`sections=${entry.sectionHeadings.join(', ')}`);
         }
-        return detail.join(' ');
+        if (entry.untitledCount > 0) {
+            parts.push(`untitled=${entry.untitledCount}`);
+        }
+        return parts.join('  ');
     });
 }
 
 function formatAnalyzeSettings(entries, options) {
     return (entries || []).map((entry) => {
-        const detail = [`${entry.llm}:${entry.file} [${entry.format}/${entry.status}]`];
-        if (options && options.verbose) {
-            detail.push(`mcp=${entry.mcpServers.length} keys=${entry.hostOnlyKeys.length}`);
+        const parts = [`${entry.llm}:${entry.file}`, `[${entry.format}/${entry.status}]`, `mcp=${entry.mcpServers.length}`, `keys=${entry.hostOnlyKeys.length}`];
+        if (entry.mcpServers.length > 0) {
+            parts.push(`servers=${entry.mcpServers.join(', ')}`);
         }
-        if (options && options.explain) {
-            const parts = [];
-            if (entry.mcpServers.length > 0) {
-                parts.push(`servers=${entry.mcpServers.join(', ')}`);
-            }
-            if (entry.hostOnlyKeys.length > 0) {
-                parts.push(`keys=${entry.hostOnlyKeys.join(', ')}`);
-            }
-            if (entry.error) {
-                parts.push(`error=${entry.error}`);
-            }
-            if (parts.length > 0) {
-                detail.push(`(${parts.join('; ')})`);
-            }
+        if (entry.hostOnlyKeys.length > 0) {
+            parts.push(`keys=${entry.hostOnlyKeys.join(', ')}`);
         }
-        return detail.join(' ');
+        if (entry.error) {
+            parts.push(`error=${entry.error}`);
+        }
+        return parts.join('  ');
     });
+}
+
+function appendAnalyzeBucket(lines, title, subtitle, entries, options) {
+    if (!entries || entries.length === 0) {
+        return;
+    }
+
+    lines.push('');
+    lines.push(`${title} (${subtitle})`);
+    for (const entry of entries) {
+        lines.push(` ${formatAnalyzeSummaryLine(entry)}`);
+        if (options && options.explain) {
+            for (const detail of formatAnalyzeExplainLines(entry)) {
+                lines.push(`   ${detail}`);
+            }
+        }
+    }
+}
+
+function formatAnalyzeSummaryLine(entry) {
+    const label = getAnalyzeLabel(entry).padEnd(28, ' ');
+    const llms = uniqueLlms(entry).join('  ');
+    if (entry.bucket === 'similar' && typeof entry.score === 'number') {
+        return `${label} (${llms}, ${Math.round(entry.score * 100)}%)`;
+    }
+    if (entry.bucket === 'unknown') {
+        return `${label} (${llms}, ${localizeUnknownReason(entry.reason)})`;
+    }
+    return `${label} (${llms})`;
+}
+
+function formatAnalyzeExplainLines(entry) {
+    const lines = [];
+    if (entry.reason && entry.bucket !== 'unknown') {
+        lines.push(`reason: ${entry.reason}`);
+    }
+    if (entry.sources && entry.sources.length > 0) {
+        lines.push(`files: ${entry.sources.map((source) => `${source.llm}:${source.path || source.file}`).join(', ')}`);
+    }
+    return lines;
+}
+
+function getAnalyzeLabel(entry) {
+    const value = entry.key || '';
+    const index = value.lastIndexOf(':');
+    if (index !== -1) {
+        return value.slice(index + 1);
+    }
+    return value;
+}
+
+function uniqueLlms(entry) {
+    return Array.from(new Set((entry.sources || []).map((source) => source.llm)));
+}
+
+function localizeUnknownReason(reason) {
+    if (String(reason || '').includes('headingless content')) {
+        return '헤딩 없는 내용';
+    }
+    return reason || '분류 불가';
+}
+
+function appendSyncDryRunPlan(lines, details, options) {
+    const imports = details && details.imports;
+    appendInstructionImportPlan(lines, imports, options);
+    appendSkillImportPlan(lines, imports, options);
+    const legacyImports = formatImportDetails((imports || []).filter((entry) => entry.action !== 'adopt-plan'), options);
+    if (legacyImports.length > 0) {
+        appendSection(lines, 'imports', legacyImports);
+    }
+    appendSection(lines, 'exports', formatExportDetails(details && details.exports, options));
+    appendSection(lines, 'drift', formatDriftDetails(details && details.drift));
+    appendSection(lines, 'conflicts', formatConflictDetails(details && details.conflicts));
+}
+
+function appendInstructionImportPlan(lines, imports, options) {
+    const plans = (imports || []).filter((entry) => entry.action === 'adopt-plan');
+    for (const plan of plans) {
+        lines.push('');
+        lines.push(`${plan.from}  ${plan.to}`);
+        for (const section of plan.sections || []) {
+            const indent = ' '.repeat(Math.max(section.level, 0) * 3);
+            const heading = section.heading || '(untitled)';
+            let suffix = '';
+            if (section.nearMatch) {
+                suffix = `   (${section.nearMatch.otherLlms.join(', ')}와 near match ${Math.round(section.nearMatch.similarity * 100)}%, LLM-specific 유지)`;
+            }
+            lines.push(`${indent}${heading}${suffix}`);
+        }
+    }
+}
+
+function appendSkillImportPlan(lines, imports, options) {
+    const grouped = new Map();
+    for (const entry of (imports || []).filter((item) => item.action === 'bucket')) {
+        const bucketTarget = entry.type === 'skill'
+            ? `.harness/skills/${entry.bucket}/`
+            : `.harness/agents/${entry.bucket}/`;
+        const sourceRoot = getBucketSourceRoot(entry.from);
+        const key = `${entry.type}:${sourceRoot}:${bucketTarget}`;
+        if (!grouped.has(key)) {
+            grouped.set(key, {
+                type: entry.type,
+                from: sourceRoot,
+                to: bucketTarget,
+                reason: entry.reason,
+                names: []
+            });
+        }
+        grouped.get(key).names.push(entry.name);
+    }
+
+    for (const group of grouped.values()) {
+        lines.push('');
+        const kindLabel = group.type === 'skill' ? 'skills' : 'agents';
+        const reasonLabel = group.reason === 'llm-specific' ? '전부 llm-specific' : group.reason;
+        lines.push(`${group.from}  ${group.to} (${group.names.length} ${kindLabel}, ${reasonLabel})`);
+        lines.push(` ${group.names.sort().join('   ')}`);
+    }
+}
+
+function getBucketSourceRoot(relativePath) {
+    const normalized = String(relativePath || '').replace(/\\/g, '/');
+    const parts = normalized.split('/');
+    if (parts.length < 3) {
+        return normalized;
+    }
+    return `${parts.slice(0, parts.length - 1).join('/')}/`;
 }

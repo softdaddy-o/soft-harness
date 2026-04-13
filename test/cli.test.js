@@ -59,6 +59,15 @@ test('cli: formatSyncReport shows routing details', () => {
         details: {
             imports: [
                 { action: 'adopt', from: 'CLAUDE.md', to: '.harness/llm/claude.md' },
+                {
+                    action: 'adopt-plan',
+                    from: 'CLAUDE.md',
+                    to: '.harness/llm/claude.md',
+                    sections: [
+                        { heading: 'Code Style', level: 2, nearMatch: null },
+                        { heading: 'Markdown', level: 3, nearMatch: { otherLlms: ['codex'], similarity: 0.62 } }
+                    ]
+                },
                 { action: 'extract-common', heading: 'Code Style', from: ['CLAUDE.md', 'AGENTS.md'], to: '.harness/HARNESS.md' }
             ],
             exports: [
@@ -70,7 +79,10 @@ test('cli: formatSyncReport shows routing details', () => {
         pluginActions: []
     }, { explain: false });
 
-    assert.match(output, /CLAUDE\.md -> \.harness\/llm\/claude\.md/);
+    assert.match(output, /📦 import=1  export=1  drift=0  conflicts=0/);
+    assert.match(output, /CLAUDE\.md  \.harness\/llm\/claude\.md/);
+    assert.match(output, /Code Style/);
+    assert.match(output, /Markdown   \(codex와 near match 62%, LLM-specific 유지\)/);
     assert.match(output, /section "Code Style" from CLAUDE\.md, AGENTS\.md -> \.harness\/HARNESS\.md/);
     assert.match(output, /\.harness\/HARNESS\.md \+ \.harness\/llm\/claude\.md -> CLAUDE\.md/);
 });
@@ -102,15 +114,63 @@ test('cli: formatSyncReport includes plugins, drift targets, bucket reasons, and
         ]
     }, { explain: true });
 
-    assert.match(output, /sync completed: imported=0 exported=0 pulled_back=0/);
+    assert.match(output, /✅ imported=0  exported=0  pulled_back=0/);
     assert.match(output, /backup: 2026-04-13-120000/);
-    assert.match(output, /skill "foo" \.claude\/skills\/foo -> \.harness\/skills\/common\/foo \(identical-across-llms\)/);
-    assert.match(output, /section "Guidelines" left LLM-specific/);
+    assert.match(output, /exports:/);
     assert.match(output, /\.harness\/skills\/common\/foo -> \.claude\/skills\/foo \[copy\] \(default-copy\)/);
     assert.match(output, /skill: \.claude\/skills\/foo/);
     assert.match(output, /instruction: CLAUDE\.md/);
     assert.match(output, /planned: superpowers@1\.0\.0/);
-    assert.match(output, /instruction: CLAUDE\.md/);
+});
+
+test('cli: formatSyncReport explain covers maybe-common legacy imports and grouped skill buckets', () => {
+    const output = formatSyncReport({
+        phase: 'dry-run',
+        plan: {
+            import: [1, 2, 3],
+            export: [],
+            drift: [],
+            conflicts: []
+        },
+        details: {
+            imports: [
+                {
+                    action: 'maybe-common',
+                    heading: 'Repository Overview',
+                    llms: ['claude', 'codex'],
+                    similarity: 0.62
+                },
+                {
+                    action: 'bucket',
+                    type: 'skill',
+                    name: 'monitor-sentry',
+                    from: '.claude/skills/monitor-sentry',
+                    to: '.harness/skills/claude/monitor-sentry',
+                    bucket: 'claude',
+                    reason: 'llm-specific'
+                },
+                {
+                    action: 'bucket',
+                    type: 'agent',
+                    name: 'solo-agent',
+                    from: 'solo-agent.md',
+                    to: '.harness/agents/common/solo-agent',
+                    bucket: 'common',
+                    reason: 'identical-across-llms'
+                }
+            ],
+            exports: [],
+            drift: [],
+            conflicts: []
+        },
+        pluginActions: []
+    }, { explain: true });
+
+    assert.match(output, /left LLM-specific \(near match across claude, codex, similarity=0\.62\)/);
+    assert.match(output, /\.claude\/skills\/  \.harness\/skills\/claude\/ \(1 skills, .*llm-specific\)/);
+    assert.match(output, /monitor-sentry/);
+    assert.match(output, /solo-agent\.md  \.harness\/agents\/common\/ \(1 agents, identical-across-llms\)/);
+    assert.match(output, /solo-agent/);
 });
 
 test('cli: formatAnalyzeReport renders verbose and explain details', () => {
@@ -153,13 +213,61 @@ test('cli: formatAnalyzeReport renders verbose and explain details', () => {
         unknown: []
     }, { verbose: true, explain: true });
 
-    assert.match(output, /analyze: common=1 similar=0 conflicts=0 host_only=1 unknown=0/);
-    assert.match(output, /documents:/);
-    assert.match(output, /claude:CLAUDE\.md \[import-stub\] headings=1 \(sources=\.harness\/HARNESS\.md, \.harness\/llm\/claude\.md; sections=Shared\)/);
-    assert.match(output, /settings:/);
-    assert.match(output, /claude:\.claude\/settings\.json \[json\/parsed\] mcp=1 keys=1 \(servers=shared; keys=theme\)/);
-    assert.match(output, /prompts.section prompts\.section:Shared from claude:CLAUDE\.md#Shared \(normalized section bodies are identical\)/);
-    assert.match(output, /skills.skill skills\.skill\.foo from claude:\.claude\/skills\/foo \(skill exists for only one host\)/);
+    assert.match(output, /📊 common=1  similar=0  conflicts=0  host_only=1  unknown=0/);
+    assert.match(output, /✅ Common \(동일 내용\)/);
+    assert.match(output, /Shared/);
+    assert.match(output, /📍 Host Only \(한 호스트에만 존재\)/);
+    assert.match(output, /foo/);
+    assert.match(output, /📄 Documents/);
+    assert.match(output, /claude:CLAUDE\.md  \[import-stub\]  headings=1  sources=\.harness\/HARNESS\.md, \.harness\/llm\/claude\.md  sections=Shared/);
+    assert.match(output, /⚙️ Settings/);
+    assert.match(output, /claude:\.claude\/settings\.json  \[json\/parsed\]  mcp=1  keys=1  servers=shared  keys=theme/);
+});
+
+test('cli: formatAnalyzeReport shows similar percentages and unknown reasons', () => {
+    const output = formatAnalyzeReport({
+        summary: { common: 0, similar: 1, conflicts: 0, host_only: 0, unknown: 2 },
+        inventory: {
+            documents: [],
+            settings: []
+        },
+        common: [],
+        similar: [{
+            bucket: 'similar',
+            category: 'prompts',
+            kind: 'section',
+            key: 'prompts.section:Repository Overview',
+            score: 0.62,
+            sources: [
+                { llm: 'claude', path: 'CLAUDE.md#Repository Overview' },
+                { llm: 'codex', path: 'AGENTS.md#Repository Overview' }
+            ]
+        }],
+        conflicts: [],
+        host_only: [],
+        unknown: [
+            {
+                bucket: 'unknown',
+                category: 'prompts',
+                kind: 'section',
+                key: 'AGENTS.md#(untitled)',
+                sources: [{ llm: 'codex', path: 'AGENTS.md#(untitled)' }],
+                reason: 'headingless content cannot be classified reliably'
+            },
+            {
+                bucket: 'unknown',
+                category: 'settings',
+                kind: 'key',
+                key: 'settings.key:custom_flag',
+                sources: [{ llm: 'claude', file: '.claude/settings.json' }],
+                reason: 'manual review required'
+            }
+        ]
+    }, { explain: false });
+
+    assert.match(output, /Repository Overview\s+\(claude  codex, 62%\)/);
+    assert.match(output, /\(codex, .*헤딩 없는 내용.*\)/);
+    assert.match(output, /\(claude, manual review required\)/);
 });
 
 test('cli: formatAnalyzeReport includes untitled prompt counts and settings parse errors', () => {
@@ -197,8 +305,8 @@ test('cli: formatAnalyzeReport includes untitled prompt counts and settings pars
         }]
     }, { verbose: true, explain: true });
 
-    assert.match(output, /claude:CLAUDE\.md \[direct\] headings=0 \(sources=CLAUDE\.md; untitled=2\)/);
-    assert.match(output, /codex:\.codex\/config\.toml \[toml\/parse-error\] mcp=0 keys=0 \(error=bad toml\)/);
+    assert.match(output, /claude:CLAUDE\.md  \[direct\]  headings=0  sources=CLAUDE\.md  untitled=2/);
+    assert.match(output, /codex:\.codex\/config\.toml  \[toml\/parse-error\]  mcp=0  keys=0  error=bad toml/);
 });
 
 test('cli: main runs sync, analyze, and revert flows in-process', async () => {
@@ -231,12 +339,11 @@ test('cli: main runs sync, analyze, and revert flows in-process', async () => {
         process.chdir(root);
 
         assert.equal(await main(['node', 'cli.js', 'sync', '--dry-run'], {}), 0);
-        assert.ok(stdout.join('').includes('dry-run:'));
+        assert.ok(stdout.join('').includes('📦'));
         stdout.length = 0;
 
         assert.equal(await main(['node', 'cli.js', 'analyze', '--category=prompts'], {}), 0);
-        assert.ok(stdout.join('').includes('analyze:'));
-        assert.ok(stdout.join('').includes('documents:'));
+        assert.ok(stdout.join('').includes('📊'));
         stdout.length = 0;
 
         assert.equal(await main(['node', 'cli.js', 'analyze', '--category=settings', '--json'], {}), 0);

@@ -1,6 +1,7 @@
 const path = require('node:path');
 const { ensureDir, exists, readUtf8, writeUtf8 } = require('./fs-util');
 const { extractInstructionBuckets } = require('./extract');
+const { parseMarkdownSections } = require('./md-parse');
 const { confirm } = require('./prompt');
 
 async function importInstructions(rootDir, discovered, options) {
@@ -60,6 +61,13 @@ async function importInstructions(rootDir, discovered, options) {
                 from: entry.relativePath,
                 llm: entry.llm,
                 to: `.harness/llm/${entry.llm}.md`
+            });
+            routes.push({
+                action: 'adopt-plan',
+                from: entry.relativePath,
+                llm: entry.llm,
+                to: `.harness/llm/${entry.llm}.md`,
+                sections: buildSectionPlan(readUtf8(entry.absolutePath), entry.llm, buckets.maybeSections)
             });
         }
 
@@ -145,6 +153,25 @@ function writeMaybe(rootDir, relativePath, content, writes, options) {
 module.exports = {
     importInstructions
 };
+
+function buildSectionPlan(content, llm, maybeSections) {
+    return parseMarkdownSections(content).map((section) => {
+        const nearMatch = (maybeSections || []).find((item) => item.heading === section.heading && item.llms.includes(llm));
+        const otherLlms = nearMatch
+            ? nearMatch.llms.filter((name) => name !== llm)
+            : [];
+        return {
+            heading: section.heading,
+            level: section.level,
+            nearMatch: nearMatch
+                ? {
+                    similarity: nearMatch.similarity,
+                    otherLlms
+                }
+                : null
+        };
+    });
+}
 
 async function shouldAdoptInstruction(entry, options) {
     if (!options || !options.reviewImports) {

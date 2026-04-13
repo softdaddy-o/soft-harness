@@ -56,7 +56,8 @@ function analyzeSkills(rootDir, options) {
             sources: members.map((member) => createSkillSource(member)),
             reason: bucket === 'similar'
                 ? `${members[0].type} shares a name but differs by host`
-                : `${members[0].type} shares a name but content is incompatible`
+                : `${members[0].type} shares a name but content is incompatible`,
+            score: bucket === 'similar' ? score : undefined
         }));
     }
 
