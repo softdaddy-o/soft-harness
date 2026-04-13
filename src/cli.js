@@ -219,6 +219,11 @@ if (require.main === module) {
 
 module.exports = {
     HELP,
+    __private: {
+        buildSectionTreeItems,
+        collapseLeadingLevelOne,
+        formatImportDetails
+    },
     formatAnalyzeReport,
     formatRememberReport,
     formatSyncReport,
@@ -465,7 +470,18 @@ function appendSyncDryRunPlan(lines, details, options) {
     const imports = details && details.imports;
     appendInstructionImportPlan(lines, imports, options);
     appendSkillImportPlan(lines, imports, options);
-    const legacyImports = formatImportDetails((imports || []).filter((entry) => entry.action !== 'adopt-plan'), options);
+    const plannedAdoptions = new Set((imports || [])
+        .filter((entry) => entry.action === 'adopt-plan')
+        .map((entry) => `${entry.from}=>${entry.to}`));
+    const legacyImports = formatImportDetails((imports || []).filter((entry) => {
+        if (entry.action === 'adopt-plan') {
+            return false;
+        }
+        if (entry.action === 'adopt' && plannedAdoptions.has(`${entry.from}=>${entry.to}`)) {
+            return false;
+        }
+        return true;
+    }), options);
     if (legacyImports.length > 0) {
         appendSection(lines, 'imports', legacyImports);
     }
@@ -475,11 +491,21 @@ function appendSyncDryRunPlan(lines, details, options) {
 }
 
 function appendInstructionImportPlan(lines, imports, options) {
-    const plans = (imports || []).filter((entry) => entry.action === 'adopt-plan');
-    for (const plan of plans) {
+    const grouped = new Map();
+    for (const plan of (imports || []).filter((entry) => entry.action === 'adopt-plan')) {
+        if (!grouped.has(plan.to)) {
+            grouped.set(plan.to, []);
+        }
+        grouped.get(plan.to).push(plan);
+    }
+
+    for (const [target, plans] of grouped.entries()) {
         lines.push('');
-        lines.push(`${plan.from}  ${plan.to}`);
-        appendTreeItems(lines, buildSectionTreeItems(plan.sections));
+        lines.push(target);
+        appendTreeItems(lines, plans.map((plan) => ({
+            text: `from ${plan.from}`,
+            children: buildSectionTreeItems(plan.sections, { dropLeadingLevelOne: true })
+        })));
     }
 }
 
@@ -521,7 +547,7 @@ function getBucketSourceRoot(relativePath) {
     return `${parts.slice(0, parts.length - 1).join('/')}/`;
 }
 
-function buildSectionTreeItems(sections) {
+function buildSectionTreeItems(sections, options) {
     if (!sections || sections.length === 0) {
         return [];
     }
@@ -553,7 +579,23 @@ function buildSectionTreeItems(sections) {
         stack.push(item);
     }
 
+    if (options && options.dropLeadingLevelOne) {
+        return collapseLeadingLevelOne(roots);
+    }
+
     return roots;
+}
+
+function collapseLeadingLevelOne(items) {
+    if (!items || items.length !== 1) {
+        return items || [];
+    }
+
+    const [only] = items;
+    if (!only.children || only.children.length === 0) {
+        return items;
+    }
+    return only.children;
 }
 
 function appendTreeItems(lines, items, prefix = '') {

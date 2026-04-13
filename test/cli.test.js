@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createBackup } = require('../src/backup');
-const { main, formatAnalyzeReport, formatRememberReport, formatSyncReport, parseAnalyzeArgs, parseSyncArgs } = require('../src/cli');
+const { __private, main, formatAnalyzeReport, formatRememberReport, formatSyncReport, parseAnalyzeArgs, parseSyncArgs } = require('../src/cli');
 const { readUtf8, writeUtf8 } = require('../src/fs-util');
 const { loadFresh, makeProjectTree, makeTempDir } = require('./helpers');
 
@@ -148,7 +148,7 @@ test('cli: remember command reports runtime failures', async () => {
     }
 });
 
-test('cli: formatSyncReport shows routing details', () => {
+test('cli: formatSyncReport shows destination-centric routing details with source attribution', () => {
     const output = formatSyncReport({
         phase: 'dry-run',
         plan: {
@@ -189,13 +189,88 @@ test('cli: formatSyncReport shows routing details', () => {
     }, { explain: false });
 
     assert.match(output, /📦 import=1  export=1  drift=0  conflicts=0/u);
-    assert.match(output, /CLAUDE\.md  \.harness\/llm\/claude\.md/);
-    assert.match(output, /├─ Code Style/u);
-    assert.match(output, /│  └─ Markdown \(codex와 near match 62%, LLM-specific 유지\)/u);
-    assert.match(output, /└─ Git Conventions/u);
-    assert.match(output, /AGENTS\.md  \.harness\/llm\/codex\.md/);
+    assert.match(output, /\n\.harness\/llm\/claude\.md\n/u);
+    assert.match(output, /└─ from CLAUDE\.md/u);
+    assert.match(output, /   ├─ Code Style/u);
+    assert.match(output, /   │  └─ Markdown \(codex와 near match 62%, LLM-specific 유지\)/u);
+    assert.match(output, /   └─ Git Conventions/u);
+    assert.match(output, /\n\.harness\/llm\/codex\.md\n└─ from AGENTS\.md/u);
+    assert.doesNotMatch(output, /CLAUDE\.md  \.harness\/llm\/claude\.md/);
     assert.match(output, /section "Code Style" from CLAUDE\.md, AGENTS\.md -> \.harness\/HARNESS\.md/);
     assert.match(output, /\.harness\/HARNESS\.md \+ \.harness\/llm\/claude\.md -> CLAUDE\.md/);
+});
+
+test('cli: formatSyncReport omits a lone h1 wrapper when rendering import plan trees', () => {
+    const output = formatSyncReport({
+        phase: 'dry-run',
+        plan: {
+            import: [1],
+            export: [],
+            drift: [],
+            conflicts: []
+        },
+        details: {
+            imports: [
+                {
+                    action: 'adopt-plan',
+                    from: '.claude/CLAUDE.md',
+                    to: '.harness/llm/claude.md',
+                    sections: [
+                        { heading: 'Project Title', level: 1, nearMatch: null },
+                        { heading: 'Repository Overview', level: 2, nearMatch: null },
+                        { heading: 'Build And Run', level: 2, nearMatch: null }
+                    ]
+                }
+            ],
+            exports: [],
+            drift: [],
+            conflicts: []
+        },
+        pluginActions: []
+    }, { explain: true });
+
+    assert.match(output, /\.harness\/llm\/claude\.md/);
+    assert.match(output, /from \.claude\/CLAUDE\.md/);
+    assert.match(output, /Repository Overview/);
+    assert.match(output, /Build And Run/);
+    assert.doesNotMatch(output, /Project Title/);
+});
+
+test('cli: formatSyncReport keeps legacy adopt imports when no structured adopt plan exists', () => {
+    const output = formatSyncReport({
+        phase: 'dry-run',
+        plan: {
+            import: [1],
+            export: [],
+            drift: [],
+            conflicts: []
+        },
+        details: {
+            imports: [
+                { action: 'adopt', from: '.claude/CLAUDE.md', to: '.harness/llm/claude.md' }
+            ],
+            exports: [],
+            drift: [],
+            conflicts: []
+        },
+        pluginActions: []
+    }, { explain: false });
+
+    assert.match(output, /\nimports\n/u);
+    assert.match(output, /\.claude\/CLAUDE\.md -> \.harness\/llm\/claude\.md/u);
+});
+
+test('cli: private section tree helper preserves roots unless leading h1 collapse is requested', () => {
+    const sections = [
+        { heading: 'Project Title', level: 1, nearMatch: null },
+        { heading: 'Repository Overview', level: 2, nearMatch: null },
+        { heading: 'Build And Run', level: 2, nearMatch: null }
+    ];
+
+    const tree = __private.buildSectionTreeItems(sections);
+    assert.equal(tree.length, 1);
+    assert.equal(tree[0].text, 'Project Title');
+    assert.deepEqual(tree[0].children.map((child) => child.text), ['Repository Overview', 'Build And Run']);
 });
 
 test('cli: formatSyncReport includes plugins, drift targets, bucket reasons, and completed backups', () => {
