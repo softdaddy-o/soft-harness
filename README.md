@@ -11,10 +11,11 @@ It manages:
 
 ## Status
 
-`v0.4.1` keeps the `.harness/` sync model and adds a read-only `analyze` command for comparing prompts, settings, skills, and agents across hosts. `analyze` now also lists every discovered prompt document and settings file before showing common/similar/conflict findings. The old registry schema, `harness/` tree, and legacy commands are gone. The active model is:
+`v0.4.4` keeps the `.harness/` sync model, adds a read-only `analyze` command for comparing prompts, settings, skills, and agents across hosts, fixes fenced-code heading parsing, and adds `remember` for writing memory directly into project or account harness truth before regenerating affected outputs. The old registry schema, `harness/` tree, and legacy commands are gone. The active model is:
 
 - `.harness/` is the source of truth
 - `soft-harness sync` reconciles `.harness/` and the project
+- `soft-harness remember` records memory into harness truth and regenerates outputs
 - `soft-harness revert` restores a backup snapshot
 
 ## Install
@@ -43,6 +44,7 @@ soft-harness help
 ```text
 soft-harness sync [--manual-review] [--dry-run] [--verbose] [--explain] [--yes] [--no-import] [--no-export] [--link-mode=copy|symlink|junction] [--force-export-untracked-hosts] [--no-run-installs] [--no-run-uninstalls]
 soft-harness analyze [--category=all|prompts|settings|skills] [--llms=claude,codex,gemini] [--verbose] [--explain] [--json]
+soft-harness remember [--scope=project|account] [--llm=shared|claude|codex|gemini] [--section=<name>] --title=<name> --content=<text> [--no-export]
 soft-harness revert --list
 soft-harness revert <timestamp>
 soft-harness help
@@ -68,6 +70,15 @@ soft-harness analyze --json
 ```
 
 The text report always lists discovered prompt documents and settings files first. `--explain` adds per-item details such as stub source files, discovered section headings, MCP server names, host-only keys, and parse errors.
+
+Use `remember` when a user asks you to record guidance or memory into the harness source of truth instead of editing generated host files directly:
+
+```text
+soft-harness remember --title="Timezone" --content="Always use KST"
+soft-harness remember --scope=account --llm=claude --section="Working Agreements" --title="Code Review" --content="Lead with findings."
+```
+
+`--scope=project` writes to the current project's `.harness/`. `--scope=account` writes to the user's home `.harness/` and regenerates the home-level host files from there.
 
 ## Layout
 
@@ -106,6 +117,7 @@ Skills and agents default to managed copy+marker exports for repo-internal host 
 
 - Import: project edits and unmanaged files can be pulled into `.harness/`
 - Export: missing or stale stubs, managed copies, and explicitly requested links are regenerated
+- Remember: writes a titled memory entry into `.harness/HARNESS.md` or `.harness/llm/<llm>.md`, backs up affected files, regenerates outputs, and updates instruction sync state when exports run
 - Summary: `sync` explains file moves, section routing, bucket assignment, and export targets; `--explain` adds downgrade and merge reasons
 - Analyze: `analyze` is always read-only, lists discovered documents and settings, and then groups prompts, settings, and skills into `common`, `similar`, `conflicts`, `host_only`, and `unknown`
 - Drift: managed targets are compared against regenerated expectations

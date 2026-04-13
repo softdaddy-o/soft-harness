@@ -1,6 +1,7 @@
 const path = require('node:path');
 const { getProfile, listProfiles } = require('./profiles');
 const { exists, readUtf8, removePath, writeUtf8 } = require('./fs-util');
+const { hashString } = require('./hash');
 const { buildConcatStub, buildImportStub } = require('./stubs');
 
 function buildInstructionExports(rootDir, options) {
@@ -11,7 +12,9 @@ function buildInstructionExports(rootDir, options) {
 
     for (const llm of listProfiles()) {
         const llmSource = path.join(rootDir, '.harness', 'llm', `${llm}.md`);
-        const shouldExport = exists(llmSource) || state.assets.instructions.some((item) => item.llm === llm);
+        const shouldExport = commonContent.trim().length > 0
+            || exists(llmSource)
+            || state.assets.instructions.some((item) => item.llm === llm);
         if (!shouldExport) {
             continue;
         }
@@ -75,6 +78,20 @@ function exportInstructions(rootDir, options) {
     };
 }
 
+function buildInstructionState(rootDir, state) {
+    const instructions = [];
+    for (const entry of buildInstructionExports(rootDir, { state })) {
+        instructions.push({
+            llm: entry.llm,
+            source: `.harness/llm/${entry.llm}.md`,
+            target: entry.relativePath,
+            source_hash: getCurrentSourceHash(rootDir, entry.llm),
+            target_hash: hashString(entry.expected)
+        });
+    }
+    return instructions;
+}
+
 function pruneStaleTargets(rootDir, exports, options) {
     const desired = new Set(exports.map((entry) => entry.relativePath));
     const state = (options && options.state) || { assets: { instructions: [] } };
@@ -88,6 +105,16 @@ function pruneStaleTargets(rootDir, exports, options) {
 }
 
 module.exports = {
+    buildInstructionState,
     buildInstructionExports,
-    exportInstructions
+    exportInstructions,
+    getCurrentSourceHash
 };
+
+function getCurrentSourceHash(rootDir, llm) {
+    const commonPath = path.join(rootDir, '.harness', 'HARNESS.md');
+    const llmPath = path.join(rootDir, '.harness', 'llm', `${llm}.md`);
+    const commonContent = exists(commonPath) ? readUtf8(commonPath) : '';
+    const llmContent = exists(llmPath) ? readUtf8(llmPath) : '';
+    return hashString(`${commonContent}\n\0\n${llmContent}`);
+}

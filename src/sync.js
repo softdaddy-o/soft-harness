@@ -2,7 +2,7 @@ const path = require('node:path');
 const { createBackup } = require('./backup');
 const { discoverInstructions } = require('./discover');
 const { detectAllDrift, detectInstructionDrift } = require('./drift');
-const { buildInstructionExports, exportInstructions } = require('./export');
+const { buildInstructionState, exportInstructions, getCurrentSourceHash } = require('./export');
 const { exists, formatOffsetDate, readUtf8, writeUtf8 } = require('./fs-util');
 const { hashString } = require('./hash');
 const { importInstructions } = require('./import');
@@ -167,10 +167,6 @@ function detectInstructionConflicts(rootDir, state, driftEntries) {
 
     for (const entry of driftEntries) {
         const prior = (state.assets.instructions || []).find((item) => item.target === entry.relativePath);
-        if (!prior) {
-            continue;
-        }
-
         const currentSourceHash = getCurrentSourceHash(rootDir, entry.llm);
         const currentTargetHash = hashString(entry.actual);
         const sourceChanged = prior.source_hash && currentSourceHash !== prior.source_hash;
@@ -245,16 +241,7 @@ function collectInitialBackupTargets(rootDir, discovered, state) {
 }
 
 function buildNextState(rootDir, state, discovered, plugins) {
-    const instructions = [];
-    for (const entry of buildInstructionExports(rootDir, { state })) {
-        instructions.push({
-            llm: entry.llm,
-            source: `.harness/llm/${entry.llm}.md`,
-            target: entry.relativePath,
-            source_hash: getCurrentSourceHash(rootDir, entry.llm),
-            target_hash: hashString(entry.expected)
-        });
-    }
+    const instructions = buildInstructionState(rootDir, state);
 
     return {
         ...state,
@@ -270,14 +257,6 @@ function buildNextState(rootDir, state, discovered, plugins) {
         },
         plugins
     };
-}
-
-function getCurrentSourceHash(rootDir, llm) {
-    const commonPath = path.join(rootDir, '.harness', 'HARNESS.md');
-    const llmPath = path.join(rootDir, '.harness', 'llm', `${llm}.md`);
-    const commonContent = exists(commonPath) ? readUtf8(commonPath) : '';
-    const llmContent = exists(llmPath) ? readUtf8(llmPath) : '';
-    return hashString(`${commonContent}\n\0\n${llmContent}`);
 }
 
 module.exports = {

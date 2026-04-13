@@ -20,8 +20,9 @@ test('sync: first run imports instruction files, exports stubs, and saves state'
     assert.match(readUtf8(path.join(root, 'AGENTS.md')), /BEGIN HARNESS.md/);
 
     const state = loadState(root);
-    assert.equal(state.assets.instructions.length, 3);
+    assert.equal(state.assets.instructions.length, 4);
     assert.ok(state.assets.instructions.some((entry) => entry.target === '.claude/CLAUDE.md'));
+    assert.ok(state.assets.instructions.some((entry) => entry.target === 'GEMINI.md'));
     assert.ok(listBackups(root).length >= 1);
     assert.ok(result.details.imports.some((entry) => entry.action === 'adopt'));
 });

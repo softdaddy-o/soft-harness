@@ -19,8 +19,24 @@ function parseMarkdownSections(content) {
 
     const lines = normalized.split('\n');
     const headings = [];
+    let activeFence = null;
 
     for (let index = 0; index < lines.length; index += 1) {
+        const fence = parseFence(lines[index]);
+        if (fence) {
+            if (!activeFence) {
+                activeFence = fence;
+                continue;
+            }
+            if (fence.marker === activeFence.marker && fence.length >= activeFence.length) {
+                activeFence = null;
+                continue;
+            }
+        }
+        if (activeFence) {
+            continue;
+        }
+
         const match = /^(#{1,6})\s*(.*?)\s*$/.exec(lines[index]);
         if (!match) {
             continue;
@@ -75,6 +91,17 @@ function parseMarkdownSections(content) {
     }
 
     return sections;
+}
+
+function parseFence(line) {
+    const match = /^\s*([`~]{3,})(.*)$/.exec(String(line || ''));
+    if (!match) {
+        return null;
+    }
+    return {
+        marker: match[1][0],
+        length: match[1].length
+    };
 }
 
 module.exports = {

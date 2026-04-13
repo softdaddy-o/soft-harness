@@ -7,6 +7,7 @@ const HELP = `soft-harness - single source of truth for LLM harness files
 Commands:
   soft-harness sync [options]         Reconcile .harness/ with the project
   soft-harness analyze [options]      Compare prompts, settings, and skills across hosts
+  soft-harness remember [options]     Record memory into harness truth and regenerate outputs
   soft-harness revert --list          List available backups
   soft-harness revert <timestamp>     Restore files from a backup
   soft-harness help                   Show this message
@@ -30,6 +31,14 @@ Analyze options:
   --verbose                           Show file-level analysis details
   --explain                           Show classification reasons
   --json                              Emit JSON instead of text
+
+Remember options:
+  --scope=<project|account>           Write to the project .harness/ or the account home .harness/
+  --llm=<shared|claude|codex|gemini>  Choose the shared or per-LLM destination
+  --section=<name>                    Store the entry under this section heading
+  --title=<name>                      Entry title to create or update
+  --content=<text>                    Entry body content
+  --no-export                         Update harness truth without regenerating host outputs
 `;
 
 const ICONS = {
@@ -130,6 +139,26 @@ async function runAnalyze(args) {
     }
 }
 
+function runRemember(args) {
+    const { parseRememberArgs, runRemember: runRememberImpl } = require('./remember');
+    let rememberOptions;
+    try {
+        rememberOptions = parseRememberArgs(args);
+    } catch (error) {
+        process.stderr.write(`remember failed: ${error.message}\n`);
+        return 1;
+    }
+
+    try {
+        const result = runRememberImpl(process.cwd(), rememberOptions);
+        process.stdout.write(formatRememberReport(result));
+        return 0;
+    } catch (error) {
+        process.stderr.write(`remember failed: ${error.message}\n`);
+        return 1;
+    }
+}
+
 function runRevert(args) {
     const { runRevert: runRevertImpl } = require('./revert');
     if (args.includes('--list')) {
@@ -174,6 +203,8 @@ async function main(argv, io) {
             return runSync(argv.slice(3), io);
         case 'analyze':
             return runAnalyze(argv.slice(3));
+        case 'remember':
+            return runRemember(argv.slice(3));
         case 'revert':
             return runRevert(argv.slice(3));
         default:
@@ -189,6 +220,7 @@ if (require.main === module) {
 module.exports = {
     HELP,
     formatAnalyzeReport,
+    formatRememberReport,
     formatSyncReport,
     main,
     parseAnalyzeArgs,
@@ -339,6 +371,32 @@ function formatAnalyzeSettings(entries, options) {
         }
         return parts.join('  ');
     });
+}
+
+function formatRememberReport(result) {
+    const lines = [];
+    lines.push(`${ICONS.completed} remembered scope=${result.scope}  target=${result.target}  changed=${result.changed ? 'yes' : 'no'}  exports=${result.exports.length}`);
+    appendTreeItems(lines, [
+        { text: `root: ${result.outputRoot}` },
+        { text: `source: ${result.source}` },
+        { text: `section: ${result.section}` },
+        { text: `title: ${result.title}` }
+    ]);
+
+    if (result.routes && result.routes.length > 0) {
+        lines.push('');
+        lines.push('exports');
+        appendTreeItems(lines, result.routes.map((entry) => ({
+            text: `${entry.from.join(' + ')} -> ${entry.to}`
+        })));
+    }
+
+    if (result.backupTs) {
+        lines.push('');
+        lines.push(`backup: ${result.backupTs}`);
+    }
+
+    return `${lines.join('\n')}\n`;
 }
 
 function appendAnalyzeBucket(lines, title, subtitle, entries, options) {

@@ -4,16 +4,17 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createBackup } = require('../src/backup');
-const { main, formatAnalyzeReport, formatSyncReport, parseAnalyzeArgs, parseSyncArgs } = require('../src/cli');
-const { writeUtf8 } = require('../src/fs-util');
-const { makeProjectTree, makeTempDir } = require('./helpers');
+const { main, formatAnalyzeReport, formatRememberReport, formatSyncReport, parseAnalyzeArgs, parseSyncArgs } = require('../src/cli');
+const { readUtf8, writeUtf8 } = require('../src/fs-util');
+const { loadFresh, makeProjectTree, makeTempDir } = require('./helpers');
 
 const CLI = path.join(__dirname, '..', 'src', 'cli.js');
 
-test('cli: help lists sync and revert', () => {
+test('cli: help lists sync, remember, and revert', () => {
     const result = spawnSync('node', [CLI, 'help'], { encoding: 'utf8' });
     assert.equal(result.status, 0);
     assert.match(result.stdout, /soft-harness sync/);
+    assert.match(result.stdout, /soft-harness remember/);
     assert.match(result.stdout, /soft-harness revert/);
 });
 
@@ -44,6 +45,107 @@ test('cli: invalid link mode exits non-zero', () => {
     const result = spawnSync('node', [CLI, 'sync', '--link-mode=bogus'], { encoding: 'utf8' });
     assert.equal(result.status, 1);
     assert.match(result.stderr, /invalid --link-mode/i);
+});
+
+test('cli: remember formats scope, source, and exports', () => {
+    const output = formatRememberReport({
+        scope: 'account',
+        target: 'shared',
+        changed: true,
+        exports: [{ path: 'CLAUDE.md' }, { path: 'AGENTS.md' }],
+        outputRoot: 'C:/Users/tester',
+        source: '.harness/HARNESS.md',
+        section: 'Working Agreements',
+        title: 'Timezone',
+        routes: [
+            { from: ['.harness/HARNESS.md', '.harness/llm/claude.md'], to: 'CLAUDE.md' },
+            { from: ['.harness/HARNESS.md', '.harness/llm/codex.md'], to: 'AGENTS.md' }
+        ],
+        backupTs: '2026-04-13-140000'
+    });
+
+    assert.match(output, /✅ remembered scope=account  target=shared  changed=yes  exports=2/u);
+    assert.match(output, /└─ title: Timezone/u);
+    assert.match(output, /\nexports\n/u);
+    assert.match(output, /\.harness\/HARNESS\.md \+ \.harness\/llm\/claude\.md -> CLAUDE\.md/);
+    assert.match(output, /backup: 2026-04-13-140000/);
+});
+
+test('cli: remember command writes memory and regenerates outputs', () => {
+    const root = makeProjectTree('soft-harness-cli-remember-', {});
+    const result = spawnSync('node', [
+        CLI,
+        'remember',
+        '--title=Timezone',
+        '--content=Always use KST',
+        '--section=Working Agreements'
+    ], {
+        cwd: root,
+        encoding: 'utf8'
+    });
+
+    assert.equal(result.status, 0);
+    assert.match(result.stdout, /remembered scope=project  target=shared/);
+    assert.match(readUtf8(path.join(root, '.harness', 'HARNESS.md')), /Always use KST/);
+    assert.equal(fs.existsSync(path.join(root, 'AGENTS.md')), true);
+});
+
+test('cli: remember command validates required flags', () => {
+    const result = spawnSync('node', [CLI, 'remember', '--title=Timezone'], { encoding: 'utf8' });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /remember requires --content/i);
+});
+
+test('cli: remember command reports runtime failures', async () => {
+    const rememberPath = require.resolve('../src/remember');
+    const original = require.cache[rememberPath];
+    require.cache[rememberPath] = {
+        exports: {
+            parseRememberArgs() {
+                return {
+                    scope: 'project',
+                    llm: 'shared',
+                    section: 'Recorded Memory',
+                    title: 'Timezone',
+                    content: 'Always use KST',
+                    noExport: false
+                };
+            },
+            runRemember() {
+                throw new Error('boom');
+            }
+        }
+    };
+
+    const cli = loadFresh('../src/cli');
+    let stdout = '';
+    let stderr = '';
+    const originalOut = process.stdout.write;
+    const originalErr = process.stderr.write;
+    process.stdout.write = (chunk) => {
+        stdout += chunk;
+        return true;
+    };
+    process.stderr.write = (chunk) => {
+        stderr += chunk;
+        return true;
+    };
+
+    try {
+        const code = await cli.main(['node', 'soft-harness', 'remember', '--title=Timezone', '--content=Always use KST']);
+        assert.equal(code, 1);
+        assert.equal(stdout, '');
+        assert.match(stderr, /remember failed: boom/);
+    } finally {
+        process.stdout.write = originalOut;
+        process.stderr.write = originalErr;
+        if (original) {
+            require.cache[rememberPath] = original;
+        } else {
+            delete require.cache[rememberPath];
+        }
+        loadFresh('../src/cli');
+    }
 });
 
 test('cli: formatSyncReport shows routing details', () => {

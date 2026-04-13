@@ -38,9 +38,29 @@ test('export: builds expected root instruction files from harness sources', () =
 
     const plan = buildInstructionExports(root, { state: { assets: { instructions: [] } } });
     assert.ok(plan.some((entry) => entry.relativePath === 'AGENTS.md'));
+    assert.ok(plan.some((entry) => entry.relativePath === 'CLAUDE.md'));
+    assert.ok(plan.some((entry) => entry.relativePath === 'GEMINI.md'));
 
     const result = exportInstructions(root, { state: { assets: { instructions: [] } } });
-    assert.equal(result.exported.length, 1);
+    assert.equal(result.exported.length, 4);
+    assert.match(readUtf8(path.join(root, 'CLAUDE.md')), /@\.harness\/HARNESS\.md/);
     assert.match(readUtf8(path.join(root, 'AGENTS.md')), /BEGIN HARNESS.md/);
+    assert.match(readUtf8(path.join(root, 'GEMINI.md')), /BEGIN HARNESS.md/);
     assert.ok(result.routes.some((entry) => entry.action === 'export-instruction' && entry.to === 'AGENTS.md'));
+});
+
+test('export: state-managed instructions still regenerate when harness sources are not on disk', () => {
+    const root = makeTempDir('soft-harness-export-state-fallback-');
+
+    const plan = buildInstructionExports(root, {
+        state: {
+            assets: {
+                instructions: [
+                    { llm: 'gemini', target: 'GEMINI.md' }
+                ]
+            }
+        }
+    });
+
+    assert.deepEqual(plan.map((entry) => entry.relativePath), ['GEMINI.md']);
 });

@@ -24,3 +24,41 @@ test('md-parse: parent section includes nested subsection content', () => {
     assert.equal(sections[1].heading, 'Child');
     assert.equal(sections[2].heading, 'Next');
 });
+
+test('md-parse: fenced code block comments do not become headings', () => {
+    const sections = parseMarkdownSections([
+        '## Build/Run Commands',
+        '### p4-plan-converter',
+        '```bash',
+        '# Install dependencies',
+        'npm install',
+        '```',
+        '### social-posting',
+        'done'
+    ].join('\n'));
+
+    assert.equal(sections.length, 3);
+    assert.equal(sections[0].heading, 'Build/Run Commands');
+    assert.equal(sections[1].heading, 'p4-plan-converter');
+    assert.equal(sections[2].heading, 'social-posting');
+    assert.doesNotMatch(sections.map((section) => section.heading).join('\n'), /Install dependencies/);
+});
+
+test('md-parse: tilde fences and unclosed fences suppress heading parsing until closed', () => {
+    const sections = parseMarkdownSections([
+        '## Parent',
+        '~~~yaml',
+        '# fake heading',
+        'key: value',
+        '### still fake',
+        '~~~',
+        '## Next',
+        '~~~bash',
+        '# remains inside unclosed fence'
+    ].join('\n'));
+
+    assert.equal(sections.length, 2);
+    assert.equal(sections[0].heading, 'Parent');
+    assert.equal(sections[1].heading, 'Next');
+    assert.doesNotMatch(sections.map((section) => section.heading).join('\n'), /fake|still fake/i);
+});
