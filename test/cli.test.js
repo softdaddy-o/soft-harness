@@ -29,6 +29,8 @@ test('cli: parseSyncArgs supports explicit link mode flags', () => {
     assert.equal(parsed.dryRun, true);
     assert.equal(parsed.linkMode, 'symlink');
     assert.equal(parsed.forceExportUntrackedHosts, true);
+    assert.equal(parsed.root, null);
+    assert.equal(parsed.account, false);
 });
 
 test('cli: parseAnalyzeArgs supports category, llms, verbose, explain, and json', () => {
@@ -39,6 +41,49 @@ test('cli: parseAnalyzeArgs supports category, llms, verbose, explain, and json'
     assert.equal(parsed.explain, true);
     assert.equal(parsed.json, true);
     assert.throws(() => parseAnalyzeArgs(['--category=bogus']), /invalid --category/i);
+});
+
+test('cli: parseSyncArgs and parseAnalyzeArgs support root selection and reject ambiguous root flags', () => {
+    const syncParsed = parseSyncArgs(['--root=custom/root', '--dry-run']);
+    assert.equal(syncParsed.root, 'custom/root');
+    assert.equal(syncParsed.account, false);
+
+    const analyzeParsed = parseAnalyzeArgs(['--account', '--category=prompts']);
+    assert.equal(analyzeParsed.account, true);
+    assert.equal(analyzeParsed.root, null);
+
+    assert.throws(() => parseSyncArgs(['--account', '--root=custom/root']), /cannot combine --root and --account/i);
+    assert.throws(() => parseAnalyzeArgs(['--root=', '--category=all']), /--root requires a path/i);
+});
+
+test('cli: resolveCommandRoot chooses cwd, explicit root, and account home', () => {
+    const cwd = path.resolve('D:/srcp/soft-harness');
+    assert.equal(__private.resolveCommandRoot(cwd, {}), cwd);
+    assert.equal(__private.resolveCommandRoot(cwd, { root: 'relative-root' }), path.resolve('relative-root'));
+
+    const originalHome = process.env.HOME;
+    const originalUserProfile = process.env.USERPROFILE;
+    process.env.HOME = 'D:/tmp/home-root';
+    process.env.USERPROFILE = '';
+    try {
+        assert.equal(__private.resolveCommandRoot(cwd, { account: true }), path.resolve('D:/tmp/home-root'));
+    } finally {
+        process.env.HOME = originalHome;
+        process.env.USERPROFILE = originalUserProfile;
+    }
+});
+
+test('cli: resolveCommandRoot rejects account mode without a home directory', () => {
+    const originalHome = process.env.HOME;
+    const originalUserProfile = process.env.USERPROFILE;
+    process.env.HOME = '';
+    process.env.USERPROFILE = '';
+    try {
+        assert.throws(() => __private.resolveCommandRoot(process.cwd(), { account: true }), /HOME or USERPROFILE/i);
+    } finally {
+        process.env.HOME = originalHome;
+        process.env.USERPROFILE = originalUserProfile;
+    }
 });
 
 test('cli: invalid link mode exits non-zero', () => {
@@ -567,6 +612,52 @@ test('cli: main runs sync, analyze, and revert flows in-process', async () => {
         process.chdir(originalCwd);
         process.stdout.write = originalStdoutWrite;
         process.stderr.write = originalStderrWrite;
+    }
+});
+
+test('cli: main honors --root for sync and --account for analyze', async () => {
+    const cwdRoot = makeTempDir('soft-harness-cli-cwd-root-');
+    const targetRoot = makeProjectTree('soft-harness-cli-explicit-root-', {
+        'CLAUDE.md': '## Prompt\nexplicit root'
+    });
+    const homeRoot = makeProjectTree('soft-harness-cli-account-root-', {
+        '.claude': {
+            'settings.json': JSON.stringify({
+                mcpServers: {
+                    accountOnly: { command: 'node', args: ['account.js'] }
+                }
+            }, null, 2)
+        }
+    });
+
+    const originalCwd = process.cwd();
+    const originalHome = process.env.HOME;
+    const originalUserProfile = process.env.USERPROFILE;
+    const originalStdoutWrite = process.stdout.write;
+    const stdout = [];
+    process.stdout.write = (chunk) => {
+        stdout.push(String(chunk));
+        return true;
+    };
+
+    try {
+        process.chdir(cwdRoot);
+
+        assert.equal(await main(['node', 'cli.js', 'sync', '--dry-run', `--root=${targetRoot}`], {}), 0);
+        assert.match(stdout.join(''), /📦 import=1/u);
+        stdout.length = 0;
+
+        process.env.HOME = homeRoot;
+        process.env.USERPROFILE = homeRoot;
+        assert.equal(await main(['node', 'cli.js', 'analyze', '--account', '--category=settings', '--json'], {}), 0);
+        const analyzed = JSON.parse(stdout.join(''));
+        assert.deepEqual(analyzed.inventory.settings.map((entry) => entry.file), ['.claude/settings.json']);
+        assert.ok(analyzed.host_only.some((entry) => entry.key === 'settings.claude.mcpServers.accountOnly' || entry.key === 'settings.mcp.accountOnly'));
+    } finally {
+        process.chdir(originalCwd);
+        process.env.HOME = originalHome;
+        process.env.USERPROFILE = originalUserProfile;
+        process.stdout.write = originalStdoutWrite;
     }
 });
 

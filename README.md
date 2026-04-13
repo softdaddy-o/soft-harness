@@ -11,7 +11,7 @@ It manages:
 
 ## Status
 
-`v0.4.5` keeps the `.harness/` sync model, adds a read-only `analyze` command for comparing prompts, settings, skills, and agents across hosts, fixes fenced-code heading parsing, adds `remember` for writing memory directly into project or account harness truth before regenerating affected outputs, and renders `sync --dry-run` import trees destination-first with explicit source attribution. The old registry schema, `harness/` tree, and legacy commands are gone. The active model is:
+`v0.4.6` keeps the `.harness/` sync model, adds a read-only `analyze` command for comparing prompts, settings, skills, and agents across hosts, fixes fenced-code heading parsing, adds `remember` for writing memory directly into project or account harness truth before regenerating affected outputs, renders `sync --dry-run` import trees destination-first with explicit source attribution, and lets `sync` and `analyze` target either an explicit `--root` or the current account home with `--account`. The old registry schema, `harness/` tree, and legacy commands are gone. The active model is:
 
 - `.harness/` is the source of truth
 - `soft-harness sync` reconciles `.harness/` and the project

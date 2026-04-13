@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+const path = require('node:path');
 const { listBackups } = require('./backup');
 
 const HELP = `soft-harness - single source of truth for LLM harness files
@@ -13,6 +14,8 @@ Commands:
   soft-harness help                   Show this message
 
 Sync options:
+  --root=<path>                      Run against an explicit root instead of the current directory
+  --account                          Run against the current account home directory
   --manual-review                     Confirm extraction and conflict decisions
   --dry-run                           Report planned changes and write nothing
   --verbose                           Show file-level sync details
@@ -26,6 +29,8 @@ Sync options:
   --no-run-uninstalls                 Skip plugin uninstall commands
 
 Analyze options:
+  --root=<path>                      Analyze an explicit root instead of the current directory
+  --account                          Analyze the current account home directory
   --category=<name>                   Analyze prompts, settings, skills, or all
   --llms=<names>                      Limit analysis to a comma-separated llm list
   --verbose                           Show file-level analysis details
@@ -58,11 +63,13 @@ function parseSyncArgs(args) {
     const flags = new Set(args);
     const linkModeArg = args.find((arg) => arg.startsWith('--link-mode='));
     const linkMode = linkModeArg ? linkModeArg.split('=')[1] : 'copy';
+    const root = parseCommandRootArgs(args);
     if (!['copy', 'symlink', 'junction'].includes(linkMode)) {
         throw new Error(`invalid --link-mode: ${linkMode}`);
     }
 
     return {
+        account: flags.has('--account'),
         dryRun: flags.has('--dry-run') || flags.has('-n'),
         explain: flags.has('--explain'),
         forceExportUntrackedHosts: flags.has('--force-export-untracked-hosts'),
@@ -72,6 +79,7 @@ function parseSyncArgs(args) {
         noExport: flags.has('--no-export'),
         noRunInstalls: flags.has('--no-run-installs'),
         noRunUninstalls: flags.has('--no-run-uninstalls'),
+        root,
         verbose: flags.has('--verbose') || flags.has('--explain'),
         yes: flags.has('--yes')
     };
@@ -81,6 +89,7 @@ function parseAnalyzeArgs(args) {
     const flags = new Set(args);
     const categoryArg = args.find((arg) => arg.startsWith('--category='));
     const llmsArg = args.find((arg) => arg.startsWith('--llms='));
+    const root = parseCommandRootArgs(args);
     const category = categoryArg ? categoryArg.split('=')[1] : 'all';
     if (!['all', 'prompts', 'settings', 'skills'].includes(category)) {
         throw new Error(`invalid --category: ${category}`);
@@ -91,10 +100,12 @@ function parseAnalyzeArgs(args) {
         : [];
 
     return {
+        account: flags.has('--account'),
         category,
         explain: flags.has('--explain'),
         json: flags.has('--json'),
         llms,
+        root,
         verbose: flags.has('--verbose') || flags.has('--explain')
     };
 }
@@ -110,7 +121,8 @@ async function runSync(args, io) {
     }
     syncOptions.interactive = !syncOptions.yes && Boolean(process.stdin.isTTY && process.stdout.isTTY);
 
-    const result = await runSyncImpl(process.cwd(), syncOptions, io);
+    const rootDir = resolveCommandRoot(process.cwd(), syncOptions);
+    const result = await runSyncImpl(rootDir, syncOptions, io);
 
     process.stdout.write(formatSyncReport(result, syncOptions));
     return 0;
@@ -127,7 +139,8 @@ async function runAnalyze(args) {
     }
 
     try {
-        const result = await runAnalyzeImpl(process.cwd(), analyzeOptions);
+        const rootDir = resolveCommandRoot(process.cwd(), analyzeOptions);
+        const result = await runAnalyzeImpl(rootDir, analyzeOptions);
         const report = analyzeOptions.json
             ? `${JSON.stringify(result, null, 2)}\n`
             : formatAnalyzeReport(result, analyzeOptions);
@@ -222,7 +235,8 @@ module.exports = {
     __private: {
         buildSectionTreeItems,
         collapseLeadingLevelOne,
-        formatImportDetails
+        formatImportDetails,
+        resolveCommandRoot
     },
     formatAnalyzeReport,
     formatRememberReport,
@@ -231,6 +245,33 @@ module.exports = {
     parseAnalyzeArgs,
     parseSyncArgs
 };
+
+function parseCommandRootArgs(args) {
+    const rootArg = args.find((arg) => arg.startsWith('--root='));
+    const root = rootArg ? rootArg.slice('--root='.length).trim() : '';
+    const account = args.includes('--account');
+    if (root && account) {
+        throw new Error('cannot combine --root and --account');
+    }
+    if (rootArg && !root) {
+        throw new Error('--root requires a path');
+    }
+    return root || null;
+}
+
+function resolveCommandRoot(baseDir, options) {
+    if (options && options.root) {
+        return path.resolve(options.root);
+    }
+    if (options && options.account) {
+        const homeDir = process.env.USERPROFILE || process.env.HOME;
+        if (!homeDir) {
+            throw new Error('account mode requires HOME or USERPROFILE');
+        }
+        return path.resolve(homeDir);
+    }
+    return path.resolve(baseDir);
+}
 
 function formatSyncReport(result, options) {
     const lines = [];
