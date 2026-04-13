@@ -46,6 +46,26 @@ test('extract: near-match sections are flagged as maybe common', () => {
     assert.ok(result.maybeSections.length >= 1);
 });
 
+test('extract: near-match sections can use fuzzy heading matches', () => {
+    const result = extractInstructionBuckets([
+        {
+            llm: 'claude',
+            content: '## Repository Overview\nshared workflow from claude'
+        },
+        {
+            llm: 'codex',
+            content: '## Repo Overview\nshared workflow from codex'
+        }
+    ], {
+        headingThreshold: 0.7,
+        bodyThreshold: 0.5
+    });
+
+    assert.equal(result.maybeSections.length, 1);
+    assert.equal(result.maybeSections[0].matchedBy, 'fuzzy-heading');
+    assert.equal(typeof result.maybeSections[0].headingSimilarity, 'number');
+});
+
 test('extract: empty and one-character bodies use stable similarity math', () => {
     const empty = extractInstructionBuckets([
         {

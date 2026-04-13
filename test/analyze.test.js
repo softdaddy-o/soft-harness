@@ -42,6 +42,24 @@ test('analyze: prompts classify common, similar, host-only, and unknown sections
     assert.ok(result.unknown.some((entry) => entry.key === 'CLAUDE.md#(untitled)'));
 });
 
+test('analyze: prompts can match similar headings across hosts when thresholds allow it', async () => {
+    const root = makeProjectTree('soft-harness-analyze-prompts-fuzzy-', {
+        'CLAUDE.md': '## Repository Overview\nshared workflow from claude\n',
+        'AGENTS.md': '## Repo Overview\nshared workflow from codex\n'
+    });
+
+    const result = await runAnalyze(root, {
+        category: 'prompts',
+        headingThreshold: 0.7,
+        bodyThreshold: 0.5
+    });
+
+    const finding = result.similar.find((entry) => entry.key === 'prompts.section:Repo Overview');
+    assert.ok(finding);
+    assert.equal(typeof finding.headingScore, 'number');
+    assert.equal(typeof finding.bodyScore, 'number');
+});
+
 test('analyze: settings classify common, similar, conflict, host-only, and unknown files', async () => {
     const root = makeProjectTree('soft-harness-analyze-settings-', {
         '.claude': {

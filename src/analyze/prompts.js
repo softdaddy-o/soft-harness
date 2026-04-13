@@ -3,8 +3,9 @@ const { parseMarkdownSections } = require('../md-parse');
 const { hashString } = require('../hash');
 const { discoverInstructions } = require('../discover');
 const { exists, readUtf8 } = require('../fs-util');
+const { compareSectionPair, createSectionRecord, findSectionMatchGroups, getSectionMatchOptions } = require('../section-match');
 const { extractImportStubDelta, parseConcatStub } = require('../stubs');
-const { createFinding, normalizeHeadingText, normalizeText, similarity } = require('./shared');
+const { createFinding, normalizeText } = require('./shared');
 
 async function analyzePrompts(rootDir, options) {
     const discovered = await discoverInstructions(rootDir, {
@@ -23,6 +24,7 @@ async function analyzePrompts(rootDir, options) {
     };
     const documents = [];
 
+    const thresholds = getSectionMatchOptions(options);
     const sections = [];
     for (const entry of discovered) {
         if (llmFilter.size > 0 && !llmFilter.has(entry.llm)) {
@@ -35,7 +37,11 @@ async function analyzePrompts(rootDir, options) {
             file: entry.relativePath,
             mode: resolved.mode,
             sourceFiles: resolved.sourceFiles,
-            sectionHeadings: parsed.filter((section) => section.heading).map((section) => section.heading),
+            headings: parsed.filter((section) => section.heading).length,
+            sections: parsed.filter((section) => section.heading).map((section) => ({
+                heading: section.heading,
+                level: section.level
+            })),
             untitledCount: parsed.filter((section) => !section.heading).length
         });
         for (const section of parsed) {
@@ -50,26 +56,27 @@ async function analyzePrompts(rootDir, options) {
                 continue;
             }
 
-            sections.push({
-                llm: entry.llm,
+            const record = createSectionRecord(entry.llm, section, {
                 file: resolved.file,
-                heading: section.heading,
-                body: section.body,
-                raw: section.raw,
-                hash: hashString(`${normalizeHeadingText(section.heading)}\n${normalizeText(section.body)}`)
+                id: `${entry.llm}:${resolved.file}:${sections.length}`
+            });
+            sections.push({
+                ...record,
+                hash: hashString(`${record.normalizedHeading}\n${normalizeText(section.body)}`)
             });
         }
     }
 
-    const byHeading = new Map();
+    const exactGroups = new Map();
     for (const section of sections) {
-        if (!byHeading.has(section.heading)) {
-            byHeading.set(section.heading, []);
+        if (!exactGroups.has(section.normalizedHeading)) {
+            exactGroups.set(section.normalizedHeading, []);
         }
-        byHeading.get(section.heading).push(section);
+        exactGroups.get(section.normalizedHeading).push(section);
     }
 
-    for (const [heading, members] of byHeading.entries()) {
+    const unmatched = [];
+    for (const members of exactGroups.values()) {
         const byHash = new Map();
         for (const member of members) {
             if (!byHash.has(member.hash)) {
@@ -83,63 +90,64 @@ async function analyzePrompts(rootDir, options) {
             findings.common.push(createFinding('common', {
                 category: 'prompts',
                 kind: 'section',
-                key: `prompts.section:${heading}`,
+                key: `prompts.section:${group[0].heading}`,
                 sources: group.map((item) => createSource(item, item)),
                 reason: 'normalized section bodies are identical'
             }));
         }
 
-        const groups = Array.from(byHash.values());
-        if (groups.length > 1 && new Set(members.map((item) => item.llm)).size >= 2) {
-            const comparison = comparePromptGroups(groups);
+        const remaining = Array.from(byHash.values()).filter((group) => new Set(group.map((item) => item.llm)).size === 1).flat();
+        const uniqueLlms = new Set(remaining.map((item) => item.llm));
+        if (remaining.length > 1 && uniqueLlms.size >= 2) {
+            const comparison = comparePromptMembers(remaining, thresholds, 'exact-heading');
             findings[comparison.bucket].push(createFinding(comparison.bucket, {
                 category: 'prompts',
                 kind: 'section',
-                key: `prompts.section:${heading}`,
-                sources: members.map((item) => createSource(item, item)),
+                key: `prompts.section:${remaining[0].heading}`,
+                sources: remaining.map((item) => createSource(item, item)),
                 reason: comparison.reason,
-                score: comparison.score
+                score: comparison.score,
+                headingScore: comparison.headingScore,
+                bodyScore: comparison.bodyScore
             }));
             continue;
         }
 
-        if (groups.length === 1 && new Set(members.map((item) => item.llm)).size === 1) {
-            findings.hostOnly.push(createFinding('hostOnly', {
-                category: 'prompts',
-                kind: 'section',
-                key: `prompts.section:${heading}`,
-                sources: members.map((item) => createSource(item, item)),
-                reason: 'section exists for only one host'
-            }));
+        unmatched.push(...remaining);
+    }
+
+    const matchGroups = findSectionMatchGroups(unmatched, thresholds);
+    for (const group of matchGroups) {
+        const llms = new Set(group.members.map((item) => item.llm));
+        if (llms.size === 1 || group.comparisons.length === 0) {
+            for (const member of group.members) {
+                findings.hostOnly.push(createFinding('hostOnly', {
+                    category: 'prompts',
+                    kind: 'section',
+                    key: `prompts.section:${member.heading}`,
+                    sources: [createSource(member, member)],
+                    reason: 'section exists for only one host or has no comparable heading match'
+                }));
+            }
+            continue;
         }
+
+        const comparison = comparePromptMembers(group.members, thresholds, bestMatchMode(group.comparisons));
+        findings[comparison.bucket].push(createFinding(comparison.bucket, {
+            category: 'prompts',
+            kind: 'section',
+            key: `prompts.section:${group.members[0].heading}`,
+            sources: group.members.map((item) => createSource(item, item)),
+            reason: comparison.reason,
+            score: comparison.score,
+            headingScore: comparison.headingScore,
+            bodyScore: comparison.bodyScore
+        }));
     }
 
     return {
         findings,
         documents
-    };
-}
-
-function comparePromptGroups(groups) {
-    let bestSimilarity = 0;
-    for (let index = 0; index < groups.length; index += 1) {
-        for (let inner = index + 1; inner < groups.length; inner += 1) {
-            const score = similarity(groups[index][0].body, groups[inner][0].body);
-            bestSimilarity = Math.max(bestSimilarity, score);
-        }
-    }
-
-    if (bestSimilarity >= 0.55) {
-        return {
-            bucket: 'similar',
-            reason: `same section heading, but body content differs (similarity=${bestSimilarity.toFixed(2)})`,
-            score: bestSimilarity
-        };
-    }
-
-    return {
-        bucket: 'conflicts',
-        reason: 'same section heading, but body content is materially incompatible'
     };
 }
 
@@ -207,3 +215,54 @@ function createSource(entry, section) {
 module.exports = {
     analyzePrompts
 };
+
+function comparePromptMembers(members, thresholds, matchMode) {
+    let bestBodyScore = 0;
+    let bestHeadingScore = 0;
+
+    for (let index = 0; index < members.length; index += 1) {
+        for (let inner = index + 1; inner < members.length; inner += 1) {
+            const left = members[index];
+            const right = members[inner];
+            if (left.llm === right.llm) {
+                continue;
+            }
+
+            const comparison = compareSectionPair(left, right, thresholds);
+            if (!comparison.matched) {
+                continue;
+            }
+            bestBodyScore = Math.max(bestBodyScore, comparison.bodyScore);
+            bestHeadingScore = Math.max(bestHeadingScore, comparison.headingScore);
+        }
+    }
+
+    if (bestBodyScore >= thresholds.bodyThreshold) {
+        const reason = matchMode === 'fuzzy-heading'
+            ? `similar headings (${bestHeadingScore.toFixed(2)}), body content is near-match (${bestBodyScore.toFixed(2)})`
+            : `same section heading, but body content differs (similarity=${bestBodyScore.toFixed(2)})`;
+        return {
+            bucket: 'similar',
+            reason,
+            score: bestBodyScore,
+            headingScore: bestHeadingScore,
+            bodyScore: bestBodyScore
+        };
+    }
+
+    const reason = matchMode === 'fuzzy-heading'
+        ? `similar headings (${bestHeadingScore.toFixed(2)}), but body content is materially incompatible (${bestBodyScore.toFixed(2)})`
+        : 'same section heading, but body content is materially incompatible';
+    return {
+        bucket: 'conflicts',
+        reason,
+        headingScore: bestHeadingScore,
+        bodyScore: bestBodyScore
+    };
+}
+
+function bestMatchMode(comparisons) {
+    return comparisons.some((comparison) => comparison.matchedBy === 'fuzzy-heading')
+        ? 'fuzzy-heading'
+        : 'exact-heading';
+}

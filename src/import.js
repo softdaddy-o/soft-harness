@@ -2,6 +2,7 @@ const path = require('node:path');
 const { ensureDir, exists, readUtf8, writeUtf8 } = require('./fs-util');
 const { extractInstructionBuckets } = require('./extract');
 const { parseMarkdownSections } = require('./md-parse');
+const { createSectionRecord } = require('./section-match');
 const { confirm } = require('./prompt');
 
 async function importInstructions(rootDir, discovered, options) {
@@ -43,7 +44,7 @@ async function importInstructions(rootDir, discovered, options) {
         const buckets = extractInstructionBuckets(activeDiscovered.map((entry) => ({
             llm: entry.llm,
             content: readUtf8(entry.absolutePath)
-        })));
+        })), options);
 
         const selectedCommonSections = await selectCommonSections(buckets, activeDiscovered, options);
         const renderedBuckets = renderSelectedBuckets(buckets, selectedCommonSections);
@@ -155,8 +156,12 @@ module.exports = {
 };
 
 function buildSectionPlan(content, llm, maybeSections) {
-    return parseMarkdownSections(content).map((section) => {
-        const nearMatch = (maybeSections || []).find((item) => item.heading === section.heading && item.llms.includes(llm));
+    return parseMarkdownSections(content).map((section, index) => {
+        const record = createSectionRecord(llm, section, {
+            id: `${llm}:${index}`,
+            index
+        });
+        const nearMatch = (maybeSections || []).find((item) => item.sectionIds && item.sectionIds.includes(record.id));
         const otherLlms = nearMatch
             ? nearMatch.llms.filter((name) => name !== llm)
             : [];
@@ -166,6 +171,9 @@ function buildSectionPlan(content, llm, maybeSections) {
             nearMatch: nearMatch
                 ? {
                     similarity: nearMatch.similarity,
+                    headingSimilarity: nearMatch.headingSimilarity,
+                    matchedBy: nearMatch.matchedBy,
+                    otherHeading: nearMatch.otherHeading,
                     otherLlms
                 }
                 : null

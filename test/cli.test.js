@@ -5,15 +5,16 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createBackup } = require('../src/backup');
 const { __private, main, formatAnalyzeReport, formatRememberReport, formatSyncReport, parseAnalyzeArgs, parseSyncArgs } = require('../src/cli');
-const { readUtf8, writeUtf8 } = require('../src/fs-util');
+const { readUtf8 } = require('../src/fs-util');
 const { loadFresh, makeProjectTree, makeTempDir } = require('./helpers');
 
 const CLI = path.join(__dirname, '..', 'src', 'cli.js');
 
-test('cli: help lists sync, remember, and revert', () => {
+test('cli: help lists sync, analyze, remember, and revert', () => {
     const result = spawnSync('node', [CLI, 'help'], { encoding: 'utf8' });
     assert.equal(result.status, 0);
     assert.match(result.stdout, /soft-harness sync/);
+    assert.match(result.stdout, /soft-harness analyze/);
     assert.match(result.stdout, /soft-harness remember/);
     assert.match(result.stdout, /soft-harness revert/);
 });
@@ -24,26 +25,44 @@ test('cli: unknown command exits non-zero', () => {
     assert.match(result.stderr, /unknown command/i);
 });
 
-test('cli: parseSyncArgs supports explicit link mode flags', () => {
-    const parsed = parseSyncArgs(['--dry-run', '--link-mode=symlink', '--force-export-untracked-hosts']);
+test('cli: parseSyncArgs supports explicit link and threshold flags', () => {
+    const parsed = parseSyncArgs([
+        '--dry-run',
+        '--link-mode=symlink',
+        '--force-export-untracked-hosts',
+        '--heading-threshold=0.7',
+        '--body-threshold=0.5'
+    ]);
     assert.equal(parsed.dryRun, true);
     assert.equal(parsed.linkMode, 'symlink');
     assert.equal(parsed.forceExportUntrackedHosts, true);
+    assert.equal(parsed.headingThreshold, 0.7);
+    assert.equal(parsed.bodyThreshold, 0.5);
     assert.equal(parsed.root, null);
     assert.equal(parsed.account, false);
 });
 
-test('cli: parseAnalyzeArgs supports category, llms, verbose, explain, and json', () => {
-    const parsed = parseAnalyzeArgs(['--category=settings', '--llms=claude,codex', '--explain', '--json']);
+test('cli: parseAnalyzeArgs supports category, llms, json, and thresholds', () => {
+    const parsed = parseAnalyzeArgs([
+        '--category=settings',
+        '--llms=claude,codex',
+        '--explain',
+        '--json',
+        '--heading-threshold=0.7',
+        '--body-threshold=0.5'
+    ]);
     assert.equal(parsed.category, 'settings');
     assert.deepEqual(parsed.llms, ['claude', 'codex']);
     assert.equal(parsed.verbose, true);
     assert.equal(parsed.explain, true);
     assert.equal(parsed.json, true);
+    assert.equal(parsed.headingThreshold, 0.7);
+    assert.equal(parsed.bodyThreshold, 0.5);
     assert.throws(() => parseAnalyzeArgs(['--category=bogus']), /invalid --category/i);
+    assert.throws(() => parseAnalyzeArgs(['--heading-threshold=2']), /between 0 and 1/i);
 });
 
-test('cli: parseSyncArgs and parseAnalyzeArgs support root selection and reject ambiguous root flags', () => {
+test('cli: parse args support root selection and reject ambiguous root flags', () => {
     const syncParsed = parseSyncArgs(['--root=custom/root', '--dry-run']);
     assert.equal(syncParsed.root, 'custom/root');
     assert.equal(syncParsed.account, false);
@@ -397,14 +416,14 @@ test('cli: formatSyncReport explain covers maybe-common legacy imports and group
         pluginActions: []
     }, { explain: true });
 
-    assert.match(output, /left LLM-specific \(near match across claude, codex, similarity=0\.62\)/);
-    assert.match(output, /\.claude\/skills\/  \.harness\/skills\/claude\/ \(1 skills, .*llm-specific\)/);
+    assert.match(output, /left LLM-specific \(near match across claude, codex, body 0\.62, heading n\/a\)/);
+    assert.match(output, /\.claude\/skills\/  \.harness\/skills\/claude\/ \(1 skills, llm-specific\)/);
     assert.match(output, /└─ monitor-sentry/u);
     assert.match(output, /solo-agent\.md  \.harness\/agents\/common\/ \(1 agents, identical-across-llms\)/);
     assert.match(output, /└─ solo-agent/u);
 });
 
-test('cli: formatAnalyzeReport renders verbose and explain details', () => {
+test('cli: formatAnalyzeReport renders verbose and explain details as trees', () => {
     const output = formatAnalyzeReport({
         summary: { common: 1, similar: 0, conflicts: 0, host_only: 1, unknown: 0 },
         inventory: {
@@ -447,9 +466,9 @@ test('cli: formatAnalyzeReport renders verbose and explain details', () => {
     }, { verbose: true, explain: true });
 
     assert.match(output, /📊 common=1  similar=0  conflicts=0  host_only=1  unknown=0/u);
-    assert.match(output, /✅ Common \(동일 내용\)/u);
+    assert.match(output, /✅ Common \(같은 내용\)/u);
     assert.match(output, /└─ Shared/u);
-    assert.match(output, /📍 Host Only \(한 호스트에만 존재\)/u);
+    assert.match(output, /📁 Host Only \(한 호스트에만 존재\)/u);
     assert.match(output, /└─ foo/u);
     assert.match(output, /id: prompts\.section:Shared/);
     assert.match(output, /present: claude/);
@@ -457,9 +476,16 @@ test('cli: formatAnalyzeReport renders verbose and explain details', () => {
     assert.match(output, /id: skills\.skill\.foo/);
     assert.match(output, /shared: no/);
     assert.match(output, /📄 Documents/u);
-    assert.match(output, /└─ claude:CLAUDE\.md  \[import-stub\]  headings=1  sources=\.harness\/HARNESS\.md, \.harness\/llm\/claude\.md  sections=Shared/u);
+    assert.match(output, /└─ file: claude:CLAUDE\.md \[import-stub\]/u);
+    assert.match(output, /sources: \.harness\/HARNESS\.md, \.harness\/llm\/claude\.md/u);
+    assert.match(output, /headings: 1/u);
+    assert.match(output, /section: Shared/u);
     assert.match(output, /⚙️ Settings/u);
-    assert.match(output, /claude:\.claude\/settings\.json  \[json\/parsed\]  mcp=1  keys=1  servers=shared  keys=theme/);
+    assert.match(output, /file: claude:\.claude\/settings\.json \[json\/parsed\]/);
+    assert.match(output, /mcp servers: 1/);
+    assert.match(output, /host-only keys: 1/);
+    assert.match(output, /server: shared/);
+    assert.match(output, /key: theme/);
 });
 
 test('cli: formatAnalyzeReport shows similar percentages and unknown reasons', () => {
@@ -552,8 +578,12 @@ test('cli: formatAnalyzeReport includes untitled prompt counts and settings pars
         }]
     }, { verbose: true, explain: true });
 
-    assert.match(output, /claude:CLAUDE\.md  \[direct\]  headings=0  sources=CLAUDE\.md  untitled=2/);
-    assert.match(output, /codex:\.codex\/config\.toml  \[toml\/parse-error\]  mcp=0  keys=0  error=bad toml/);
+    assert.match(output, /file: claude:CLAUDE\.md \[direct\]/);
+    assert.match(output, /source: CLAUDE\.md/);
+    assert.match(output, /headings: 0/);
+    assert.match(output, /untitled blocks: 2/);
+    assert.match(output, /file: codex:\.codex\/config\.toml \[toml\/parse-error\]/);
+    assert.match(output, /error: bad toml/);
 });
 
 test('cli: main runs sync, analyze, and revert flows in-process', async () => {

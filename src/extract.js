@@ -1,16 +1,27 @@
 const { hashString } = require('./hash');
-const { normalizeHeadingText, parseMarkdownSections } = require('./md-parse');
+const { parseMarkdownSections } = require('./md-parse');
+const {
+    compareSectionPair,
+    createSectionRecord,
+    getSectionMatchOptions,
+    normalizeSectionBody
+} = require('./section-match');
 
 function extractInstructionBuckets(files, options) {
-    const maybeThreshold = (options && options.maybeThreshold) || 0.6;
+    const thresholds = getSectionMatchOptions(options);
     const parsed = files.map((file) => ({
         llm: file.llm,
         content: file.content,
-        sections: parseMarkdownSections(file.content).map((section, index) => ({
-            ...section,
-            index,
-            hash: hashString(`${normalizeHeadingText(section.heading)}\n${normalizeSectionBody(section.body)}`)
-        }))
+        sections: parseMarkdownSections(file.content).map((section, index) => {
+            const record = createSectionRecord(file.llm, section, {
+                id: `${file.llm}:${index}`,
+                index
+            });
+            return {
+                ...record,
+                hash: hashString(`${record.normalizedHeading}\n${record.normalizedBody}`)
+            };
+        })
     }));
 
     const llmSections = {};
@@ -79,19 +90,19 @@ function extractInstructionBuckets(files, options) {
         for (let inner = index + 1; inner < uniqueSections.length; inner += 1) {
             const left = uniqueSections[index];
             const right = uniqueSections[inner];
-            if (left.llm === right.llm) {
+            const comparison = compareSectionPair(left.section, right.section, thresholds);
+            if (left.llm === right.llm || !comparison.matched || comparison.bodyScore < thresholds.bodyThreshold) {
                 continue;
             }
-            if (normalizeHeadingText(left.section.heading) !== normalizeHeadingText(right.section.heading)) {
-                continue;
-            }
-
-            const similarity = compareBodies(left.section.body, right.section.body);
-            if (similarity >= maybeThreshold) {
+            if (comparison.bodyScore >= thresholds.bodyThreshold) {
                 maybeSections.push({
                     heading: left.section.heading,
+                    otherHeading: right.section.heading,
                     llms: [left.llm, right.llm],
-                    similarity
+                    sectionIds: [left.section.id, right.section.id],
+                    similarity: comparison.bodyScore,
+                    headingSimilarity: comparison.headingScore,
+                    matchedBy: comparison.matchedBy
                 });
             }
         }
@@ -121,52 +132,6 @@ function renderSections(sections) {
 
 function sectionKey(llm, index) {
     return `${llm}:${index}`;
-}
-
-function normalizeSectionBody(body) {
-    return String(body || '')
-        .trim()
-        .replace(/\r\n/g, '\n')
-        .replace(/[ \t]+/g, ' ')
-        .replace(/\n{3,}/g, '\n\n');
-}
-
-function compareBodies(left, right) {
-    const leftBigrams = createBigrams(normalizeSectionBody(left).toLowerCase());
-    const rightBigrams = createBigrams(normalizeSectionBody(right).toLowerCase());
-    if (leftBigrams.length === 0 && rightBigrams.length === 0) {
-        return 1;
-    }
-
-    const leftCounts = createCountMap(leftBigrams);
-    const rightCounts = createCountMap(rightBigrams);
-    let shared = 0;
-    for (const [bigram, count] of leftCounts.entries()) {
-        shared += Math.min(count, rightCounts.get(bigram) || 0);
-    }
-
-    return (2 * shared) / (leftBigrams.length + rightBigrams.length);
-}
-
-function createBigrams(value) {
-    const normalized = value.replace(/\s+/g, ' ').trim();
-    if (normalized.length < 2) {
-        return normalized ? [normalized] : [];
-    }
-
-    const bigrams = [];
-    for (let index = 0; index < normalized.length - 1; index += 1) {
-        bigrams.push(normalized.slice(index, index + 2));
-    }
-    return bigrams;
-}
-
-function createCountMap(items) {
-    const counts = new Map();
-    for (const item of items) {
-        counts.set(item, (counts.get(item) || 0) + 1);
-    }
-    return counts;
 }
 
 module.exports = {

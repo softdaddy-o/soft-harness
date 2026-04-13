@@ -2,6 +2,7 @@
 
 const path = require('node:path');
 const { listBackups } = require('./backup');
+const { DEFAULT_BODY_THRESHOLD, DEFAULT_HEADING_THRESHOLD } = require('./section-match');
 
 const HELP = `soft-harness - single source of truth for LLM harness files
 
@@ -16,34 +17,38 @@ Commands:
 Sync options:
   --root=<path>                      Run against an explicit root instead of the current directory
   --account                          Run against the current account home directory
-  --manual-review                     Confirm extraction and conflict decisions
-  --dry-run                           Report planned changes and write nothing
-  --verbose                           Show file-level sync details
-  --explain                           Show routing reasons and merge details
-  --yes                               Auto-approve first-sync review prompts
-  --no-import                         Skip project -> .harness import and pull-back
-  --no-export                         Skip .harness -> project export
-  --link-mode=<mode>                  Export skill/agent links using copy, symlink, or junction
-  --force-export-untracked-hosts      Allow repo-internal link exports even when target paths are not gitignored
-  --no-run-installs                   Skip plugin install commands
-  --no-run-uninstalls                 Skip plugin uninstall commands
+  --manual-review                    Confirm extraction and conflict decisions
+  --dry-run                          Report planned changes and write nothing
+  --verbose                          Show file-level sync details
+  --explain                          Show routing reasons and merge details
+  --heading-threshold=<0..1>         Heading similarity threshold for near-match routing (default: ${DEFAULT_HEADING_THRESHOLD})
+  --body-threshold=<0..1>            Body similarity threshold for near-match routing (default: ${DEFAULT_BODY_THRESHOLD})
+  --yes                              Auto-approve first-sync review prompts
+  --no-import                        Skip project -> .harness import and pull-back
+  --no-export                        Skip .harness -> project export
+  --link-mode=<mode>                 Export skill/agent links using copy, symlink, or junction
+  --force-export-untracked-hosts     Allow repo-internal link exports even when target paths are not gitignored
+  --no-run-installs                  Skip plugin install commands
+  --no-run-uninstalls                Skip plugin uninstall commands
 
 Analyze options:
   --root=<path>                      Analyze an explicit root instead of the current directory
   --account                          Analyze the current account home directory
-  --category=<name>                   Analyze prompts, settings, skills, or all
-  --llms=<names>                      Limit analysis to a comma-separated llm list
-  --verbose                           Show file-level analysis details
-  --explain                           Show classification reasons
-  --json                              Emit JSON instead of text
+  --category=<name>                  Analyze prompts, settings, skills, or all
+  --llms=<names>                     Limit analysis to a comma-separated llm list
+  --verbose                          Show file-level analysis details
+  --explain                          Show classification reasons
+  --heading-threshold=<0..1>         Heading similarity threshold for cross-host section matching (default: ${DEFAULT_HEADING_THRESHOLD})
+  --body-threshold=<0..1>            Body similarity threshold for cross-host section matching (default: ${DEFAULT_BODY_THRESHOLD})
+  --json                             Emit JSON instead of text
 
 Remember options:
-  --scope=<project|account>           Write to the project .harness/ or the account home .harness/
-  --llm=<shared|claude|codex|gemini>  Choose the shared or per-LLM destination
-  --section=<name>                    Store the entry under this section heading
-  --title=<name>                      Entry title to create or update
-  --content=<text>                    Entry body content
-  --no-export                         Update harness truth without regenerating host outputs
+  --scope=<project|account>          Write to the project .harness/ or the account home .harness/
+  --llm=<shared|claude|codex|gemini> Choose the shared or per-LLM destination
+  --section=<name>                   Store the entry under this section heading
+  --title=<name>                     Entry title to create or update
+  --content=<text>                   Entry body content
+  --no-export                        Update harness truth without regenerating host outputs
 `;
 
 const ICONS = {
@@ -52,7 +57,7 @@ const ICONS = {
     completed: '✅',
     conflicts: '⚠️ Conflicts',
     documents: '📄 Documents',
-    hostOnly: '📍 Host Only',
+    hostOnly: '📁 Host Only',
     settings: '⚙️ Settings',
     similar: '🔀 Similar',
     syncPlan: '📦',
@@ -64,15 +69,18 @@ function parseSyncArgs(args) {
     const linkModeArg = args.find((arg) => arg.startsWith('--link-mode='));
     const linkMode = linkModeArg ? linkModeArg.split('=')[1] : 'copy';
     const root = parseCommandRootArgs(args);
+    const thresholds = parseThresholdArgs(args);
     if (!['copy', 'symlink', 'junction'].includes(linkMode)) {
         throw new Error(`invalid --link-mode: ${linkMode}`);
     }
 
     return {
         account: flags.has('--account'),
+        bodyThreshold: thresholds.bodyThreshold,
         dryRun: flags.has('--dry-run') || flags.has('-n'),
         explain: flags.has('--explain'),
         forceExportUntrackedHosts: flags.has('--force-export-untracked-hosts'),
+        headingThreshold: thresholds.headingThreshold,
         linkMode,
         manualReview: flags.has('--manual-review') || flags.has('-i'),
         noImport: flags.has('--no-import'),
@@ -90,6 +98,7 @@ function parseAnalyzeArgs(args) {
     const categoryArg = args.find((arg) => arg.startsWith('--category='));
     const llmsArg = args.find((arg) => arg.startsWith('--llms='));
     const root = parseCommandRootArgs(args);
+    const thresholds = parseThresholdArgs(args);
     const category = categoryArg ? categoryArg.split('=')[1] : 'all';
     if (!['all', 'prompts', 'settings', 'skills'].includes(category)) {
         throw new Error(`invalid --category: ${category}`);
@@ -101,8 +110,10 @@ function parseAnalyzeArgs(args) {
 
     return {
         account: flags.has('--account'),
+        bodyThreshold: thresholds.bodyThreshold,
         category,
         explain: flags.has('--explain'),
+        headingThreshold: thresholds.headingThreshold,
         json: flags.has('--json'),
         llms,
         root,
@@ -259,6 +270,27 @@ function parseCommandRootArgs(args) {
     return root || null;
 }
 
+function parseThresholdArgs(args) {
+    const headingArg = args.find((arg) => arg.startsWith('--heading-threshold='));
+    const bodyArg = args.find((arg) => arg.startsWith('--body-threshold='));
+    return {
+        headingThreshold: parseThresholdValue(headingArg, '--heading-threshold', DEFAULT_HEADING_THRESHOLD),
+        bodyThreshold: parseThresholdValue(bodyArg, '--body-threshold', DEFAULT_BODY_THRESHOLD)
+    };
+}
+
+function parseThresholdValue(arg, label, fallback) {
+    if (!arg) {
+        return fallback;
+    }
+    const value = arg.slice(`${label}=`.length).trim();
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric < 0 || numeric > 1) {
+        throw new Error(`${label} must be between 0 and 1`);
+    }
+    return numeric;
+}
+
 function resolveCommandRoot(baseDir, options) {
     if (options && options.root) {
         return path.resolve(options.root);
@@ -309,6 +341,16 @@ function appendSection(lines, label, entries) {
     appendTreeItems(lines, entries.map((entry) => ({ text: entry })));
 }
 
+function appendTreeSection(lines, label, items) {
+    if (!items || items.length === 0) {
+        return;
+    }
+
+    lines.push('');
+    lines.push(label);
+    appendTreeItems(lines, items);
+}
+
 function formatImportDetails(entries, options) {
     const items = [];
     for (const entry of entries || []) {
@@ -326,7 +368,9 @@ function formatImportDetails(entries, options) {
             continue;
         }
         if (entry.action === 'maybe-common' && options && options.explain) {
-            items.push(`section "${entry.heading || '(untitled)'}" left LLM-specific (near match across ${entry.llms.join(', ')}, similarity=${entry.similarity.toFixed(2)})`);
+            const bodyScore = typeof entry.similarity === 'number' ? entry.similarity.toFixed(2) : 'n/a';
+            const headingScore = typeof entry.headingSimilarity === 'number' ? entry.headingSimilarity.toFixed(2) : 'n/a';
+            items.push(`section "${entry.heading || '(untitled)'}" left LLM-specific (near match across ${entry.llms.join(', ')}, body ${bodyScore}, heading ${headingScore})`);
             continue;
         }
         if (entry.action === 'bucket') {
@@ -370,18 +414,18 @@ function formatAnalyzeReport(result, options) {
     lines.push(`${ICONS.analyze} common=${result.summary.common}  similar=${result.summary.similar}  conflicts=${result.summary.conflicts}  host_only=${result.summary.host_only}  unknown=${result.summary.unknown}`);
 
     if (options && options.verbose) {
-        appendAnalyzeBucket(lines, ICONS.common, '동일 내용', result.common, options);
+        appendAnalyzeBucket(lines, ICONS.common, '같은 내용', result.common, options);
     }
-    appendAnalyzeBucket(lines, ICONS.similar, '같은 제목, 내용 유사', result.similar, options);
-    appendAnalyzeBucket(lines, ICONS.conflicts, '같은 제목, 내용 충돌', result.conflicts, options);
+    appendAnalyzeBucket(lines, ICONS.similar, '같은 제목 또는 유사 제목, 내용 유사', result.similar, options);
+    appendAnalyzeBucket(lines, ICONS.conflicts, '같은 제목 또는 유사 제목, 내용 충돌', result.conflicts, options);
     if (options && options.verbose) {
         appendAnalyzeBucket(lines, ICONS.hostOnly, '한 호스트에만 존재', result.host_only, options);
     }
     appendAnalyzeBucket(lines, ICONS.unknown, '자동 분류 불가', result.unknown, options);
 
     if (options && options.explain) {
-        appendSection(lines, ICONS.documents, formatAnalyzeDocuments(result.inventory && result.inventory.documents));
-        appendSection(lines, ICONS.settings, formatAnalyzeSettings(result.inventory && result.inventory.settings));
+        appendTreeSection(lines, ICONS.documents, formatAnalyzeDocuments(result.inventory && result.inventory.documents));
+        appendTreeSection(lines, ICONS.settings, formatAnalyzeSettings(result.inventory && result.inventory.settings));
     }
 
     return `${lines.join('\n')}\n`;
@@ -389,33 +433,59 @@ function formatAnalyzeReport(result, options) {
 
 function formatAnalyzeDocuments(entries) {
     return (entries || []).map((entry) => {
-        const parts = [`${entry.llm}:${entry.file}`, `[${entry.mode}]`, `headings=${entry.sectionHeadings.length}`];
-        if (entry.sourceFiles && entry.sourceFiles.length > 0) {
-            parts.push(`sources=${entry.sourceFiles.join(', ')}`);
-        }
-        if (entry.sectionHeadings && entry.sectionHeadings.length > 0) {
-            parts.push(`sections=${entry.sectionHeadings.join(', ')}`);
-        }
+        const headings = entry.headings !== undefined
+            ? entry.headings
+            : Array.isArray(entry.sectionHeadings) ? entry.sectionHeadings.length : 0;
+        const sections = Array.isArray(entry.sections)
+            ? entry.sections
+            : Array.isArray(entry.sectionHeadings)
+                ? entry.sectionHeadings.map((heading) => ({ heading, level: 1 }))
+                : [];
+        const children = [
+            { text: `source${entry.sourceFiles && entry.sourceFiles.length > 1 ? 's' : ''}: ${(entry.sourceFiles || []).join(', ') || entry.file}` },
+            { text: `headings: ${headings}` }
+        ];
         if (entry.untitledCount > 0) {
-            parts.push(`untitled=${entry.untitledCount}`);
+            children.push({ text: `untitled blocks: ${entry.untitledCount}` });
         }
-        return parts.join('  ');
+        if (sections.length > 0) {
+            children.push({
+                text: 'sections',
+                children: buildDocumentSectionTreeItems(sections)
+            });
+        }
+        return {
+            text: `file: ${entry.llm}:${entry.file} [${entry.mode}]`,
+            children
+        };
     });
 }
 
-function formatAnalyzeSettings(entries, options) {
+function formatAnalyzeSettings(entries) {
     return (entries || []).map((entry) => {
-        const parts = [`${entry.llm}:${entry.file}`, `[${entry.format}/${entry.status}]`, `mcp=${entry.mcpServers.length}`, `keys=${entry.hostOnlyKeys.length}`];
+        const children = [
+            { text: `mcp servers: ${entry.mcpServers.length}` },
+            { text: `host-only keys: ${entry.hostOnlyKeys.length}` }
+        ];
         if (entry.mcpServers.length > 0) {
-            parts.push(`servers=${entry.mcpServers.join(', ')}`);
+            children.push({
+                text: 'servers',
+                children: entry.mcpServers.map((server) => ({ text: `server: ${server}` }))
+            });
         }
         if (entry.hostOnlyKeys.length > 0) {
-            parts.push(`keys=${entry.hostOnlyKeys.join(', ')}`);
+            children.push({
+                text: 'keys',
+                children: entry.hostOnlyKeys.map((key) => ({ text: `key: ${key}` }))
+            });
         }
         if (entry.error) {
-            parts.push(`error=${entry.error}`);
+            children.push({ text: `error: ${entry.error}` });
         }
-        return parts.join('  ');
+        return {
+            text: `file: ${entry.llm}:${entry.file} [${entry.format}/${entry.status}]`,
+            children
+        };
     });
 }
 
@@ -484,6 +554,12 @@ function formatAnalyzeExplainLines(entry) {
     if (entry.reason && entry.bucket !== 'unknown') {
         lines.push(`reason: ${entry.reason}`);
     }
+    if (typeof entry.headingScore === 'number') {
+        lines.push(`heading similarity: ${Math.round(entry.headingScore * 100)}%`);
+    }
+    if (typeof entry.bodyScore === 'number') {
+        lines.push(`body similarity: ${Math.round(entry.bodyScore * 100)}%`);
+    }
     if (entry.sources && entry.sources.length > 0) {
         lines.push(`files: ${entry.sources.map((source) => `${source.llm}:${source.path || source.file}`).join(', ')}`);
     }
@@ -538,7 +614,7 @@ function appendSyncDryRunPlan(lines, details, options) {
     appendSection(lines, 'conflicts', formatConflictDetails(details && details.conflicts));
 }
 
-function appendInstructionImportPlan(lines, imports, options) {
+function appendInstructionImportPlan(lines, imports) {
     const grouped = new Map();
     for (const plan of (imports || []).filter((entry) => entry.action === 'adopt-plan')) {
         if (!grouped.has(plan.to)) {
@@ -557,7 +633,7 @@ function appendInstructionImportPlan(lines, imports, options) {
     }
 }
 
-function appendSkillImportPlan(lines, imports, options) {
+function appendSkillImportPlan(lines, imports) {
     const grouped = new Map();
     for (const entry of (imports || []).filter((item) => item.action === 'bucket')) {
         const bucketTarget = entry.type === 'skill'
@@ -580,8 +656,7 @@ function appendSkillImportPlan(lines, imports, options) {
     for (const group of grouped.values()) {
         lines.push('');
         const kindLabel = group.type === 'skill' ? 'skills' : 'agents';
-        const reasonLabel = group.reason === 'llm-specific' ? '전부 llm-specific' : group.reason;
-        lines.push(`${group.from}  ${group.to} (${group.names.length} ${kindLabel}, ${reasonLabel})`);
+        lines.push(`${group.from}  ${group.to} (${group.names.length} ${kindLabel}, ${group.reason})`);
         appendTreeItems(lines, group.names.sort().map((name) => ({ text: name })));
     }
 }
@@ -610,9 +685,7 @@ function buildSectionTreeItems(sections, options) {
         const normalizedLevel = Math.max(0, rawLevel - baseLevel);
         const level = Math.min(normalizedLevel, stack.length);
         const heading = section.heading || '(untitled)';
-        const suffix = section.nearMatch
-            ? ` (${section.nearMatch.otherLlms.join(', ')}와 near match ${Math.round(section.nearMatch.similarity * 100)}%, LLM-specific 유지)`
-            : '';
+        const suffix = section.nearMatch ? formatNearMatchSuffix(section.nearMatch) : '';
         const item = { text: `${heading}${suffix}`, children: [] };
 
         while (stack.length > level) {
@@ -644,6 +717,47 @@ function collapseLeadingLevelOne(items) {
         return items;
     }
     return only.children;
+}
+
+function buildDocumentSectionTreeItems(sections) {
+    const roots = [];
+    const stack = [];
+
+    for (const section of sections || []) {
+        const level = Number.isFinite(section.level) ? section.level : 1;
+        while (stack.length >= level) {
+            stack.pop();
+        }
+
+        const item = {
+            text: `section: ${section.heading || '(untitled)'}`,
+            children: []
+        };
+
+        if (stack.length === 0) {
+            roots.push(item);
+        } else {
+            stack[stack.length - 1].children.push(item);
+        }
+        stack.push(item);
+    }
+
+    return roots;
+}
+
+function formatNearMatchSuffix(nearMatch) {
+    const llmLabel = nearMatch.otherLlms.length === 1
+        ? `${nearMatch.otherLlms[0]}와`
+        : `${nearMatch.otherLlms.join(', ')}와`;
+    const details = [`${llmLabel} near match ${Math.round(nearMatch.similarity * 100)}%`];
+    if (typeof nearMatch.headingSimilarity === 'number' && nearMatch.matchedBy === 'fuzzy-heading') {
+        details.push(`heading ${Math.round(nearMatch.headingSimilarity * 100)}%`);
+    }
+    if (nearMatch.otherHeading) {
+        details.push(`other heading "${nearMatch.otherHeading}"`);
+    }
+    details.push('LLM-specific 유지');
+    return ` (${details.join(', ')})`;
 }
 
 function appendTreeItems(lines, items, prefix = '') {
