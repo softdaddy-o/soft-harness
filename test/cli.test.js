@@ -53,7 +53,7 @@ test('cli: parseAnalyzeArgs supports category, llms, json, and thresholds', () =
     ]);
     assert.equal(parsed.category, 'settings');
     assert.deepEqual(parsed.llms, ['claude', 'codex']);
-    assert.equal(parsed.verbose, true);
+    assert.equal(parsed.verbose, false);
     assert.equal(parsed.explain, true);
     assert.equal(parsed.json, true);
     assert.equal(parsed.headingThreshold, 0.7);
@@ -423,7 +423,7 @@ test('cli: formatSyncReport explain covers maybe-common legacy imports and group
     assert.match(output, /└─ solo-agent/u);
 });
 
-test('cli: formatAnalyzeReport renders verbose and explain details as trees', () => {
+test('cli: formatAnalyzeReport renders document-first explain details as trees', () => {
     const output = formatAnalyzeReport({
         summary: { common: 1, similar: 0, conflicts: 0, host_only: 1, unknown: 0 },
         inventory: {
@@ -432,7 +432,8 @@ test('cli: formatAnalyzeReport renders verbose and explain details as trees', ()
                 file: 'CLAUDE.md',
                 mode: 'import-stub',
                 sourceFiles: ['.harness/HARNESS.md', '.harness/llm/claude.md'],
-                sectionHeadings: ['Shared'],
+                sections: [{ heading: 'Shared', level: 1 }],
+                headings: 1,
                 untitledCount: 0
             }],
             settings: [{
@@ -449,7 +450,10 @@ test('cli: formatAnalyzeReport renders verbose and explain details as trees', ()
             category: 'prompts',
             kind: 'section',
             key: 'prompts.section:Shared',
-            sources: [{ llm: 'claude', path: 'CLAUDE.md#Shared' }],
+            sources: [
+                { llm: 'claude', path: 'CLAUDE.md#Shared' },
+                { llm: 'codex', path: 'AGENTS.md#Shared' }
+            ],
             reason: 'normalized section bodies are identical'
         }],
         similar: [],
@@ -463,36 +467,37 @@ test('cli: formatAnalyzeReport renders verbose and explain details as trees', ()
             reason: 'skill exists for only one host'
         }],
         unknown: []
-    }, { verbose: true, explain: true });
+    }, { explain: true });
 
     assert.match(output, /📊 common=1  similar=0  conflicts=0  host_only=1  unknown=0/u);
-    assert.match(output, /✅ Common \(같은 내용\)/u);
-    assert.match(output, /└─ Shared/u);
-    assert.match(output, /📁 Host Only \(한 호스트에만 존재\)/u);
-    assert.match(output, /└─ foo/u);
-    assert.match(output, /id: prompts\.section:Shared/);
-    assert.match(output, /present: claude/);
-    assert.match(output, /shared: yes/);
-    assert.match(output, /id: skills\.skill\.foo/);
-    assert.match(output, /shared: no/);
     assert.match(output, /📄 Documents/u);
     assert.match(output, /└─ file: claude:CLAUDE\.md \[import-stub\]/u);
     assert.match(output, /sources: \.harness\/HARNESS\.md, \.harness\/llm\/claude\.md/u);
     assert.match(output, /headings: 1/u);
-    assert.match(output, /section: Shared/u);
+    assert.match(output, /section: Shared \[shared; codex에도 있음\]/u);
     assert.match(output, /⚙️ Settings/u);
     assert.match(output, /file: claude:\.claude\/settings\.json \[json\/parsed\]/);
     assert.match(output, /mcp servers: 1/);
     assert.match(output, /host-only keys: 1/);
     assert.match(output, /server: shared/);
     assert.match(output, /key: theme/);
+    assert.doesNotMatch(output, /✅ Common/u);
+    assert.doesNotMatch(output, /📁 Host Only/u);
 });
 
 test('cli: formatAnalyzeReport shows similar percentages and unknown reasons', () => {
     const output = formatAnalyzeReport({
         summary: { common: 0, similar: 1, conflicts: 0, host_only: 0, unknown: 2 },
         inventory: {
-            documents: [],
+            documents: [{
+                llm: 'claude',
+                file: 'CLAUDE.md',
+                mode: 'direct',
+                sourceFiles: ['CLAUDE.md'],
+                sections: [{ heading: 'Repository Overview', level: 1 }],
+                headings: 1,
+                untitledCount: 0
+            }],
             settings: []
         },
         common: [],
@@ -535,12 +540,70 @@ test('cli: formatAnalyzeReport shows similar percentages and unknown reasons', (
                 reason: 'needs manual review'
             }
         ]
-    }, { explain: false });
+    }, { explain: true });
 
-    assert.match(output, /└─ Repository Overview\s+\(claude  codex, 62%\)/u);
-    assert.match(output, /\(codex, 헤딩 없는 내용\)/u);
-    assert.match(output, /\(claude, manual review required\)/);
-    assert.match(output, /\(gemini, needs manual review\)/);
+    assert.match(output, /section: Repository Overview \[codex에도 비슷한 섹션 있음, separate 유지\]/u);
+    assert.doesNotMatch(output, /🔀 Similar/u);
+    assert.doesNotMatch(output, /Unknown/u);
+});
+
+test('cli: formatAnalyzeReport uses bucket sections when inventory is absent or verbose is requested', () => {
+    const outputWithoutInventory = formatAnalyzeReport({
+        summary: { common: 0, similar: 1, conflicts: 0, host_only: 0, unknown: 0 },
+        inventory: { documents: [], settings: [] },
+        common: [],
+        similar: [{
+            bucket: 'similar',
+            category: 'skills',
+            kind: 'skill',
+            key: 'skills.skill.foo',
+            score: 0.75,
+            sources: [
+                { llm: 'claude', file: '.claude/skills/foo' },
+                { llm: 'codex', file: '.codex/skills/foo' }
+            ]
+        }],
+        conflicts: [],
+        host_only: [],
+        unknown: []
+    }, {});
+
+    assert.match(outputWithoutInventory, /🔀 Similar/u);
+    assert.match(outputWithoutInventory, /foo\s+\(claude  codex, 75%\)/u);
+
+    const outputVerbose = formatAnalyzeReport({
+        summary: { common: 1, similar: 0, conflicts: 0, host_only: 0, unknown: 0 },
+        inventory: {
+            documents: [{
+                llm: 'claude',
+                file: 'CLAUDE.md',
+                mode: 'direct',
+                sourceFiles: ['CLAUDE.md'],
+                sections: [{ heading: 'Shared', level: 1 }],
+                headings: 1,
+                untitledCount: 0
+            }],
+            settings: []
+        },
+        common: [{
+            bucket: 'common',
+            category: 'prompts',
+            kind: 'section',
+            key: 'prompts.section:Shared',
+            sources: [
+                { llm: 'claude', path: 'CLAUDE.md#Shared' },
+                { llm: 'codex', path: 'AGENTS.md#Shared' }
+            ],
+            reason: 'normalized section bodies are identical'
+        }],
+        similar: [],
+        conflicts: [],
+        host_only: [],
+        unknown: []
+    }, { verbose: true, explain: true });
+
+    assert.match(outputVerbose, /📄 Documents/u);
+    assert.match(outputVerbose, /✅ Common \(같은 내용\)/u);
 });
 
 test('cli: formatAnalyzeReport includes untitled prompt counts and settings parse errors', () => {
@@ -576,7 +639,7 @@ test('cli: formatAnalyzeReport includes untitled prompt counts and settings pars
             sources: [{ llm: 'claude', path: 'CLAUDE.md#(untitled)' }],
             reason: 'headingless content cannot be classified reliably'
         }]
-    }, { verbose: true, explain: true });
+    }, { explain: true });
 
     assert.match(output, /file: claude:CLAUDE\.md \[direct\]/);
     assert.match(output, /source: CLAUDE\.md/);
@@ -584,6 +647,7 @@ test('cli: formatAnalyzeReport includes untitled prompt counts and settings pars
     assert.match(output, /untitled blocks: 2/);
     assert.match(output, /file: codex:\.codex\/config\.toml \[toml\/parse-error\]/);
     assert.match(output, /error: bad toml/);
+    assert.doesNotMatch(output, /Unknown/u);
 });
 
 test('cli: main runs sync, analyze, and revert flows in-process', async () => {

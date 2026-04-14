@@ -117,7 +117,7 @@ function parseAnalyzeArgs(args) {
         json: flags.has('--json'),
         llms,
         root,
-        verbose: flags.has('--verbose') || flags.has('--explain')
+        verbose: flags.has('--verbose')
     };
 }
 
@@ -413,25 +413,27 @@ function formatAnalyzeReport(result, options) {
     const lines = [];
     lines.push(`${ICONS.analyze} common=${result.summary.common}  similar=${result.summary.similar}  conflicts=${result.summary.conflicts}  host_only=${result.summary.host_only}  unknown=${result.summary.unknown}`);
 
-    if (options && options.verbose) {
-        appendAnalyzeBucket(lines, ICONS.common, '같은 내용', result.common, options);
-    }
-    appendAnalyzeBucket(lines, ICONS.similar, '같은 제목 또는 유사 제목, 내용 유사', result.similar, options);
-    appendAnalyzeBucket(lines, ICONS.conflicts, '같은 제목 또는 유사 제목, 내용 충돌', result.conflicts, options);
-    if (options && options.verbose) {
-        appendAnalyzeBucket(lines, ICONS.hostOnly, '한 호스트에만 존재', result.host_only, options);
-    }
-    appendAnalyzeBucket(lines, ICONS.unknown, '자동 분류 불가', result.unknown, options);
+    appendTreeSection(lines, ICONS.documents, formatAnalyzeDocuments(result, options));
+    appendTreeSection(lines, ICONS.settings, formatAnalyzeSettings(result.inventory && result.inventory.settings));
 
-    if (options && options.explain) {
-        appendTreeSection(lines, ICONS.documents, formatAnalyzeDocuments(result.inventory && result.inventory.documents));
-        appendTreeSection(lines, ICONS.settings, formatAnalyzeSettings(result.inventory && result.inventory.settings));
+    if (shouldShowAnalyzeBuckets(result, options)) {
+        if (options && options.verbose) {
+            appendAnalyzeBucket(lines, ICONS.common, '같은 내용', result.common, options);
+        }
+        appendAnalyzeBucket(lines, ICONS.similar, '같은 제목 또는 유사 제목, 내용 유사', result.similar, options);
+        appendAnalyzeBucket(lines, ICONS.conflicts, '같은 제목 또는 유사 제목, 내용 충돌', result.conflicts, options);
+        if (options && options.verbose) {
+            appendAnalyzeBucket(lines, ICONS.hostOnly, '한 호스트에만 존재', result.host_only, options);
+        }
+        appendAnalyzeBucket(lines, ICONS.unknown, '자동 분류 불가', result.unknown, options);
     }
 
     return `${lines.join('\n')}\n`;
 }
 
-function formatAnalyzeDocuments(entries) {
+function formatAnalyzeDocuments(result, options) {
+    const annotations = buildPromptAnnotations(result);
+    const entries = result && result.inventory && result.inventory.documents;
     return (entries || []).map((entry) => {
         const headings = entry.headings !== undefined
             ? entry.headings
@@ -451,7 +453,7 @@ function formatAnalyzeDocuments(entries) {
         if (sections.length > 0) {
             children.push({
                 text: 'sections',
-                children: buildDocumentSectionTreeItems(sections)
+                children: buildDocumentSectionTreeItems(sections, entry, annotations, options)
             });
         }
         return {
@@ -530,6 +532,25 @@ function appendAnalyzeBucket(lines, title, subtitle, entries, options) {
     })));
 }
 
+function shouldShowAnalyzeBuckets(result, options) {
+    if (options && options.verbose) {
+        return true;
+    }
+    const hasInventory = Boolean(
+        (result && result.inventory && result.inventory.documents && result.inventory.documents.length > 0)
+        || (result && result.inventory && result.inventory.settings && result.inventory.settings.length > 0)
+    );
+    if (!hasInventory) {
+        const total = (result.summary.common || 0)
+            + (result.summary.similar || 0)
+            + (result.summary.conflicts || 0)
+            + (result.summary.host_only || 0)
+            + (result.summary.unknown || 0);
+        return total > 0;
+    }
+    return false;
+}
+
 function formatAnalyzeSummaryLine(entry) {
     const label = getAnalyzeLabel(entry).padEnd(28, ' ');
     const llms = uniqueLlms(entry).join('  ');
@@ -588,6 +609,72 @@ function localizeUnknownReason(reason) {
         return '헤딩 없는 내용';
     }
     return reason || '분류 불가';
+}
+
+function buildPromptAnnotations(result) {
+    const map = new Map();
+    for (const bucket of ['common', 'similar', 'conflicts', 'host_only', 'unknown']) {
+        for (const entry of result && result[bucket] ? result[bucket] : []) {
+            if (entry.category !== 'prompts' || !Array.isArray(entry.sources)) {
+                continue;
+            }
+            for (const source of entry.sources) {
+                const key = `${source.llm}:${source.path || source.file}`;
+                if (!map.has(key)) {
+                    map.set(key, []);
+                }
+                map.get(key).push(entry);
+            }
+        }
+    }
+    return map;
+}
+
+function formatPromptSectionSuffix(entry, section, annotations, options) {
+    const sectionKey = `${entry.llm}:${entry.file}#${section.heading || '(untitled)'}`;
+    const matches = annotations.get(sectionKey) || [];
+    if (matches.length === 0) {
+        return '';
+    }
+
+    const finding = matches[0];
+    if (!(options && options.explain)) {
+        return '';
+    }
+
+    const otherSources = (finding.sources || []).filter((source) => source.llm !== entry.llm);
+    const peerLlms = Array.from(new Set(otherSources.map((source) => source.llm)));
+    const peerLabel = peerLlms.length === 0 ? '다른 LLM' : peerLlms.join(', ');
+
+    if (finding.bucket === 'common') {
+        return ` [shared; ${peerLabel}에도 있음]`;
+    }
+    if (finding.bucket === 'similar') {
+        const parts = [`${peerLabel}에도 비슷한 섹션 있음`];
+        if (typeof finding.bodyScore === 'number') {
+            parts.push(`body ${Math.round(finding.bodyScore * 100)}%`);
+        }
+        if (typeof finding.headingScore === 'number' && finding.headingScore < 1) {
+            parts.push(`heading ${Math.round(finding.headingScore * 100)}%`);
+        }
+        parts.push('separate 유지');
+        return ` [${parts.join(', ')}]`;
+    }
+    if (finding.bucket === 'conflicts') {
+        const parts = [`${peerLabel}에도 대응 섹션 있음`];
+        if (typeof finding.bodyScore === 'number') {
+            parts.push(`body ${Math.round(finding.bodyScore * 100)}%`);
+        }
+        if (typeof finding.headingScore === 'number' && finding.headingScore < 1) {
+            parts.push(`heading ${Math.round(finding.headingScore * 100)}%`);
+        }
+        parts.push('conflict로 분류');
+        return ` [${parts.join(', ')}]`;
+    }
+    if (finding.bucket === 'host_only' || finding.bucket === 'hostOnly') {
+        return '';
+    }
+    return ` [${localizeUnknownReason(finding.reason)}]`;
 }
 
 function appendSyncDryRunPlan(lines, details, options) {
@@ -719,7 +806,7 @@ function collapseLeadingLevelOne(items) {
     return only.children;
 }
 
-function buildDocumentSectionTreeItems(sections) {
+function buildDocumentSectionTreeItems(sections, entry, annotations, options) {
     const roots = [];
     const stack = [];
 
@@ -730,7 +817,7 @@ function buildDocumentSectionTreeItems(sections) {
         }
 
         const item = {
-            text: `section: ${section.heading || '(untitled)'}`,
+            text: `section: ${section.heading || '(untitled)'}${formatPromptSectionSuffix(entry, section, annotations, options)}`,
             children: []
         };
 
