@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { runAnalyze } = require('../src/analyze');
 const { buildConcatStub, buildImportStub } = require('../src/stubs');
-const { makeProjectTree } = require('./helpers');
+const { createMemoryFs, makeProjectTree } = require('./helpers');
 
 test('analyze: prompts classify common, similar, host-only, and unknown sections', async () => {
     const root = makeProjectTree('soft-harness-analyze-prompts-', {
@@ -271,4 +271,66 @@ test('analyze: managed prompt stubs resolve to backing harness content instead o
     assert.ok(result.host_only.some((entry) => entry.key === 'prompts.section:Codex Only'));
     assert.equal(result.unknown.some((entry) => entry.key === 'CLAUDE.md#(untitled)'), false);
     assert.equal(result.unknown.some((entry) => entry.key === 'AGENTS.md#(untitled)'), false);
+});
+
+test('analyze: plugins can resolve github candidates when explicitly requested', async () => {
+    const memoryFs = createMemoryFs();
+    await memoryFs.run(async () => {
+        const root = memoryFs.root('soft-harness-analyze-plugins-github-root');
+        memoryFs.writeTree(root, {
+            '.claude': {
+                'settings.json': JSON.stringify({
+                    enabledPlugins: {
+                        'frontend-design@claude-code-plugins': true
+                    }
+                }, null, 2),
+                plugins: {
+                    cache: {
+                        'claude-code-plugins': {
+                            'frontend-design': {
+                                '1.0.0': {
+                                    '.claude-plugin': {
+                                        'plugin.json': JSON.stringify({
+                                            name: 'frontend-design',
+                                            version: '1.0.0',
+                                            description: 'Frontend design system helper',
+                                            author: {
+                                                name: 'acme'
+                                            }
+                                        }, null, 2)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        let calls = 0;
+        const result = await runAnalyze(root, {
+            category: 'plugins',
+            resolveGithub: true,
+            githubSearch: async (plugin) => {
+                calls += 1;
+                assert.equal(plugin.displayName, 'frontend-design@claude-code-plugins');
+                return {
+                    fullName: 'acme/frontend-design',
+                    url: 'https://github.com/acme/frontend-design',
+                    confidence: 0.91,
+                    reason: 'matched by exact repository name and plugin author'
+                };
+            }
+        });
+
+        assert.equal(calls, 1);
+        const entry = result.inventory.plugins.hosts.find((host) => host.llm === 'claude').plugins[0];
+        assert.equal(entry.sourceType, 'marketplace');
+        assert.deepEqual(entry.githubCandidate, {
+            fullName: 'acme/frontend-design',
+            url: 'https://github.com/acme/frontend-design',
+            confidence: 0.91,
+            reason: 'matched by exact repository name and plugin author'
+        });
+    });
 });

@@ -47,6 +47,7 @@ test('cli: parseAnalyzeArgs supports category, llms, json, and thresholds', () =
         '--category=plugins',
         '--llms=claude,codex',
         '--explain',
+        '--resolve-github',
         '--json',
         '--heading-threshold=0.7',
         '--body-threshold=0.5'
@@ -55,6 +56,7 @@ test('cli: parseAnalyzeArgs supports category, llms, json, and thresholds', () =
     assert.deepEqual(parsed.llms, ['claude', 'codex']);
     assert.equal(parsed.verbose, false);
     assert.equal(parsed.explain, true);
+    assert.equal(parsed.resolveGithub, true);
     assert.equal(parsed.json, true);
     assert.equal(parsed.headingThreshold, 0.7);
     assert.equal(parsed.bodyThreshold, 0.5);
@@ -464,7 +466,13 @@ test('cli: formatAnalyzeReport renders document-first explain details as trees',
                         version: '1.0.0',
                         registry: null,
                         url: 'https://github.com/softdaddy-o/shared-plugin',
-                        evidence: 'plugins[]'
+                        evidence: 'plugins[]',
+                        githubCandidate: {
+                            fullName: 'softdaddy-o/shared-plugin',
+                            url: 'https://github.com/softdaddy-o/shared-plugin',
+                            confidence: 0.88,
+                            reason: 'matched by exact repository name'
+                        }
                     }]
                 }]
             }
@@ -527,6 +535,8 @@ test('cli: formatAnalyzeReport renders document-first explain details as trees',
     assert.match(output, /version: 1\.0\.0/);
     assert.match(output, /url: https:\/\/github\.com\/softdaddy-o\/shared-plugin/);
     assert.match(output, /evidence: plugins\[\]/);
+    assert.match(output, /github candidate: softdaddy-o\/shared-plugin \(88%\)/);
+    assert.match(output, /candidate reason: matched by exact repository name/);
     assert.doesNotMatch(output, /✅ Common/u);
     assert.doesNotMatch(output, /📁 Host Only/u);
 });

@@ -1,8 +1,9 @@
 const { loadPlugins, readInstalledPluginEntries } = require('../plugins');
 const { createFinding } = require('./shared');
 const { listProfiles } = require('../profiles');
+const { resolveGithubCandidate } = require('../github-search');
 
-function analyzePlugins(rootDir, options) {
+async function analyzePlugins(rootDir, options) {
     const findings = {
         common: [],
         similar: [],
@@ -26,28 +27,38 @@ function analyzePlugins(rootDir, options) {
             llms: plugin.llms.filter((llm) => llms.includes(llm)),
             version: plugin.version || null
         })),
-        hosts: llms.map((llm) => ({
-            llm,
-            plugins: installedByLlm.get(llm).slice().sort((left, right) => left.displayName.localeCompare(right.displayName))
-        }))
+        hosts: []
     };
 
+    for (const llm of llms) {
+        const plugins = [];
+        for (const plugin of installedByLlm.get(llm)) {
+            const githubCandidate = await resolveGithubCandidate(plugin, options || {});
+            plugins.push(githubCandidate ? { ...plugin, githubCandidate } : plugin);
+        }
+        inventory.hosts.push({
+            llm,
+            plugins: plugins.sort((left, right) => left.displayName.localeCompare(right.displayName))
+        });
+    }
+
     const nameToLlms = new Map();
-    for (const [llm, entries] of installedByLlm.entries()) {
-        for (const entry of entries) {
+    for (const host of inventory.hosts) {
+        for (const entry of host.plugins) {
             const name = entry.displayName || entry.name;
             if (!nameToLlms.has(name)) {
                 nameToLlms.set(name, []);
             }
             nameToLlms.get(name).push({
-                llm,
+                llm: host.llm,
                 file: name,
                 path: name,
                 sourceType: entry.sourceType || 'declared',
                 version: entry.version || null,
                 registry: entry.registry || null,
                 url: entry.url || null,
-                evidence: entry.evidence || null
+                evidence: entry.evidence || null,
+                githubCandidate: entry.githubCandidate || null
             });
         }
     }

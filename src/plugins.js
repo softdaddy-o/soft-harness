@@ -235,22 +235,26 @@ function extractPluginEntriesFromToml(content) {
 
 function extractPluginEntriesFromPluginArrayItem(value, metadata) {
     if (typeof value === 'string') {
+        const identity = parsePluginIdentity(value);
         return [normalizePluginEntry({
             ...metadata,
-            ...parsePluginIdentity(value),
-            name: parsePluginIdentity(value).name
+            ...identity,
+            name: identity.name
         })];
     }
     if (value && typeof value === 'object' && typeof value.name === 'string') {
+        const identity = parsePluginIdentity(value.name);
         return [normalizePluginEntry({
             ...metadata,
-            ...parsePluginIdentity(value.name),
-            name: parsePluginIdentity(value.name).name,
-            registry: value.registry || parsePluginIdentity(value.name).registry || null,
+            ...identity,
+            name: identity.name,
+            registry: value.registry || identity.registry || null,
             version: value.version || null,
             url: normalizeRepositoryUrl(value.url || value.repository || value.source || null),
+            author: normalizePluginAuthor(value.author || null),
+            description: value.description || null,
             sourceType: inferPluginSourceType({
-                registry: value.registry || parsePluginIdentity(value.name).registry || null,
+                registry: value.registry || identity.registry || null,
                 url: value.url || value.repository || value.source || null
             })
         })];
@@ -266,6 +270,8 @@ function buildClaudeEnabledPluginEntry(rawName, cacheIndex) {
         registry: identity.registry,
         version: cacheMeta && cacheMeta.version ? cacheMeta.version : null,
         url: cacheMeta && cacheMeta.url ? cacheMeta.url : null,
+        author: cacheMeta && cacheMeta.author ? cacheMeta.author : null,
+        description: cacheMeta && cacheMeta.description ? cacheMeta.description : null,
         sourceType: cacheMeta && cacheMeta.sourceType ? cacheMeta.sourceType : (identity.registry ? 'marketplace' : 'declared'),
         inferred: Boolean(cacheMeta),
         evidence: cacheMeta ? 'enabledPlugins + cache metadata' : 'enabledPlugins'
@@ -300,7 +306,9 @@ function buildClaudeCacheIndex(rootDir) {
             registry,
             version,
             sourceType: 'marketplace',
-            url: null
+            url: null,
+            author: null,
+            description: null
         };
 
         try {
@@ -308,14 +316,20 @@ function buildClaudeCacheIndex(rootDir) {
             if (relativePath.endsWith('/.claude-plugin/plugin.json')) {
                 current.version = parsed.version || current.version;
                 current.url = normalizeRepositoryUrl(parsed.repository || parsed.url || parsed.homepage || current.url);
+                current.author = normalizePluginAuthor(parsed.author || current.author);
+                current.description = parsed.description || current.description;
             } else if (relativePath.endsWith('/.claude-plugin/marketplace.json')) {
                 const plugin = Array.isArray(parsed.plugins)
                     ? parsed.plugins.find((entry) => entry && entry.name === name)
                     : null;
                 current.version = (plugin && plugin.version) || current.version;
                 current.url = normalizeRepositoryUrl((plugin && (plugin.url || plugin.repository || plugin.source)) || current.url);
+                current.author = normalizePluginAuthor((plugin && plugin.author) || (parsed.owner && parsed.owner.name) || current.author);
+                current.description = (plugin && plugin.description) || (parsed.metadata && parsed.metadata.description) || current.description;
             } else if (relativePath.endsWith('/package.json')) {
                 current.url = normalizeRepositoryUrl(parsed.repository || parsed.homepage || current.url);
+                current.author = normalizePluginAuthor(parsed.author || current.author);
+                current.description = parsed.description || current.description;
             }
         } catch (error) {
             // Ignore malformed cache metadata and keep the registry/path inference.
@@ -350,6 +364,8 @@ function normalizePluginEntry(entry) {
         registry: entry.registry || null,
         version: entry.version || null,
         url: normalizeRepositoryUrl(entry.url || null),
+        author: normalizePluginAuthor(entry.author || null),
+        description: entry.description ? String(entry.description) : null,
         sourceType: entry.sourceType || inferPluginSourceType(entry),
         inferred: Boolean(entry.inferred),
         evidence: entry.evidence || null
@@ -386,6 +402,17 @@ function normalizeRepositoryUrl(value) {
     return text.replace(/^git\+/i, '').replace(/\.git$/i, '');
 }
 
+function normalizePluginAuthor(value) {
+    if (!value) {
+        return null;
+    }
+    if (typeof value === 'object') {
+        return normalizePluginAuthor(value.name || value.login || value.email || null);
+    }
+    const text = String(value).trim();
+    return text || null;
+}
+
 function dedupePluginEntries(entries) {
     const merged = new Map();
     for (const entry of entries || []) {
@@ -402,6 +429,8 @@ function dedupePluginEntries(entries) {
             ...current,
             version: current.version || entry.version,
             url: current.url || entry.url,
+            author: current.author || entry.author,
+            description: current.description || entry.description,
             sourceType: current.sourceType !== 'declared' ? current.sourceType : entry.sourceType,
             inferred: current.inferred && entry.inferred,
             evidence: current.evidence || entry.evidence

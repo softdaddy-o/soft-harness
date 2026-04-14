@@ -33,7 +33,7 @@ async function runAnalyze(rootDir, options) {
         inventory.skills.push(...(skillsResult.inventory || []));
     }
     if (categories.includes('plugins')) {
-        const pluginsResult = analyzePlugins(rootDir, options || {});
+        const pluginsResult = await analyzePlugins(rootDir, options || {});
         parts.push(pluginsResult.findings);
         inventory.plugins.desired.push(...((pluginsResult.inventory && pluginsResult.inventory.desired) || []));
         inventory.plugins.hosts.push(...((pluginsResult.inventory && pluginsResult.inventory.hosts) || []));

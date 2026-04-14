@@ -36,6 +36,7 @@ Analyze options:
   --account                          Analyze the current account home directory
   --category=<name>                  Analyze prompts, settings, skills, plugins, or all
   --llms=<names>                     Limit analysis to a comma-separated llm list
+  --resolve-github                   Search GitHub for plugin repository candidates when local metadata is insufficient
   --verbose                          Show file-level analysis details
   --explain                          Show classification reasons
   --heading-threshold=<0..1>         Heading similarity threshold for cross-host section matching (default: ${DEFAULT_HEADING_THRESHOLD})
@@ -116,6 +117,7 @@ function parseAnalyzeArgs(args) {
         headingThreshold: thresholds.headingThreshold,
         json: flags.has('--json'),
         llms,
+        resolveGithub: flags.has('--resolve-github'),
         root,
         verbose: flags.has('--verbose')
     };
@@ -586,6 +588,16 @@ function formatAnalyzePluginEntry(plugin, llm, annotations, options) {
     }
     if (plugin.evidence) {
         details.push({ text: `evidence: ${plugin.evidence}` });
+    }
+    if (plugin.githubCandidate) {
+        const confidence = typeof plugin.githubCandidate.confidence === 'number'
+            ? ` (${Math.round(plugin.githubCandidate.confidence * 100)}%)`
+            : '';
+        details.push({ text: `github candidate: ${plugin.githubCandidate.fullName}${confidence}` });
+        details.push({ text: `candidate url: ${plugin.githubCandidate.url}` });
+        if (plugin.githubCandidate.reason) {
+            details.push({ text: `candidate reason: ${plugin.githubCandidate.reason}` });
+        }
     }
     item.children = details;
     return item;
