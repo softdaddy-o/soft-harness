@@ -11,7 +11,7 @@ It manages:
 
 ## Status
 
-`v0.4.11` keeps the `.harness/` sync model, adds an in-memory filesystem test backend for broader unit coverage, keeps symlink and junction checks in focused real-filesystem tests, starts the `analyze -> curate -> sync` workflow with stable analyze item metadata, lets `sync` and `analyze` target either an explicit `--root` or the current account home with `--account`, extends `analyze` with document-first inventory for prompts, settings, skills, and plugins, and tightens plugin manifest parsing so permission settings are not misclassified as plugins. The old registry schema, `harness/` tree, and legacy commands are gone. The active model is:
+`v0.4.12` keeps the `.harness/` sync model, adds an in-memory filesystem test backend for broader unit coverage, keeps symlink and junction checks in focused real-filesystem tests, starts the `analyze -> curate -> sync` workflow with stable analyze item metadata, lets `sync` and `analyze` target either an explicit `--root` or the current account home with `--account`, extends `analyze` with document-first inventory for prompts, settings, skills, and plugins, and narrows plugin manifest parsing to real plugin fields so Claude permission rules, status line commands, Gemini footer items, and MCP args are not misclassified as plugins. The old registry schema, `harness/` tree, and legacy commands are gone. The active model is:
 
 - `.harness/` is the source of truth
 - the intended workflow is `analyze -> curate -> sync`

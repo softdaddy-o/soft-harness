@@ -133,19 +133,17 @@ test('plugins: syncPlugins can skip uninstalls and surfaces command failures', (
     assert.equal(skipped.actions[0].status, 'planned');
 });
 
-test('plugins: detectPluginDrift reads plugin names from JSON and TOML manifests defensively', () => {
+test('plugins: detectPluginDrift reads top-level plugin names from JSON and TOML manifests defensively', () => {
     const root = makeProjectTree('soft-harness-plugins-manifests-', {
         '.harness': {
             'plugins.yaml': 'plugins: []\n'
         },
         '.claude': {
             'settings.json': JSON.stringify({
-                nested: {
-                    plugins: [
-                        'string-plugin',
-                        { name: 'object-plugin' }
-                    ]
-                }
+                plugins: [
+                    'string-plugin',
+                    { name: 'object-plugin' }
+                ]
             }, null, 2)
         },
         '.codex': {
@@ -248,5 +246,50 @@ test('plugins: virtual fs ignores permission settings and non-plugin names in ma
         const drift = detectPluginDrift(root);
         const names = drift.map((entry) => entry.name).sort();
         assert.deepEqual(names, ['real-json-plugin', 'real-toml-plugin']);
+    });
+});
+
+test('plugins: virtual fs reads claude enabledPlugins and ignores gemini ui and mcp settings', () => {
+    const memoryFs = createMemoryFs();
+    return memoryFs.run(() => {
+        const root = memoryFs.root('soft-harness-plugins-vfs-host-shaped-root');
+        memoryFs.writeTree(root, {
+            '.claude': {
+                'settings.json': JSON.stringify({
+                    permissions: {
+                        allow: ['WebSearch', 'Bash(git *)']
+                    },
+                    statusLine: {
+                        command: '"node" "statusline.mjs"'
+                    },
+                    enabledPlugins: {
+                        'frontend-design@claude-code-plugins': true,
+                        'skill-creator@claude-plugins-official': true,
+                        'disabled-plugin@example': false
+                    }
+                }, null, 2)
+            },
+            '.gemini': {
+                'settings.json': JSON.stringify({
+                    ui: {
+                        footer: {
+                            items: ['workspace', 'git-branch', 'sandbox']
+                        }
+                    },
+                    mcpServers: {
+                        pencil: {
+                            command: 'pencil.exe',
+                            args: ['--app', 'desktop']
+                        }
+                    }
+                }, null, 2)
+            }
+        });
+
+        assert.deepEqual(readInstalledPlugins(root, 'claude'), [
+            'frontend-design@claude-code-plugins',
+            'skill-creator@claude-plugins-official'
+        ]);
+        assert.deepEqual(readInstalledPlugins(root, 'gemini'), []);
     });
 });

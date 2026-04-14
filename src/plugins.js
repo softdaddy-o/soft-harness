@@ -153,7 +153,7 @@ function readInstalledPlugins(rootDir, llm) {
     if (manifestPath.endsWith('.json')) {
         try {
             const parsed = JSON.parse(content);
-            return Array.from(new Set(extractPluginNamesFromJson(parsed)));
+            return Array.from(new Set(extractPluginNamesFromJson(parsed, llm)));
         } catch (error) {
             return [];
         }
@@ -162,21 +162,21 @@ function readInstalledPlugins(rootDir, llm) {
     return Array.from(new Set(extractPluginNamesFromToml(content)));
 }
 
-function extractPluginNamesFromJson(value) {
-    if (Array.isArray(value)) {
-        return value.flatMap((item) => extractPluginNamesFromPluginArrayItem(item));
-    }
-    if (!value || typeof value !== 'object') {
+function extractPluginNamesFromJson(value, llm) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
         return [];
     }
 
     const names = [];
-    for (const [key, inner] of Object.entries(value)) {
-        if (key === 'plugins' && Array.isArray(inner)) {
-            names.push(...inner.flatMap((plugin) => extractPluginNamesFromPluginArrayItem(plugin)));
-            continue;
+    if (Array.isArray(value.plugins)) {
+        names.push(...value.plugins.flatMap((plugin) => extractPluginNamesFromPluginArrayItem(plugin)));
+    }
+    if (llm === 'claude' && value.enabledPlugins && typeof value.enabledPlugins === 'object' && !Array.isArray(value.enabledPlugins)) {
+        for (const [name, enabled] of Object.entries(value.enabledPlugins)) {
+            if (enabled) {
+                names.push(name);
+            }
         }
-        names.push(...extractPluginNamesFromJson(inner));
     }
     return names;
 }
