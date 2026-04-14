@@ -218,7 +218,7 @@ test('analyze: plugins classify shared and host-only plugins and expose inventor
         },
         '.claude': {
             'settings.json': JSON.stringify({
-                plugins: [{ name: 'shared-plugin' }, { name: 'claude-only-plugin' }]
+                plugins: [{ name: 'shared-plugin' }, { name: 'claude-only-plugin', repository: 'github:softdaddy-o/claude-only-plugin' }]
             }, null, 2)
         },
         '.codex': {
@@ -234,6 +234,12 @@ test('analyze: plugins classify shared and host-only plugins and expose inventor
 
     assert.deepEqual(result.inventory.plugins.desired.map((entry) => entry.name), ['shared-plugin']);
     assert.deepEqual(result.inventory.plugins.hosts.map((entry) => entry.llm).sort(), ['claude', 'codex', 'gemini']);
+    const claudePlugins = result.inventory.plugins.hosts.find((entry) => entry.llm === 'claude').plugins;
+    assert.equal(claudePlugins[0].displayName, 'claude-only-plugin');
+    assert.equal(claudePlugins[0].sourceType, 'github');
+    assert.equal(claudePlugins[0].url, 'https://github.com/softdaddy-o/claude-only-plugin');
+    assert.equal(claudePlugins[1].displayName, 'shared-plugin');
+    assert.equal(claudePlugins[1].sourceType, 'declared');
     assert.ok(result.common.some((entry) => entry.key === 'plugins.plugin:shared-plugin'));
     assert.ok(result.host_only.some((entry) => entry.key === 'plugins.plugin:claude-only-plugin'));
 });

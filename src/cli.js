@@ -547,9 +547,7 @@ function formatAnalyzePlugins(result, options) {
         if (host.plugins.length > 0) {
             children.push({
                 text: 'plugin entries',
-                children: host.plugins.map((name) => ({
-                    text: `plugin: ${name}${formatInventoryAnnotation(annotations, `plugins.plugin:${name}`, host.llm, name, options)}`
-                }))
+                children: host.plugins.map((plugin) => formatAnalyzePluginEntry(plugin, host.llm, annotations, options))
             });
         }
         items.push({
@@ -559,6 +557,38 @@ function formatAnalyzePlugins(result, options) {
     }
 
     return items;
+}
+
+function formatAnalyzePluginEntry(plugin, llm, annotations, options) {
+    const name = plugin.displayName || plugin.name;
+    const item = {
+        text: `plugin: ${name}${formatInventoryAnnotation(annotations, `plugins.plugin:${name}`, llm, name, options)}`,
+        children: []
+    };
+
+    if (!(options && options.explain)) {
+        return item;
+    }
+
+    const details = [];
+    if (plugin.sourceType) {
+        let sourceLine = `source: ${plugin.sourceType}`;
+        if (plugin.registry) {
+            sourceLine += ` (${plugin.registry})`;
+        }
+        details.push({ text: sourceLine });
+    }
+    if (plugin.version) {
+        details.push({ text: `version: ${plugin.version}` });
+    }
+    if (plugin.url) {
+        details.push({ text: `url: ${plugin.url}` });
+    }
+    if (plugin.evidence) {
+        details.push({ text: `evidence: ${plugin.evidence}` });
+    }
+    item.children = details;
+    return item;
 }
 
 function formatRememberReport(result) {

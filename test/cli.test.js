@@ -457,7 +457,15 @@ test('cli: formatAnalyzeReport renders document-first explain details as trees',
                 }],
                 hosts: [{
                     llm: 'claude',
-                    plugins: ['shared-plugin']
+                    plugins: [{
+                        name: 'shared-plugin',
+                        displayName: 'shared-plugin',
+                        sourceType: 'marketplace',
+                        version: '1.0.0',
+                        registry: null,
+                        url: 'https://github.com/softdaddy-o/shared-plugin',
+                        evidence: 'plugins[]'
+                    }]
                 }]
             }
         },
@@ -515,6 +523,10 @@ test('cli: formatAnalyzeReport renders document-first explain details as trees',
     assert.match(output, /desired plugins/);
     assert.match(output, /plugin: shared-plugin@1\.0\.0 \[llms: claude, codex\]/);
     assert.match(output, /plugin: shared-plugin \[shared; also present in codex\]/);
+    assert.match(output, /source: marketplace/);
+    assert.match(output, /version: 1\.0\.0/);
+    assert.match(output, /url: https:\/\/github\.com\/softdaddy-o\/shared-plugin/);
+    assert.match(output, /evidence: plugins\[\]/);
     assert.doesNotMatch(output, /✅ Common/u);
     assert.doesNotMatch(output, /📁 Host Only/u);
 });

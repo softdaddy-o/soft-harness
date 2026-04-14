@@ -11,7 +11,7 @@ It manages:
 
 ## Status
 
-`v0.4.12` keeps the `.harness/` sync model, adds an in-memory filesystem test backend for broader unit coverage, keeps symlink and junction checks in focused real-filesystem tests, starts the `analyze -> curate -> sync` workflow with stable analyze item metadata, lets `sync` and `analyze` target either an explicit `--root` or the current account home with `--account`, extends `analyze` with document-first inventory for prompts, settings, skills, and plugins, and narrows plugin manifest parsing to real plugin fields so Claude permission rules, status line commands, Gemini footer items, and MCP args are not misclassified as plugins. The old registry schema, `harness/` tree, and legacy commands are gone. The active model is:
+`v0.4.13` keeps the `.harness/` sync model, adds an in-memory filesystem test backend for broader unit coverage, keeps symlink and junction checks in focused real-filesystem tests, starts the `analyze -> curate -> sync` workflow with stable analyze item metadata, lets `sync` and `analyze` target either an explicit `--root` or the current account home with `--account`, extends `analyze` with document-first inventory for prompts, settings, skills, and plugins, narrows plugin manifest parsing to real plugin fields so Claude permission rules, status line commands, Gemini footer items, and MCP args are not misclassified as plugins, and adds plugin provenance details when host metadata can prove marketplace or GitHub origins. The old registry schema, `harness/` tree, and legacy commands are gone. The active model is:
 
 - `.harness/` is the source of truth
 - the intended workflow is `analyze -> curate -> sync`
@@ -71,7 +71,7 @@ soft-harness analyze --category=plugins --account
 soft-harness analyze --json
 ```
 
-The text report is document-first. It lists discovered prompt documents, settings files, skills, and plugins before any similarity buckets. `--explain` adds inline English annotations such as whether a matching section also exists on another host, whether it was kept separate because similarity stayed below the configured threshold, the backing source for managed stubs, discovered section headings, MCP server names, host-only keys, and parse errors. It also emits stable item metadata such as `id`, `present`, and `shared` so the upcoming `curate` workflow can target the same items without guessing.
+The text report is document-first. It lists discovered prompt documents, settings files, skills, and plugins before any similarity buckets. `--explain` adds inline English annotations such as whether a matching section also exists on another host, whether it was kept separate because similarity stayed below the configured threshold, the backing source for managed stubs, discovered section headings, MCP server names, host-only keys, parse errors, and plugin provenance details such as inferred marketplace registry, GitHub URL, version, and the evidence path used to support that classification. It also emits stable item metadata such as `id`, `present`, and `shared` so the upcoming `curate` workflow can target the same items without guessing.
 
 Use `remember` when a user asks you to record guidance or memory into the harness source of truth instead of editing generated host files directly:
 

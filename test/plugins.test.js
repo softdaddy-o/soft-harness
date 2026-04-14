@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { detectPluginDrift, loadPlugins, readInstalledPlugins, syncPlugins } = require('../src/plugins');
+const { detectPluginDrift, loadPlugins, readInstalledPluginEntries, readInstalledPlugins, syncPlugins } = require('../src/plugins');
 const { readUtf8, writeUtf8 } = require('../src/fs-util');
 const { createMemoryFs, loadFresh, makeProjectTree, makeTempDir } = require('./helpers');
 
@@ -291,5 +291,70 @@ test('plugins: virtual fs reads claude enabledPlugins and ignores gemini ui and 
             'skill-creator@claude-plugins-official'
         ]);
         assert.deepEqual(readInstalledPlugins(root, 'gemini'), []);
+    });
+});
+
+test('plugins: virtual fs infers marketplace and github provenance from claude cache metadata', () => {
+    const memoryFs = createMemoryFs();
+    return memoryFs.run(() => {
+        const root = memoryFs.root('soft-harness-plugins-vfs-provenance-root');
+        memoryFs.writeTree(root, {
+            '.claude': {
+                'settings.json': JSON.stringify({
+                    enabledPlugins: {
+                        'frontend-design@claude-code-plugins': true,
+                        'superpowers@claude-plugins-official': true
+                    }
+                }, null, 2),
+                plugins: {
+                    cache: {
+                        'claude-code-plugins': {
+                            'frontend-design': {
+                                '1.0.0': {
+                                    '.claude-plugin': {
+                                        'plugin.json': JSON.stringify({
+                                            name: 'frontend-design',
+                                            version: '1.0.0'
+                                        }, null, 2)
+                                    }
+                                }
+                            }
+                        },
+                        'claude-plugins-official': {
+                            superpowers: {
+                                '5.0.7': {
+                                    '.claude-plugin': {
+                                        'plugin.json': JSON.stringify({
+                                            name: 'superpowers',
+                                            version: '5.0.7'
+                                        }, null, 2)
+                                    },
+                                    'package.json': JSON.stringify({
+                                        name: 'superpowers',
+                                        version: '5.0.7',
+                                        repository: {
+                                            type: 'git',
+                                            url: 'git+https://github.com/softdaddy-o/superpowers.git'
+                                        }
+                                    }, null, 2)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        const entries = readInstalledPluginEntries(root, 'claude');
+        assert.deepEqual(entries.map((entry) => entry.displayName), [
+            'frontend-design@claude-code-plugins',
+            'superpowers@claude-plugins-official'
+        ]);
+        assert.deepEqual(entries.map((entry) => entry.version), ['1.0.0', '5.0.7']);
+        assert.deepEqual(entries.map((entry) => entry.sourceType), ['marketplace', 'github']);
+        assert.equal(entries[0].url, null);
+        assert.equal(entries[0].evidence, 'enabledPlugins + cache metadata');
+        assert.equal(entries[1].url, 'https://github.com/softdaddy-o/superpowers');
+        assert.equal(entries[1].evidence, 'enabledPlugins + cache metadata');
     });
 });

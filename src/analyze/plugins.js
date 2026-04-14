@@ -1,4 +1,4 @@
-const { loadPlugins, readInstalledPlugins } = require('../plugins');
+const { loadPlugins, readInstalledPluginEntries } = require('../plugins');
 const { createFinding } = require('./shared');
 const { listProfiles } = require('../profiles');
 
@@ -17,7 +17,7 @@ function analyzePlugins(rootDir, options) {
 
     const installedByLlm = new Map();
     for (const llm of llms) {
-        installedByLlm.set(llm, readInstalledPlugins(rootDir, llm));
+        installedByLlm.set(llm, readInstalledPluginEntries(rootDir, llm));
     }
 
     const inventory = {
@@ -28,26 +28,32 @@ function analyzePlugins(rootDir, options) {
         })),
         hosts: llms.map((llm) => ({
             llm,
-            plugins: installedByLlm.get(llm).slice().sort()
+            plugins: installedByLlm.get(llm).slice().sort((left, right) => left.displayName.localeCompare(right.displayName))
         }))
     };
 
     const nameToLlms = new Map();
-    for (const [llm, names] of installedByLlm.entries()) {
-        for (const name of names) {
+    for (const [llm, entries] of installedByLlm.entries()) {
+        for (const entry of entries) {
+            const name = entry.displayName || entry.name;
             if (!nameToLlms.has(name)) {
-                nameToLlms.set(name, new Set());
+                nameToLlms.set(name, []);
             }
-            nameToLlms.get(name).add(llm);
+            nameToLlms.get(name).push({
+                llm,
+                file: name,
+                path: name,
+                sourceType: entry.sourceType || 'declared',
+                version: entry.version || null,
+                registry: entry.registry || null,
+                url: entry.url || null,
+                evidence: entry.evidence || null
+            });
         }
     }
 
-    for (const [name, llmSet] of nameToLlms.entries()) {
-        const sources = Array.from(llmSet).sort().map((llm) => ({
-            llm,
-            file: name,
-            path: name
-        }));
+    for (const [name, sources] of nameToLlms.entries()) {
+        const llmSet = new Set(sources.map((source) => source.llm));
         if (llmSet.size >= 2) {
             findings.common.push(createFinding('common', {
                 category: 'plugins',
