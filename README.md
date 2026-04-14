@@ -11,7 +11,7 @@ It manages:
 
 ## Status
 
-`v0.4.10` keeps the `.harness/` sync model, adds an in-memory filesystem test backend for broader unit coverage, keeps symlink and junction checks in focused real-filesystem tests, starts the `analyze -> curate -> sync` workflow with stable analyze item metadata, lets `sync` and `analyze` target either an explicit `--root` or the current account home with `--account`, and extends `analyze` with document-first inventory for prompts, settings, skills, and plugins. The old registry schema, `harness/` tree, and legacy commands are gone. The active model is:
+`v0.4.11` keeps the `.harness/` sync model, adds an in-memory filesystem test backend for broader unit coverage, keeps symlink and junction checks in focused real-filesystem tests, starts the `analyze -> curate -> sync` workflow with stable analyze item metadata, lets `sync` and `analyze` target either an explicit `--root` or the current account home with `--account`, extends `analyze` with document-first inventory for prompts, settings, skills, and plugins, and tightens plugin manifest parsing so permission settings are not misclassified as plugins. The old registry schema, `harness/` tree, and legacy commands are gone. The active model is:
 
 - `.harness/` is the source of truth
 - the intended workflow is `analyze -> curate -> sync`
@@ -127,6 +127,14 @@ Skills and agents default to managed copy+marker exports for repo-internal host 
 - Backup: non-dry-run syncs create a timestamped backup before writing
 - Revert: restores a chosen backup snapshot without running plugin install or uninstall commands
 - Git safety: repo-internal skill and agent exports stay Git-friendly by defaulting to managed copies instead of symlinks or junctions
+
+## Development Workflow
+
+- For every feature addition or bug fix, first add a reproducing unit test.
+- Prefer the in-memory filesystem test backend for new scenario setup and coverage.
+- Confirm the new test fails before changing production code.
+- After changing production code, rerun the focused test and then the full test suite.
+- Keep symlink and junction behavior in focused real-filesystem tests instead of the general virtual filesystem path.
 
 ## Trusted Publishing
 

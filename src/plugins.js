@@ -164,44 +164,70 @@ function readInstalledPlugins(rootDir, llm) {
 
 function extractPluginNamesFromJson(value) {
     if (Array.isArray(value)) {
-        return value.flatMap((item) => extractPluginNamesFromJson(item));
+        return value.flatMap((item) => extractPluginNamesFromPluginArrayItem(item));
     }
     if (!value || typeof value !== 'object') {
-        return typeof value === 'string' ? [value] : [];
+        return [];
     }
 
     const names = [];
     for (const [key, inner] of Object.entries(value)) {
         if (key === 'plugins' && Array.isArray(inner)) {
-            for (const plugin of inner) {
-                if (typeof plugin === 'string') {
-                    names.push(plugin);
-                } else if (plugin && typeof plugin === 'object' && plugin.name) {
-                    names.push(plugin.name);
-                }
-            }
-        } else {
-            names.push(...extractPluginNamesFromJson(inner));
+            names.push(...inner.flatMap((plugin) => extractPluginNamesFromPluginArrayItem(plugin)));
+            continue;
         }
+        names.push(...extractPluginNamesFromJson(inner));
     }
     return names;
 }
 
 function extractPluginNamesFromToml(content) {
     const names = [];
-    const patterns = [
-        /name\s*=\s*"([^"]+)"/g,
-        /\[plugins\.([^\]]+)\]/g,
-        /\[\[plugins\]\][\s\S]*?name\s*=\s*"([^"]+)"/g
-    ];
+    let inPluginArray = false;
 
-    for (const pattern of patterns) {
-        let match;
-        while ((match = pattern.exec(content)) !== null) {
-            names.push(match[1]);
+    for (const rawLine of String(content || '').split(/\r?\n/u)) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith('#')) {
+            continue;
+        }
+
+        const namedPluginMatch = line.match(/^\[plugins\.([^\]]+)\]$/u);
+        if (namedPluginMatch) {
+            inPluginArray = false;
+            names.push(namedPluginMatch[1]);
+            continue;
+        }
+
+        if (/^\[\[plugins\]\]$/u.test(line)) {
+            inPluginArray = true;
+            continue;
+        }
+
+        if (/^\[\[.*\]\]$/u.test(line) || /^\[.*\]$/u.test(line)) {
+            inPluginArray = false;
+            continue;
+        }
+
+        if (!inPluginArray) {
+            continue;
+        }
+
+        const nameMatch = line.match(/^name\s*=\s*"([^"]+)"$/u);
+        if (nameMatch) {
+            names.push(nameMatch[1]);
         }
     }
     return names;
+}
+
+function extractPluginNamesFromPluginArrayItem(value) {
+    if (typeof value === 'string') {
+        return [value];
+    }
+    if (value && typeof value === 'object' && typeof value.name === 'string') {
+        return [value.name];
+    }
+    return [];
 }
 
 module.exports = {

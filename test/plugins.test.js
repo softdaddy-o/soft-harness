@@ -1,9 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { detectPluginDrift, loadPlugins, syncPlugins } = require('../src/plugins');
+const { detectPluginDrift, loadPlugins, readInstalledPlugins, syncPlugins } = require('../src/plugins');
 const { readUtf8, writeUtf8 } = require('../src/fs-util');
-const { loadFresh, makeProjectTree, makeTempDir } = require('./helpers');
+const { createMemoryFs, loadFresh, makeProjectTree, makeTempDir } = require('./helpers');
 
 test('plugins: loadPlugins parses yaml', () => {
     const root = makeTempDir('soft-harness-plugins-');
@@ -206,4 +206,47 @@ test('plugins: profiles without plugin manifests are ignored safely', () => {
         profiles.getProfile = originalGetProfile;
         delete require.cache[require.resolve('../src/plugins')];
     }
+});
+
+test('plugins: virtual fs ignores permission settings and non-plugin names in manifests', () => {
+    const memoryFs = createMemoryFs();
+    return memoryFs.run(() => {
+        const root = memoryFs.root('soft-harness-plugins-vfs-root');
+        memoryFs.writeTree(root, {
+            '.harness': {
+                'plugins.yaml': 'plugins: []\n'
+            },
+            '.claude': {
+                'settings.json': JSON.stringify({
+                    approval_policy: 'never',
+                    sandbox_mode: 'workspace-write',
+                    nested: {
+                        profile: {
+                            name: 'danger-full-access'
+                        }
+                    },
+                    plugins: [
+                        { name: 'real-json-plugin' }
+                    ]
+                }, null, 2)
+            },
+            '.codex': {
+                'config.toml': [
+                    'approval_policy = "never"',
+                    '[sandbox_workspace_write]',
+                    'name = "danger-full-access"',
+                    '[plugins.real-toml-plugin]',
+                    'name = "real-toml-plugin"',
+                    ''
+                ].join('\n')
+            }
+        });
+
+        assert.deepEqual(readInstalledPlugins(root, 'claude'), ['real-json-plugin']);
+        assert.deepEqual(readInstalledPlugins(root, 'codex'), ['real-toml-plugin']);
+
+        const drift = detectPluginDrift(root);
+        const names = drift.map((entry) => entry.name).sort();
+        assert.deepEqual(names, ['real-json-plugin', 'real-toml-plugin']);
+    });
 });
