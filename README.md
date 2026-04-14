@@ -11,7 +11,7 @@ It manages:
 
 ## Status
 
-`v0.4.7` keeps the `.harness/` sync model, adds an in-memory filesystem test backend for broader unit coverage, keeps symlink and junction checks in focused real-filesystem tests, starts the `analyze -> curate -> sync` workflow with stable analyze item metadata, and lets `sync` and `analyze` target either an explicit `--root` or the current account home with `--account`. The old registry schema, `harness/` tree, and legacy commands are gone. The active model is:
+`v0.4.10` keeps the `.harness/` sync model, adds an in-memory filesystem test backend for broader unit coverage, keeps symlink and junction checks in focused real-filesystem tests, starts the `analyze -> curate -> sync` workflow with stable analyze item metadata, lets `sync` and `analyze` target either an explicit `--root` or the current account home with `--account`, and extends `analyze` with document-first inventory for prompts, settings, skills, and plugins. The old registry schema, `harness/` tree, and legacy commands are gone. The active model is:
 
 - `.harness/` is the source of truth
 - the intended workflow is `analyze -> curate -> sync`
@@ -43,8 +43,8 @@ soft-harness help
 ## Commands
 
 ```text
-soft-harness sync [--manual-review] [--dry-run] [--verbose] [--explain] [--yes] [--no-import] [--no-export] [--link-mode=copy|symlink|junction] [--force-export-untracked-hosts] [--no-run-installs] [--no-run-uninstalls]
-soft-harness analyze [--category=all|prompts|settings|skills] [--llms=claude,codex,gemini] [--verbose] [--explain] [--json]
+soft-harness sync [--root=<path>|--account] [--manual-review] [--dry-run] [--verbose] [--explain] [--yes] [--no-import] [--no-export] [--link-mode=copy|symlink|junction] [--force-export-untracked-hosts] [--no-run-installs] [--no-run-uninstalls] [--heading-threshold=<0..1>] [--body-threshold=<0..1>]
+soft-harness analyze [--root=<path>|--account] [--category=all|prompts|settings|skills|plugins] [--llms=claude,codex,gemini] [--heading-threshold=<0..1>] [--body-threshold=<0..1>] [--verbose] [--explain] [--json]
 soft-harness remember [--scope=project|account] [--llm=shared|claude|codex|gemini] [--section=<name>] --title=<name> --content=<text> [--no-export]
 soft-harness revert --list
 soft-harness revert <timestamp>
@@ -67,11 +67,11 @@ Use `analyze` when you want a read-only comparison before deciding whether conte
 ```text
 soft-harness analyze
 soft-harness analyze --category=prompts --llms=claude,codex --explain
+soft-harness analyze --category=plugins --account
 soft-harness analyze --json
 ```
 
-The text report always lists discovered prompt documents and settings files first. `--explain` adds per-item details such as stub source files, discovered section headings, MCP server names, host-only keys, and parse errors.
-It also emits stable item metadata such as `id`, `present`, and `shared` so the upcoming `curate` workflow can target the same items without guessing.
+The text report is document-first. It lists discovered prompt documents, settings files, skills, and plugins before any similarity buckets. `--explain` adds inline English annotations such as whether a matching section also exists on another host, whether it was kept separate because similarity stayed below the configured threshold, the backing source for managed stubs, discovered section headings, MCP server names, host-only keys, and parse errors. It also emits stable item metadata such as `id`, `present`, and `shared` so the upcoming `curate` workflow can target the same items without guessing.
 
 Use `remember` when a user asks you to record guidance or memory into the harness source of truth instead of editing generated host files directly:
 
@@ -121,7 +121,7 @@ Skills and agents default to managed copy+marker exports for repo-internal host 
 - Export: missing or stale stubs, managed copies, and explicitly requested links are regenerated
 - Remember: writes a titled memory entry into `.harness/HARNESS.md` or `.harness/llm/<llm>.md`, backs up affected files, regenerates outputs, and updates instruction sync state when exports run
 - Summary: `sync` explains file moves, section routing, bucket assignment, and export targets; `--explain` adds downgrade and merge reasons
-- Analyze: `analyze` is always read-only, lists discovered documents and settings, and then groups prompts, settings, and skills into `common`, `similar`, `conflicts`, `host_only`, and `unknown`
+- Analyze: `analyze` is always read-only, lists discovered documents, settings, skills, and plugins first, and then groups prompts, settings, skills, and plugins into `common`, `similar`, `conflicts`, `host_only`, and `unknown` when requested
 - Drift: managed targets are compared against regenerated expectations
 - Conflict detection: if both `.harness/` and a project target changed since the last sync, `sync` reports a conflict instead of silently choosing one side
 - Backup: non-dry-run syncs create a timestamped backup before writing

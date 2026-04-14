@@ -1,6 +1,7 @@
 const path = require('node:path');
 const { discoverSkillsAndAgents } = require('../skills');
 const { readUtf8 } = require('../fs-util');
+const { listProfiles } = require('../profiles');
 const { createFinding, similarity } = require('./shared');
 
 function analyzeSkills(rootDir, options) {
@@ -11,9 +12,25 @@ function analyzeSkills(rootDir, options) {
         hostOnly: [],
         unknown: []
     };
-    const llmFilter = new Set((options && options.llms) || []);
+    const selectedLlms = (options && options.llms && options.llms.length > 0)
+        ? options.llms
+        : listProfiles();
+    const llmFilter = new Set(selectedLlms);
     const discovered = discoverSkillsAndAgents(rootDir).filter((item) => llmFilter.size === 0 || llmFilter.has(item.llm));
     const grouped = new Map();
+    const inventoryMap = new Map();
+
+    for (const llm of selectedLlms) {
+        inventoryMap.set(llm, {
+            llm,
+            skills: [],
+            agents: []
+        });
+    }
+
+    for (const item of discovered) {
+        inventoryMap.get(item.llm)[item.type === 'skill' ? 'skills' : 'agents'].push(item.name);
+    }
 
     for (const item of discovered) {
         const key = `${item.type}:${item.name}`;
@@ -61,7 +78,18 @@ function analyzeSkills(rootDir, options) {
         }));
     }
 
-    return findings;
+    const inventory = Array.from(inventoryMap.values())
+        .map((entry) => ({
+            llm: entry.llm,
+            skills: entry.skills.sort(),
+            agents: entry.agents.sort()
+        }))
+        .sort((left, right) => left.llm.localeCompare(right.llm));
+
+    return {
+        findings,
+        inventory
+    };
 }
 
 function calculateSkillSimilarity(members) {

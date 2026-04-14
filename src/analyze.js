@@ -1,6 +1,7 @@
 const { analyzePrompts } = require('./analyze/prompts');
 const { analyzeSettings } = require('./analyze/settings');
 const { analyzeSkills } = require('./analyze/skills');
+const { analyzePlugins } = require('./analyze/plugins');
 const { mergeFindings } = require('./analyze/shared');
 
 async function runAnalyze(rootDir, options) {
@@ -8,7 +9,12 @@ async function runAnalyze(rootDir, options) {
     const parts = [];
     const inventory = {
         documents: [],
-        settings: []
+        settings: [],
+        skills: [],
+        plugins: {
+            desired: [],
+            hosts: []
+        }
     };
 
     if (categories.includes('prompts')) {
@@ -22,7 +28,15 @@ async function runAnalyze(rootDir, options) {
         inventory.settings.push(...(settingsResult.settings || []));
     }
     if (categories.includes('skills')) {
-        parts.push(analyzeSkills(rootDir, options || {}));
+        const skillsResult = analyzeSkills(rootDir, options || {});
+        parts.push(skillsResult.findings);
+        inventory.skills.push(...(skillsResult.inventory || []));
+    }
+    if (categories.includes('plugins')) {
+        const pluginsResult = analyzePlugins(rootDir, options || {});
+        parts.push(pluginsResult.findings);
+        inventory.plugins.desired.push(...((pluginsResult.inventory && pluginsResult.inventory.desired) || []));
+        inventory.plugins.hosts.push(...((pluginsResult.inventory && pluginsResult.inventory.hosts) || []));
     }
 
     const findings = mergeFindings(...parts);
@@ -46,7 +60,7 @@ async function runAnalyze(rootDir, options) {
 function selectCategories(options) {
     const category = options && options.category;
     if (!category || category === 'all') {
-        return ['prompts', 'settings', 'skills'];
+        return ['prompts', 'settings', 'skills', 'plugins'];
     }
     return [category];
 }

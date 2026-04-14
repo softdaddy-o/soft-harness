@@ -8,7 +8,7 @@ const HELP = `soft-harness - single source of truth for LLM harness files
 
 Commands:
   soft-harness sync [options]         Reconcile .harness/ with the project
-  soft-harness analyze [options]      Compare prompts, settings, and skills across hosts
+  soft-harness analyze [options]      Compare prompts, settings, skills, and plugins across hosts
   soft-harness remember [options]     Record memory into harness truth and regenerate outputs
   soft-harness revert --list          List available backups
   soft-harness revert <timestamp>     Restore files from a backup
@@ -34,7 +34,7 @@ Sync options:
 Analyze options:
   --root=<path>                      Analyze an explicit root instead of the current directory
   --account                          Analyze the current account home directory
-  --category=<name>                  Analyze prompts, settings, skills, or all
+  --category=<name>                  Analyze prompts, settings, skills, plugins, or all
   --llms=<names>                     Limit analysis to a comma-separated llm list
   --verbose                          Show file-level analysis details
   --explain                          Show classification reasons
@@ -100,7 +100,7 @@ function parseAnalyzeArgs(args) {
     const root = parseCommandRootArgs(args);
     const thresholds = parseThresholdArgs(args);
     const category = categoryArg ? categoryArg.split('=')[1] : 'all';
-    if (!['all', 'prompts', 'settings', 'skills'].includes(category)) {
+    if (!['all', 'prompts', 'settings', 'skills', 'plugins'].includes(category)) {
         throw new Error(`invalid --category: ${category}`);
     }
 
@@ -415,17 +415,19 @@ function formatAnalyzeReport(result, options) {
 
     appendTreeSection(lines, ICONS.documents, formatAnalyzeDocuments(result, options));
     appendTreeSection(lines, ICONS.settings, formatAnalyzeSettings(result.inventory && result.inventory.settings));
+    appendTreeSection(lines, '🧰 Skills', formatAnalyzeSkills(result, options));
+    appendTreeSection(lines, '🧩 Plugins', formatAnalyzePlugins(result, options));
 
     if (shouldShowAnalyzeBuckets(result, options)) {
         if (options && options.verbose) {
-            appendAnalyzeBucket(lines, ICONS.common, '같은 내용', result.common, options);
+            appendAnalyzeBucket(lines, ICONS.common, 'same content', result.common, options);
         }
-        appendAnalyzeBucket(lines, ICONS.similar, '같은 제목 또는 유사 제목, 내용 유사', result.similar, options);
-        appendAnalyzeBucket(lines, ICONS.conflicts, '같은 제목 또는 유사 제목, 내용 충돌', result.conflicts, options);
+        appendAnalyzeBucket(lines, ICONS.similar, 'same or similar heading, similar content', result.similar, options);
+        appendAnalyzeBucket(lines, ICONS.conflicts, 'same or similar heading, conflicting content', result.conflicts, options);
         if (options && options.verbose) {
-            appendAnalyzeBucket(lines, ICONS.hostOnly, '한 호스트에만 존재', result.host_only, options);
+            appendAnalyzeBucket(lines, ICONS.hostOnly, 'present on only one host', result.host_only, options);
         }
-        appendAnalyzeBucket(lines, ICONS.unknown, '자동 분류 불가', result.unknown, options);
+        appendAnalyzeBucket(lines, ICONS.unknown, 'unable to classify automatically', result.unknown, options);
     }
 
     return `${lines.join('\n')}\n`;
@@ -491,6 +493,74 @@ function formatAnalyzeSettings(entries) {
     });
 }
 
+function formatAnalyzeSkills(result, options) {
+    const entries = result && result.inventory && result.inventory.skills;
+    const annotations = buildCategoryAnnotations(result, 'skills');
+    return (entries || []).map((entry) => {
+        const children = [
+            { text: `skills: ${entry.skills.length}` },
+            { text: `agents: ${entry.agents.length}` }
+        ];
+        if (entry.skills.length > 0) {
+            children.push({
+                text: 'skill entries',
+                children: entry.skills.map((name) => ({
+                    text: `skill: ${name}${formatInventoryAnnotation(annotations, `skills.skill:${name}`, entry.llm, name, options)}`
+                }))
+            });
+        }
+        if (entry.agents.length > 0) {
+            children.push({
+                text: 'agent entries',
+                children: entry.agents.map((name) => ({
+                    text: `agent: ${name}${formatInventoryAnnotation(annotations, `skills.agent:${name}`, entry.llm, name, options)}`
+                }))
+            });
+        }
+        return {
+            text: `host: ${entry.llm}`,
+            children
+        };
+    });
+}
+
+function formatAnalyzePlugins(result, options) {
+    const inventory = result && result.inventory && result.inventory.plugins;
+    const desired = (inventory && inventory.desired) || [];
+    const hosts = (inventory && inventory.hosts) || [];
+    const annotations = buildCategoryAnnotations(result, 'plugins');
+    const items = [];
+
+    if (desired.length > 0) {
+        items.push({
+            text: 'desired plugins',
+            children: desired.map((plugin) => ({
+                text: `plugin: ${plugin.name}${plugin.version ? `@${plugin.version}` : ''} [llms: ${plugin.llms.join(', ')}]`
+            }))
+        });
+    }
+
+    for (const host of hosts) {
+        const children = [
+            { text: `installed: ${host.plugins.length}` }
+        ];
+        if (host.plugins.length > 0) {
+            children.push({
+                text: 'plugin entries',
+                children: host.plugins.map((name) => ({
+                    text: `plugin: ${name}${formatInventoryAnnotation(annotations, `plugins.plugin:${name}`, host.llm, name, options)}`
+                }))
+            });
+        }
+        items.push({
+            text: `host: ${host.llm}`,
+            children
+        });
+    }
+
+    return items;
+}
+
 function formatRememberReport(result) {
     const lines = [];
     lines.push(`${ICONS.completed} remembered scope=${result.scope}  target=${result.target}  changed=${result.changed ? 'yes' : 'no'}  exports=${result.exports.length}`);
@@ -539,6 +609,9 @@ function shouldShowAnalyzeBuckets(result, options) {
     const hasInventory = Boolean(
         (result && result.inventory && result.inventory.documents && result.inventory.documents.length > 0)
         || (result && result.inventory && result.inventory.settings && result.inventory.settings.length > 0)
+        || (result && result.inventory && result.inventory.skills && result.inventory.skills.length > 0)
+        || (result && result.inventory && result.inventory.plugins
+            && (((result.inventory.plugins.desired || []).length > 0) || ((result.inventory.plugins.hosts || []).length > 0)))
     );
     if (!hasInventory) {
         const total = (result.summary.common || 0)
@@ -606,24 +679,41 @@ function uniqueLlms(entry) {
 
 function localizeUnknownReason(reason) {
     if (String(reason || '').includes('headingless content')) {
-        return '헤딩 없는 내용';
+        return 'headingless content';
     }
-    return reason || '분류 불가';
+    return reason || 'unclassified';
 }
 
 function buildPromptAnnotations(result) {
+    return buildCategoryAnnotations(result, 'prompts');
+}
+
+function buildCategoryAnnotations(result, category) {
     const map = new Map();
     for (const bucket of ['common', 'similar', 'conflicts', 'host_only', 'unknown']) {
         for (const entry of result && result[bucket] ? result[bucket] : []) {
-            if (entry.category !== 'prompts' || !Array.isArray(entry.sources)) {
+            if (entry.category !== category || !Array.isArray(entry.sources)) {
                 continue;
             }
             for (const source of entry.sources) {
-                const key = `${source.llm}:${source.path || source.file}`;
-                if (!map.has(key)) {
-                    map.set(key, []);
+                const values = [];
+                const primary = source.path || source.file;
+                values.push(primary);
+                if (category === 'skills' && source.file) {
+                    const parts = String(source.file).replace(/\\/g, '/').split('/');
+                    const last = parts[parts.length - 1];
+                    values.push(last);
                 }
-                map.get(key).push(entry);
+                if (category === 'plugins' && source.file) {
+                    values.push(String(source.file));
+                }
+                for (const value of values) {
+                    const key = `${source.llm}:${value}`;
+                    if (!map.has(key)) {
+                        map.set(key, []);
+                    }
+                    map.get(key).push(entry);
+                }
             }
         }
     }
@@ -647,34 +737,71 @@ function formatPromptSectionSuffix(entry, section, annotations, options) {
     const peerLabel = peerLlms.length === 0 ? '다른 LLM' : peerLlms.join(', ');
 
     if (finding.bucket === 'common') {
-        return ` [shared; ${peerLabel}에도 있음]`;
+        return ` [shared; also present in ${peerLabel}]`;
     }
     if (finding.bucket === 'similar') {
-        const parts = [`${peerLabel}에도 비슷한 섹션 있음`];
+        const parts = [`similar section also exists in ${peerLabel}`];
         if (typeof finding.bodyScore === 'number') {
             parts.push(`body ${Math.round(finding.bodyScore * 100)}%`);
         }
         if (typeof finding.headingScore === 'number' && finding.headingScore < 1) {
             parts.push(`heading ${Math.round(finding.headingScore * 100)}%`);
         }
-        parts.push('separate 유지');
+        parts.push('kept separate');
         return ` [${parts.join(', ')}]`;
     }
     if (finding.bucket === 'conflicts') {
-        const parts = [`${peerLabel}에도 대응 섹션 있음`];
+        const parts = [`matching section also exists in ${peerLabel}`];
         if (typeof finding.bodyScore === 'number') {
             parts.push(`body ${Math.round(finding.bodyScore * 100)}%`);
         }
         if (typeof finding.headingScore === 'number' && finding.headingScore < 1) {
             parts.push(`heading ${Math.round(finding.headingScore * 100)}%`);
         }
-        parts.push('conflict로 분류');
+        parts.push('classified as conflict');
         return ` [${parts.join(', ')}]`;
     }
     if (finding.bucket === 'host_only' || finding.bucket === 'hostOnly') {
         return '';
     }
     return ` [${localizeUnknownReason(finding.reason)}]`;
+}
+
+function formatInventoryAnnotation(annotations, entryKey, llm, name, options) {
+    if (!(options && options.explain)) {
+        return '';
+    }
+
+    const matches = annotations.get(`${llm}:${name}`) || [];
+    const finding = matches.find((entry) => entry.key === entryKey) || matches[0];
+    if (!finding) {
+        return '';
+    }
+
+    const otherSources = (finding.sources || []).filter((source) => source.llm !== llm);
+    const peerLlms = Array.from(new Set(otherSources.map((source) => source.llm)));
+    const peerLabel = peerLlms.length === 0 ? 'other hosts' : peerLlms.join(', ');
+
+    if (finding.bucket === 'common') {
+        return ` [shared; also present in ${peerLabel}]`;
+    }
+    if (finding.bucket === 'similar') {
+        const parts = [`similar entry also exists in ${peerLabel}`];
+        if (typeof finding.score === 'number') {
+            parts.push(`${Math.round(finding.score * 100)}%`);
+        }
+        parts.push('kept separate');
+        return ` [${parts.join(', ')}]`;
+    }
+    if (finding.bucket === 'conflicts') {
+        const parts = [`matching entry also exists in ${peerLabel}`];
+        if (typeof finding.score === 'number') {
+            parts.push(`${Math.round(finding.score * 100)}%`);
+        }
+        parts.push('classified as conflict');
+        return ` [${parts.join(', ')}]`;
+    }
+    return '';
 }
 
 function appendSyncDryRunPlan(lines, details, options) {
@@ -834,8 +961,8 @@ function buildDocumentSectionTreeItems(sections, entry, annotations, options) {
 
 function formatNearMatchSuffix(nearMatch) {
     const llmLabel = nearMatch.otherLlms.length === 1
-        ? `${nearMatch.otherLlms[0]}와`
-        : `${nearMatch.otherLlms.join(', ')}와`;
+        ? `with ${nearMatch.otherLlms[0]}`
+        : `with ${nearMatch.otherLlms.join(', ')}`;
     const details = [`${llmLabel} near match ${Math.round(nearMatch.similarity * 100)}%`];
     if (typeof nearMatch.headingSimilarity === 'number' && nearMatch.matchedBy === 'fuzzy-heading') {
         details.push(`heading ${Math.round(nearMatch.headingSimilarity * 100)}%`);
@@ -843,7 +970,7 @@ function formatNearMatchSuffix(nearMatch) {
     if (nearMatch.otherHeading) {
         details.push(`other heading "${nearMatch.otherHeading}"`);
     }
-    details.push('LLM-specific 유지');
+    details.push('kept LLM-specific');
     return ` (${details.join(', ')})`;
 }
 

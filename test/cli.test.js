@@ -44,14 +44,14 @@ test('cli: parseSyncArgs supports explicit link and threshold flags', () => {
 
 test('cli: parseAnalyzeArgs supports category, llms, json, and thresholds', () => {
     const parsed = parseAnalyzeArgs([
-        '--category=settings',
+        '--category=plugins',
         '--llms=claude,codex',
         '--explain',
         '--json',
         '--heading-threshold=0.7',
         '--body-threshold=0.5'
     ]);
-    assert.equal(parsed.category, 'settings');
+    assert.equal(parsed.category, 'plugins');
     assert.deepEqual(parsed.llms, ['claude', 'codex']);
     assert.equal(parsed.verbose, false);
     assert.equal(parsed.explain, true);
@@ -252,13 +252,13 @@ test('cli: formatSyncReport shows destination-centric routing details with sourc
         pluginActions: []
     }, { explain: false });
 
-    assert.match(output, /📦 import=1  export=1  drift=0  conflicts=0/u);
+    assert.match(output, /import=1  export=1  drift=0  conflicts=0/u);
     assert.match(output, /\n\.harness\/llm\/claude\.md\n/u);
-    assert.match(output, /└─ from CLAUDE\.md/u);
-    assert.match(output, /   ├─ Code Style/u);
-    assert.match(output, /   │  └─ Markdown \(codex와 near match 62%, LLM-specific 유지\)/u);
-    assert.match(output, /   └─ Git Conventions/u);
-    assert.match(output, /\n\.harness\/llm\/codex\.md\n└─ from AGENTS\.md/u);
+    assert.match(output, /from CLAUDE\.md/u);
+    assert.match(output, /Code Style/u);
+    assert.match(output, /Markdown \(with codex near match 62%, kept LLM-specific\)/u);
+    assert.match(output, /Git Conventions/u);
+    assert.match(output, /\n\.harness\/llm\/codex\.md\n.+from AGENTS\.md/u);
     assert.doesNotMatch(output, /CLAUDE\.md  \.harness\/llm\/claude\.md/);
     assert.match(output, /section "Code Style" from CLAUDE\.md, AGENTS\.md -> \.harness\/HARNESS\.md/);
     assert.match(output, /\.harness\/HARNESS\.md \+ \.harness\/llm\/claude\.md -> CLAUDE\.md/);
@@ -364,7 +364,7 @@ test('cli: formatSyncReport includes plugins, drift targets, bucket reasons, and
         ]
     }, { explain: true });
 
-    assert.match(output, /✅ imported=0  exported=0  pulled_back=0/u);
+    assert.match(output, /imported=0  exported=0  pulled_back=0/u);
     assert.match(output, /backup: 2026-04-13-120000/);
     assert.match(output, /\nexports\n/u);
     assert.match(output, /\.harness\/skills\/common\/foo -> \.claude\/skills\/foo \[copy\] \(default-copy\)/);
@@ -443,7 +443,23 @@ test('cli: formatAnalyzeReport renders document-first explain details as trees',
                 status: 'parsed',
                 mcpServers: ['shared'],
                 hostOnlyKeys: ['theme']
-            }]
+            }],
+            skills: [{
+                llm: 'claude',
+                skills: ['foo'],
+                agents: ['reviewer']
+            }],
+            plugins: {
+                desired: [{
+                    name: 'shared-plugin',
+                    llms: ['claude', 'codex'],
+                    version: '1.0.0'
+                }],
+                hosts: [{
+                    llm: 'claude',
+                    plugins: ['shared-plugin']
+                }]
+            }
         },
         common: [{
             bucket: 'common',
@@ -455,6 +471,16 @@ test('cli: formatAnalyzeReport renders document-first explain details as trees',
                 { llm: 'codex', path: 'AGENTS.md#Shared' }
             ],
             reason: 'normalized section bodies are identical'
+        }, {
+            bucket: 'common',
+            category: 'plugins',
+            kind: 'plugin',
+            key: 'plugins.plugin:shared-plugin',
+            sources: [
+                { llm: 'claude', file: 'shared-plugin' },
+                { llm: 'codex', file: 'shared-plugin' }
+            ],
+            reason: 'plugin is installed across multiple hosts'
         }],
         similar: [],
         conflicts: [],
@@ -469,20 +495,57 @@ test('cli: formatAnalyzeReport renders document-first explain details as trees',
         unknown: []
     }, { explain: true });
 
-    assert.match(output, /📊 common=1  similar=0  conflicts=0  host_only=1  unknown=0/u);
-    assert.match(output, /📄 Documents/u);
-    assert.match(output, /└─ file: claude:CLAUDE\.md \[import-stub\]/u);
+    assert.match(output, /common=1  similar=0  conflicts=0  host_only=1  unknown=0/u);
+    assert.match(output, /Documents/u);
+    assert.match(output, /file: claude:CLAUDE\.md \[import-stub\]/u);
     assert.match(output, /sources: \.harness\/HARNESS\.md, \.harness\/llm\/claude\.md/u);
     assert.match(output, /headings: 1/u);
-    assert.match(output, /section: Shared \[shared; codex에도 있음\]/u);
-    assert.match(output, /⚙️ Settings/u);
+    assert.match(output, /section: Shared \[shared; also present in codex\]/u);
+    assert.match(output, /Settings/u);
     assert.match(output, /file: claude:\.claude\/settings\.json \[json\/parsed\]/);
     assert.match(output, /mcp servers: 1/);
     assert.match(output, /host-only keys: 1/);
     assert.match(output, /server: shared/);
     assert.match(output, /key: theme/);
+    assert.match(output, /Skills/u);
+    assert.match(output, /host: claude/);
+    assert.match(output, /skill: foo/);
+    assert.match(output, /agent: reviewer/);
+    assert.match(output, /Plugins/u);
+    assert.match(output, /desired plugins/);
+    assert.match(output, /plugin: shared-plugin@1\.0\.0 \[llms: claude, codex\]/);
+    assert.match(output, /plugin: shared-plugin \[shared; also present in codex\]/);
     assert.doesNotMatch(output, /✅ Common/u);
     assert.doesNotMatch(output, /📁 Host Only/u);
+});
+
+test('cli: formatAnalyzeReport keeps zero-count skill hosts in the document-first inventory', () => {
+    const output = formatAnalyzeReport({
+        summary: { common: 0, similar: 0, conflicts: 0, host_only: 0, unknown: 0 },
+        inventory: {
+            documents: [],
+            settings: [],
+            skills: [
+                { llm: 'claude', skills: [], agents: [] },
+                { llm: 'codex', skills: ['monitor-sentry'], agents: [] },
+                { llm: 'gemini', skills: [], agents: [] }
+            ],
+            plugins: { desired: [], hosts: [] }
+        },
+        common: [],
+        similar: [],
+        conflicts: [],
+        host_only: [],
+        unknown: []
+    }, { explain: false });
+
+    assert.match(output, /Skills/u);
+    assert.match(output, /host: claude/);
+    assert.match(output, /host: codex/);
+    assert.match(output, /host: gemini/);
+    assert.match(output, /skills: 0/);
+    assert.match(output, /skills: 1/);
+    assert.match(output, /skill: monitor-sentry/);
 });
 
 test('cli: formatAnalyzeReport shows similar percentages and unknown reasons', () => {
@@ -542,7 +605,7 @@ test('cli: formatAnalyzeReport shows similar percentages and unknown reasons', (
         ]
     }, { explain: true });
 
-    assert.match(output, /section: Repository Overview \[codex에도 비슷한 섹션 있음, separate 유지\]/u);
+    assert.match(output, /section: Repository Overview \[similar section also exists in codex, kept separate\]/u);
     assert.doesNotMatch(output, /🔀 Similar/u);
     assert.doesNotMatch(output, /Unknown/u);
 });
@@ -550,7 +613,7 @@ test('cli: formatAnalyzeReport shows similar percentages and unknown reasons', (
 test('cli: formatAnalyzeReport uses bucket sections when inventory is absent or verbose is requested', () => {
     const outputWithoutInventory = formatAnalyzeReport({
         summary: { common: 0, similar: 1, conflicts: 0, host_only: 0, unknown: 0 },
-        inventory: { documents: [], settings: [] },
+        inventory: { documents: [], settings: [], skills: [], plugins: { desired: [], hosts: [] } },
         common: [],
         similar: [{
             bucket: 'similar',
@@ -568,7 +631,7 @@ test('cli: formatAnalyzeReport uses bucket sections when inventory is absent or 
         unknown: []
     }, {});
 
-    assert.match(outputWithoutInventory, /🔀 Similar/u);
+    assert.match(outputWithoutInventory, /Similar/u);
     assert.match(outputWithoutInventory, /foo\s+\(claude  codex, 75%\)/u);
 
     const outputVerbose = formatAnalyzeReport({
@@ -583,7 +646,9 @@ test('cli: formatAnalyzeReport uses bucket sections when inventory is absent or 
                 headings: 1,
                 untitledCount: 0
             }],
-            settings: []
+            settings: [],
+            skills: [],
+            plugins: { desired: [], hosts: [] }
         },
         common: [{
             bucket: 'common',
@@ -602,8 +667,8 @@ test('cli: formatAnalyzeReport uses bucket sections when inventory is absent or 
         unknown: []
     }, { verbose: true, explain: true });
 
-    assert.match(outputVerbose, /📄 Documents/u);
-    assert.match(outputVerbose, /✅ Common \(같은 내용\)/u);
+    assert.match(outputVerbose, /Documents/u);
+    assert.match(outputVerbose, /same content/u);
 });
 
 test('cli: formatAnalyzeReport includes untitled prompt counts and settings parse errors', () => {
@@ -626,7 +691,9 @@ test('cli: formatAnalyzeReport includes untitled prompt counts and settings pars
                 mcpServers: [],
                 hostOnlyKeys: [],
                 error: 'bad toml'
-            }]
+            }],
+            skills: [],
+            plugins: { desired: [], hosts: [] }
         },
         common: [],
         similar: [],

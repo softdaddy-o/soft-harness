@@ -207,5 +207,6 @@ function extractPluginNamesFromToml(content) {
 module.exports = {
     detectPluginDrift,
     loadPlugins,
+    readInstalledPlugins,
     syncPlugins
 };

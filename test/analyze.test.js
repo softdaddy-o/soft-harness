@@ -142,6 +142,14 @@ test('analyze: skills classify common, similar, conflict, and host-only content'
 
     const result = await runAnalyze(root, { category: 'skills' });
 
+    assert.deepEqual(result.inventory.skills.map((entry) => entry.llm).sort(), ['claude', 'codex', 'gemini']);
+    assert.ok(result.inventory.skills.find((entry) => entry.llm === 'claude').skills.includes('common'));
+    assert.ok(result.inventory.skills.find((entry) => entry.llm === 'claude').agents.includes('claude-only'));
+    assert.deepEqual(result.inventory.skills.find((entry) => entry.llm === 'gemini'), {
+        llm: 'gemini',
+        skills: [],
+        agents: []
+    });
     assert.ok(result.common.some((entry) => entry.key === 'skills.skill.common'));
     assert.ok(result.similar.some((entry) => entry.key === 'skills.skill.similar'));
     assert.ok(result.conflicts.some((entry) => entry.key === 'skills.skill.conflict'));
@@ -193,6 +201,41 @@ test('analyze: llm filters narrow prompt and skill analysis', async () => {
     assert.equal(result.common.some((entry) => entry.key === 'skills.skill.one'), false);
     assert.ok(result.host_only.some((entry) => entry.key === 'prompts.section:Shared'));
     assert.ok(result.host_only.some((entry) => entry.key === 'skills.skill.one'));
+});
+
+test('analyze: plugins classify shared and host-only plugins and expose inventory', async () => {
+    const root = makeProjectTree('soft-harness-analyze-plugins-', {
+        '.harness': {
+            'plugins.yaml': [
+                'plugins:',
+                '  - name: shared-plugin',
+                '    version: 1.2.3',
+                '    llms: [claude, codex]',
+                '    install: echo install',
+                '    uninstall: echo uninstall',
+                ''
+            ].join('\n')
+        },
+        '.claude': {
+            'settings.json': JSON.stringify({
+                plugins: [{ name: 'shared-plugin' }, { name: 'claude-only-plugin' }]
+            }, null, 2)
+        },
+        '.codex': {
+            'config.toml': [
+                '[plugins.shared-plugin]',
+                'name = "shared-plugin"',
+                ''
+            ].join('\n')
+        }
+    });
+
+    const result = await runAnalyze(root, { category: 'plugins' });
+
+    assert.deepEqual(result.inventory.plugins.desired.map((entry) => entry.name), ['shared-plugin']);
+    assert.deepEqual(result.inventory.plugins.hosts.map((entry) => entry.llm).sort(), ['claude', 'codex', 'gemini']);
+    assert.ok(result.common.some((entry) => entry.key === 'plugins.plugin:shared-plugin'));
+    assert.ok(result.host_only.some((entry) => entry.key === 'plugins.plugin:claude-only-plugin'));
 });
 
 test('analyze: managed prompt stubs resolve to backing harness content instead of stub noise', async () => {
