@@ -75,7 +75,10 @@ async function analyzePlugins(rootDir, options) {
                 registry: plugin.registry || null,
                 installed_version: plugin.version || null,
                 source_type: plugin.sourceType || 'declared',
+                repo: plugin.repo || null,
                 url: plugin.url || null,
+                source_path: plugin.sourcePath || null,
+                git_commit_sha: plugin.gitCommitSha || null,
                 author: plugin.author || null,
                 description: plugin.description || null,
                 evidence: plugin.evidence || null,
@@ -102,7 +105,10 @@ async function analyzePlugins(rootDir, options) {
                 sourceType: entry.sourceType || 'declared',
                 version: entry.version || null,
                 registry: entry.registry || null,
+                repo: entry.repo || null,
                 url: entry.url || null,
+                sourcePath: entry.sourcePath || null,
+                gitCommitSha: entry.gitCommitSha || null,
                 evidence: entry.evidence || null,
                 curatedOrigin: entry.curatedOrigin || null
             });

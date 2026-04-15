@@ -302,7 +302,10 @@ test('analyze: plugins expose an llm research packet and merge curated origin me
             registry: 'claude-code-plugins',
             installed_version: '1.0.0',
             source_type: 'marketplace',
+            repo: null,
             url: null,
+            source_path: null,
+            git_commit_sha: null,
             author: null,
             description: null,
             evidence: 'enabledPlugins + cache metadata',
@@ -314,6 +317,76 @@ test('analyze: plugins expose an llm research packet and merge curated origin me
         assert.equal(entry.curatedOrigin.repo, 'acme/frontend-design');
         assert.equal(entry.latestVersion, '1.4.0');
         assert.equal(entry.updateAvailable, true);
+    });
+});
+
+test('analyze: plugin research packet includes local github origin evidence', async () => {
+    const memoryFs = createMemoryFs();
+    await memoryFs.run(async () => {
+        const root = memoryFs.root('soft-harness-analyze-plugin-origin-evidence-root');
+        memoryFs.writeTree(root, {
+            '.claude': {
+                'settings.json': JSON.stringify({
+                    enabledPlugins: {
+                        'frontend-design@claude-code-plugins': true
+                    }
+                }, null, 2),
+                plugins: {
+                    'known_marketplaces.json': JSON.stringify({
+                        'claude-code-plugins': {
+                            source: {
+                                source: 'github',
+                                repo: 'anthropics/claude-code'
+                            }
+                        }
+                    }, null, 2),
+                    'installed_plugins.json': JSON.stringify({
+                        version: 2,
+                        plugins: {
+                            'frontend-design@claude-code-plugins': [{
+                                version: '1.0.0',
+                                gitCommitSha: 'abc123'
+                            }]
+                        }
+                    }, null, 2),
+                    marketplaces: {
+                        'claude-code-plugins': {
+                            '.claude-plugin': {
+                                'marketplace.json': JSON.stringify({
+                                    plugins: [{
+                                        name: 'frontend-design',
+                                        version: '1.0.0',
+                                        source: './plugins/frontend-design'
+                                    }]
+                                }, null, 2)
+                            }
+                        }
+                    },
+                    cache: {
+                        'claude-code-plugins': {
+                            'frontend-design': {
+                                '1.0.0': {
+                                    '.claude-plugin': {
+                                        'plugin.json': JSON.stringify({
+                                            name: 'frontend-design',
+                                            version: '1.0.0'
+                                        }, null, 2)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        const result = await runAnalyze(root, { category: 'plugins' });
+        const packetEntry = result.inventory.plugins.llmPacket.plugins[0];
+        assert.equal(packetEntry.repo, 'anthropics/claude-code');
+        assert.equal(packetEntry.url, 'https://github.com/anthropics/claude-code/tree/main/plugins/frontend-design');
+        assert.equal(packetEntry.source_path, 'plugins/frontend-design');
+        assert.equal(packetEntry.git_commit_sha, 'abc123');
+        assert.match(packetEntry.evidence, /known_marketplaces/);
     });
 });
 

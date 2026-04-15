@@ -358,3 +358,200 @@ test('plugins: virtual fs infers marketplace and github provenance from claude c
         assert.equal(entries[1].evidence, 'enabledPlugins + cache metadata');
     });
 });
+
+test('plugins: virtual fs enriches claude plugin entries from known marketplace github metadata', () => {
+    const memoryFs = createMemoryFs();
+    return memoryFs.run(() => {
+        const root = memoryFs.root('soft-harness-plugins-vfs-marketplace-origin-root');
+        memoryFs.writeTree(root, {
+            '.claude': {
+                'settings.json': JSON.stringify({
+                    enabledPlugins: {
+                        'frontend-design@claude-code-plugins': true,
+                        'split-plugin@claude-plugins-official': true,
+                        'superpowers@claude-plugins-official': true,
+                        'ui-ux-pro-max@ui-ux-pro-max-skill': true
+                    }
+                }, null, 2),
+                plugins: {
+                    'known_marketplaces.json': JSON.stringify({
+                        'claude-code-plugins': {
+                            source: {
+                                source: 'github',
+                                repo: 'anthropics/claude-code'
+                            }
+                        },
+                        'claude-plugins-official': {
+                            source: {
+                                source: 'github',
+                                repo: 'anthropics/claude-plugins-official'
+                            }
+                        },
+                        'ui-ux-pro-max-skill': {
+                            source: {
+                                source: 'github',
+                                repo: 'nextlevelbuilder/ui-ux-pro-max-skill'
+                            }
+                        }
+                    }, null, 2),
+                    'installed_plugins.json': JSON.stringify({
+                        version: 2,
+                        plugins: {
+                            'frontend-design@claude-code-plugins': [{
+                                version: '1.0.0',
+                                gitCommitSha: 'abc123'
+                            }],
+                            'split-plugin@claude-plugins-official': [{
+                                version: '1.0.0',
+                                gitCommitSha: 'split123'
+                            }],
+                            'superpowers@claude-plugins-official': [{
+                                version: '5.0.7',
+                                gitCommitSha: 'def456'
+                            }],
+                            'ui-ux-pro-max@ui-ux-pro-max-skill': [{
+                                version: '2.0.1',
+                                gitCommitSha: 'ghi789'
+                            }]
+                        }
+                    }, null, 2),
+                    marketplaces: {
+                        'claude-code-plugins': {
+                            '.claude-plugin': {
+                                'marketplace.json': JSON.stringify({
+                                    plugins: [{
+                                        name: 'frontend-design',
+                                        version: '1.0.0',
+                                        source: './plugins/frontend-design'
+                                    }]
+                                }, null, 2)
+                            }
+                        },
+                        'claude-plugins-official': {
+                            '.claude-plugin': {
+                                'marketplace.json': JSON.stringify({
+                                    plugins: [{
+                                        name: 'split-plugin',
+                                        version: '1.0.0',
+                                        source: './plugins/split-plugin'
+                                    }, {
+                                        name: 'superpowers',
+                                        version: '5.0.7',
+                                        source: {
+                                            source: 'url',
+                                            url: 'https://github.com/obra/superpowers.git'
+                                        }
+                                    }]
+                                }, null, 2)
+                            }
+                        },
+                        'ui-ux-pro-max-skill': {
+                            '.claude-plugin': {
+                                'marketplace.json': JSON.stringify({
+                                    plugins: [{
+                                        name: 'ui-ux-pro-max',
+                                        version: '2.0.1',
+                                        source: './'
+                                    }]
+                                }, null, 2)
+                            },
+                            '.git': {
+                                config: [
+                                    '[remote "origin"]',
+                                    '\turl = https://github.com/nextlevelbuilder/ui-ux-pro-max-skill.git',
+                                    ''
+                                ].join('\n')
+                            }
+                        }
+                    },
+                    cache: {
+                        'claude-code-plugins': {
+                            'frontend-design': {
+                                '1.0.0': {
+                                    '.claude-plugin': {
+                                        'plugin.json': JSON.stringify({
+                                            name: 'frontend-design',
+                                            version: '1.0.0'
+                                        }, null, 2)
+                                    }
+                                }
+                            }
+                        },
+                        'claude-plugins-official': {
+                            'split-plugin': {
+                                '1.0.0': {
+                                    '.claude-plugin': {
+                                        'plugin.json': JSON.stringify({
+                                            name: 'split-plugin',
+                                            version: '1.0.0'
+                                        }, null, 2)
+                                    },
+                                    'package.json': JSON.stringify({
+                                        name: 'split-plugin',
+                                        version: '1.0.0',
+                                        repository: {
+                                            type: 'git',
+                                            url: 'git+https://github.com/acme/split-plugin.git'
+                                        }
+                                    }, null, 2)
+                                }
+                            },
+                            superpowers: {
+                                '5.0.7': {
+                                    '.claude-plugin': {
+                                        'plugin.json': JSON.stringify({
+                                            name: 'superpowers',
+                                            version: '5.0.7'
+                                        }, null, 2)
+                                    }
+                                }
+                            }
+                        },
+                        'ui-ux-pro-max-skill': {
+                            'ui-ux-pro-max': {
+                                '2.0.1': {
+                                    '.claude-plugin': {
+                                        'plugin.json': JSON.stringify({
+                                            name: 'ui-ux-pro-max',
+                                            version: '2.0.1'
+                                        }, null, 2)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        const entries = readInstalledPluginEntries(root, 'claude');
+        const frontend = entries.find((entry) => entry.displayName === 'frontend-design@claude-code-plugins');
+        const splitPlugin = entries.find((entry) => entry.displayName === 'split-plugin@claude-plugins-official');
+        const superpowers = entries.find((entry) => entry.displayName === 'superpowers@claude-plugins-official');
+        const uiUx = entries.find((entry) => entry.displayName === 'ui-ux-pro-max@ui-ux-pro-max-skill');
+
+        assert.equal(frontend.sourceType, 'github');
+        assert.equal(frontend.repo, 'anthropics/claude-code');
+        assert.equal(frontend.url, 'https://github.com/anthropics/claude-code/tree/main/plugins/frontend-design');
+        assert.equal(frontend.sourcePath, 'plugins/frontend-design');
+        assert.equal(frontend.gitCommitSha, 'abc123');
+        assert.match(frontend.evidence, /known_marketplaces/);
+
+        assert.equal(splitPlugin.sourceType, 'github');
+        assert.equal(splitPlugin.repo, 'acme/split-plugin');
+        assert.equal(splitPlugin.url, 'https://github.com/acme/split-plugin');
+        assert.equal(splitPlugin.sourcePath, null);
+        assert.equal(splitPlugin.gitCommitSha, 'split123');
+
+        assert.equal(superpowers.sourceType, 'github');
+        assert.equal(superpowers.repo, 'obra/superpowers');
+        assert.equal(superpowers.url, 'https://github.com/obra/superpowers');
+        assert.equal(superpowers.gitCommitSha, 'def456');
+
+        assert.equal(uiUx.sourceType, 'github');
+        assert.equal(uiUx.repo, 'nextlevelbuilder/ui-ux-pro-max-skill');
+        assert.equal(uiUx.url, 'https://github.com/nextlevelbuilder/ui-ux-pro-max-skill');
+        assert.equal(uiUx.sourcePath, null);
+        assert.equal(uiUx.gitCommitSha, 'ghi789');
+    });
+});
