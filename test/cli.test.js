@@ -15,6 +15,7 @@ test('cli: help lists sync, analyze, remember, and revert', () => {
     assert.equal(result.status, 0);
     assert.match(result.stdout, /soft-harness sync/);
     assert.match(result.stdout, /soft-harness analyze/);
+    assert.match(result.stdout, /soft-harness curate/);
     assert.match(result.stdout, /soft-harness remember/);
     assert.match(result.stdout, /soft-harness revert/);
 });
@@ -47,7 +48,6 @@ test('cli: parseAnalyzeArgs supports category, llms, json, and thresholds', () =
         '--category=plugins',
         '--llms=claude,codex',
         '--explain',
-        '--resolve-github',
         '--json',
         '--heading-threshold=0.7',
         '--body-threshold=0.5'
@@ -56,7 +56,6 @@ test('cli: parseAnalyzeArgs supports category, llms, json, and thresholds', () =
     assert.deepEqual(parsed.llms, ['claude', 'codex']);
     assert.equal(parsed.verbose, false);
     assert.equal(parsed.explain, true);
-    assert.equal(parsed.resolveGithub, true);
     assert.equal(parsed.json, true);
     assert.equal(parsed.headingThreshold, 0.7);
     assert.equal(parsed.bodyThreshold, 0.5);
@@ -160,6 +159,35 @@ test('cli: remember command validates required flags', () => {
     const result = spawnSync('node', [CLI, 'remember', '--title=Timezone'], { encoding: 'utf8' });
     assert.equal(result.status, 1);
     assert.match(result.stderr, /remember requires --content/i);
+});
+
+test('cli: curate plugins command imports llm-curated plugin origins', () => {
+    const root = makeProjectTree('soft-harness-cli-curate-', {
+        '.harness': {},
+        'plugin-research.json': JSON.stringify({
+            plugin_origins: [{
+                plugin: 'frontend-design@claude-code-plugins',
+                hosts: ['claude'],
+                source_type: 'github',
+                repo: 'acme/frontend-design',
+                latest_version: '1.4.0'
+            }]
+        }, null, 2)
+    });
+
+    const result = spawnSync('node', [
+        CLI,
+        'curate',
+        'plugins',
+        '--input=plugin-research.json'
+    ], {
+        cwd: root,
+        encoding: 'utf8'
+    });
+
+    assert.equal(result.status, 0);
+    assert.match(result.stdout, /curated target=plugins  updated=1  file=.harness\/plugin-origins.yaml/);
+    assert.match(readUtf8(path.join(root, '.harness', 'plugin-origins.yaml')), /acme\/frontend-design/);
 });
 
 test('cli: remember command reports runtime failures', async () => {
@@ -457,6 +485,23 @@ test('cli: formatAnalyzeReport renders document-first explain details as trees',
                     llms: ['claude', 'codex'],
                     version: '1.0.0'
                 }],
+                llmPacket: {
+                    schema_version: 1,
+                    plugins: [{
+                        id: 'plugins.plugin:shared-plugin',
+                        host: 'claude',
+                        display_name: 'shared-plugin',
+                        name: 'shared-plugin',
+                        registry: null,
+                        installed_version: '1.0.0',
+                        source_type: 'declared',
+                        url: null,
+                        author: null,
+                        description: null,
+                        evidence: 'plugins[]',
+                        needs_curation: true
+                    }]
+                },
                 hosts: [{
                     llm: 'claude',
                     plugins: [{
@@ -467,11 +512,15 @@ test('cli: formatAnalyzeReport renders document-first explain details as trees',
                         registry: null,
                         url: 'https://github.com/softdaddy-o/shared-plugin',
                         evidence: 'plugins[]',
-                        githubCandidate: {
-                            fullName: 'softdaddy-o/shared-plugin',
+                        latestVersion: '1.2.0',
+                        updateAvailable: true,
+                        curatedOrigin: {
+                            sourceType: 'github',
+                            repo: 'softdaddy-o/shared-plugin',
                             url: 'https://github.com/softdaddy-o/shared-plugin',
-                            confidence: 0.88,
-                            reason: 'matched by exact repository name'
+                            latestVersion: '1.2.0',
+                            confidence: 'llm-inferred',
+                            notes: 'Matched from plugin title and repository metadata'
                         }
                     }]
                 }]
@@ -530,13 +579,17 @@ test('cli: formatAnalyzeReport renders document-first explain details as trees',
     assert.match(output, /Plugins/u);
     assert.match(output, /desired plugins/);
     assert.match(output, /plugin: shared-plugin@1\.0\.0 \[llms: claude, codex\]/);
+    assert.match(output, /research packet/);
+    assert.match(output, /plugin: shared-plugin \[claude; needs curation\]/);
     assert.match(output, /plugin: shared-plugin \[shared; also present in codex\]/);
     assert.match(output, /source: marketplace/);
     assert.match(output, /version: 1\.0\.0/);
     assert.match(output, /url: https:\/\/github\.com\/softdaddy-o\/shared-plugin/);
     assert.match(output, /evidence: plugins\[\]/);
-    assert.match(output, /github candidate: softdaddy-o\/shared-plugin \(88%\)/);
-    assert.match(output, /candidate reason: matched by exact repository name/);
+    assert.match(output, /curated source: github/);
+    assert.match(output, /repo: softdaddy-o\/shared-plugin/);
+    assert.match(output, /latest version: 1\.2\.0/);
+    assert.match(output, /update available: yes \(installed 1\.0\.0 < latest 1\.2\.0\)/);
     assert.doesNotMatch(output, /✅ Common/u);
     assert.doesNotMatch(output, /📁 Host Only/u);
 });

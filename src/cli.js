@@ -9,6 +9,7 @@ const HELP = `soft-harness - single source of truth for LLM harness files
 Commands:
   soft-harness sync [options]         Reconcile .harness/ with the project
   soft-harness analyze [options]      Compare prompts, settings, skills, and plugins across hosts
+  soft-harness curate plugins [opts]  Import LLM-curated plugin origin data into .harness/
   soft-harness remember [options]     Record memory into harness truth and regenerate outputs
   soft-harness revert --list          List available backups
   soft-harness revert <timestamp>     Restore files from a backup
@@ -36,12 +37,16 @@ Analyze options:
   --account                          Analyze the current account home directory
   --category=<name>                  Analyze prompts, settings, skills, plugins, or all
   --llms=<names>                     Limit analysis to a comma-separated llm list
-  --resolve-github                   Search GitHub for plugin repository candidates when local metadata is insufficient
   --verbose                          Show file-level analysis details
   --explain                          Show classification reasons
   --heading-threshold=<0..1>         Heading similarity threshold for cross-host section matching (default: ${DEFAULT_HEADING_THRESHOLD})
   --body-threshold=<0..1>            Body similarity threshold for cross-host section matching (default: ${DEFAULT_BODY_THRESHOLD})
   --json                             Emit JSON instead of text
+
+Curate options:
+  --root=<path>                      Curate an explicit root instead of the current directory
+  --account                          Curate the current account home directory
+  --input=<path>                     Read LLM-curated plugin origin data from JSON or YAML
 
 Remember options:
   --scope=<project|account>          Write to the project .harness/ or the account home .harness/
@@ -117,7 +122,6 @@ function parseAnalyzeArgs(args) {
         headingThreshold: thresholds.headingThreshold,
         json: flags.has('--json'),
         llms,
-        resolveGithub: flags.has('--resolve-github'),
         root,
         verbose: flags.has('--verbose')
     };
@@ -161,6 +165,27 @@ async function runAnalyze(args) {
         return 0;
     } catch (error) {
         process.stderr.write(`analyze failed: ${error.message}\n`);
+        return 1;
+    }
+}
+
+function runCurate(args) {
+    const { parseCurateArgs, runCurate: runCurateImpl } = require('./curate');
+    let curateOptions;
+    try {
+        curateOptions = parseCurateArgs(args);
+    } catch (error) {
+        process.stderr.write(`curate failed: ${error.message}\n`);
+        return 1;
+    }
+
+    try {
+        const rootDir = resolveCommandRoot(process.cwd(), curateOptions);
+        const result = runCurateImpl(rootDir, curateOptions);
+        process.stdout.write(formatCurateReport(result));
+        return 0;
+    } catch (error) {
+        process.stderr.write(`curate failed: ${error.message}\n`);
         return 1;
     }
 }
@@ -229,6 +254,8 @@ async function main(argv, io) {
             return runSync(argv.slice(3), io);
         case 'analyze':
             return runAnalyze(argv.slice(3));
+        case 'curate':
+            return runCurate(argv.slice(3));
         case 'remember':
             return runRemember(argv.slice(3));
         case 'revert':
@@ -252,6 +279,7 @@ module.exports = {
         resolveCommandRoot
     },
     formatAnalyzeReport,
+    formatCurateReport,
     formatRememberReport,
     formatSyncReport,
     main,
@@ -529,6 +557,7 @@ function formatAnalyzeSkills(result, options) {
 function formatAnalyzePlugins(result, options) {
     const inventory = result && result.inventory && result.inventory.plugins;
     const desired = (inventory && inventory.desired) || [];
+    const llmPacket = (inventory && inventory.llmPacket && inventory.llmPacket.plugins) || [];
     const hosts = (inventory && inventory.hosts) || [];
     const annotations = buildCategoryAnnotations(result, 'plugins');
     const items = [];
@@ -538,6 +567,15 @@ function formatAnalyzePlugins(result, options) {
             text: 'desired plugins',
             children: desired.map((plugin) => ({
                 text: `plugin: ${plugin.name}${plugin.version ? `@${plugin.version}` : ''} [llms: ${plugin.llms.join(', ')}]`
+            }))
+        });
+    }
+
+    if (llmPacket.length > 0) {
+        items.push({
+            text: 'research packet',
+            children: llmPacket.map((plugin) => ({
+                text: `plugin: ${plugin.display_name} [${plugin.host}${plugin.needs_curation ? '; needs curation' : '; curated'}]`
             }))
         });
     }
@@ -589,18 +627,33 @@ function formatAnalyzePluginEntry(plugin, llm, annotations, options) {
     if (plugin.evidence) {
         details.push({ text: `evidence: ${plugin.evidence}` });
     }
-    if (plugin.githubCandidate) {
-        const confidence = typeof plugin.githubCandidate.confidence === 'number'
-            ? ` (${Math.round(plugin.githubCandidate.confidence * 100)}%)`
-            : '';
-        details.push({ text: `github candidate: ${plugin.githubCandidate.fullName}${confidence}` });
-        details.push({ text: `candidate url: ${plugin.githubCandidate.url}` });
-        if (plugin.githubCandidate.reason) {
-            details.push({ text: `candidate reason: ${plugin.githubCandidate.reason}` });
+    if (plugin.curatedOrigin) {
+        details.push({ text: `curated source: ${plugin.curatedOrigin.sourceType || 'unknown'}` });
+        if (plugin.curatedOrigin.repo) {
+            details.push({ text: `repo: ${plugin.curatedOrigin.repo}` });
+        }
+        if (plugin.curatedOrigin.url) {
+            details.push({ text: `curated url: ${plugin.curatedOrigin.url}` });
+        }
+        if (plugin.latestVersion) {
+            details.push({ text: `latest version: ${plugin.latestVersion}` });
+        }
+        if (plugin.updateAvailable && plugin.version && plugin.latestVersion) {
+            details.push({ text: `update available: yes (installed ${plugin.version} < latest ${plugin.latestVersion})` });
+        }
+        if (plugin.curatedOrigin.confidence) {
+            details.push({ text: `curation confidence: ${plugin.curatedOrigin.confidence}` });
+        }
+        if (plugin.curatedOrigin.notes) {
+            details.push({ text: `curation notes: ${plugin.curatedOrigin.notes}` });
         }
     }
     item.children = details;
     return item;
+}
+
+function formatCurateReport(result) {
+    return `${ICONS.completed} curated target=${result.target}  updated=${result.updated}  file=${result.file}\n`;
 }
 
 function formatRememberReport(result) {

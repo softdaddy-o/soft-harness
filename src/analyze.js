@@ -13,7 +13,15 @@ async function runAnalyze(rootDir, options) {
         skills: [],
         plugins: {
             desired: [],
-            hosts: []
+            hosts: [],
+            llmPacket: {
+                schema_version: 1,
+                instructions: [],
+                output_schema: {
+                    plugin_origins: []
+                },
+                plugins: []
+            }
         }
     };
 
@@ -37,6 +45,9 @@ async function runAnalyze(rootDir, options) {
         parts.push(pluginsResult.findings);
         inventory.plugins.desired.push(...((pluginsResult.inventory && pluginsResult.inventory.desired) || []));
         inventory.plugins.hosts.push(...((pluginsResult.inventory && pluginsResult.inventory.hosts) || []));
+        inventory.plugins.llmPacket.instructions = ((pluginsResult.inventory && pluginsResult.inventory.llmPacket) || {}).instructions || [];
+        inventory.plugins.llmPacket.output_schema = ((pluginsResult.inventory && pluginsResult.inventory.llmPacket) || {}).output_schema || { plugin_origins: [] };
+        inventory.plugins.llmPacket.plugins.push(...(((pluginsResult.inventory && pluginsResult.inventory.llmPacket) || {}).plugins || []));
     }
 
     const findings = mergeFindings(...parts);

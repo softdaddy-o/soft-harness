@@ -1,7 +1,8 @@
 const { loadPlugins, readInstalledPluginEntries } = require('../plugins');
 const { createFinding } = require('./shared');
 const { listProfiles } = require('../profiles');
-const { resolveGithubCandidate } = require('../github-search');
+const { findPluginOrigin, loadPluginOrigins } = require('../plugin-origins');
+const { compareVersions } = require('../version');
 
 async function analyzePlugins(rootDir, options) {
     const findings = {
@@ -27,14 +28,59 @@ async function analyzePlugins(rootDir, options) {
             llms: plugin.llms.filter((llm) => llms.includes(llm)),
             version: plugin.version || null
         })),
-        hosts: []
+        hosts: [],
+        llmPacket: {
+            schema_version: 1,
+            instructions: [
+                'Infer the most likely canonical source for each plugin and the latest available version.',
+                'Prefer repository URLs only when the evidence is strong enough to name a specific repo.',
+                'Return only JSON that matches output_schema.'
+            ],
+            output_schema: {
+                plugin_origins: [{
+                    plugin: '<display_name>',
+                    hosts: ['<llm>'],
+                    source_type: '<github|marketplace|unknown>',
+                    repo: '<owner/repo|null>',
+                    url: '<https url|null>',
+                    latest_version: '<version|null>',
+                    confidence: '<confirmed|llm-inferred|unknown>',
+                    notes: '<short rationale>'
+                }]
+            },
+            plugins: []
+        }
     };
+    const curatedOrigins = loadPluginOrigins(rootDir);
 
     for (const llm of llms) {
         const plugins = [];
         for (const plugin of installedByLlm.get(llm)) {
-            const githubCandidate = await resolveGithubCandidate(plugin, options || {});
-            plugins.push(githubCandidate ? { ...plugin, githubCandidate } : plugin);
+            const curatedOrigin = findPluginOrigin(curatedOrigins, llm, plugin);
+            const latestVersion = curatedOrigin && curatedOrigin.latestVersion ? curatedOrigin.latestVersion : null;
+            const updateCompare = latestVersion ? compareVersions(plugin.version, latestVersion) : null;
+            const updateAvailable = updateCompare === -1;
+            const enrichedPlugin = {
+                ...plugin,
+                curatedOrigin,
+                latestVersion,
+                updateAvailable
+            };
+            plugins.push(enrichedPlugin);
+            inventory.llmPacket.plugins.push({
+                id: `plugins.plugin:${plugin.displayName || plugin.name}`,
+                host: llm,
+                display_name: plugin.displayName || plugin.name,
+                name: plugin.name,
+                registry: plugin.registry || null,
+                installed_version: plugin.version || null,
+                source_type: plugin.sourceType || 'declared',
+                url: plugin.url || null,
+                author: plugin.author || null,
+                description: plugin.description || null,
+                evidence: plugin.evidence || null,
+                needs_curation: !hasCompleteCuration(curatedOrigin)
+            });
         }
         inventory.hosts.push({
             llm,
@@ -58,7 +104,7 @@ async function analyzePlugins(rootDir, options) {
                 registry: entry.registry || null,
                 url: entry.url || null,
                 evidence: entry.evidence || null,
-                githubCandidate: entry.githubCandidate || null
+                curatedOrigin: entry.curatedOrigin || null
             });
         }
     }
@@ -89,6 +135,10 @@ async function analyzePlugins(rootDir, options) {
         findings,
         inventory
     };
+}
+
+function hasCompleteCuration(origin) {
+    return Boolean(origin && origin.sourceType && origin.latestVersion);
 }
 
 module.exports = {
