@@ -16,6 +16,7 @@ test('cli: help lists sync, analyze, remember, and revert', () => {
     assert.match(result.stdout, /soft-harness sync/);
     assert.match(result.stdout, /soft-harness analyze/);
     assert.match(result.stdout, /soft-harness curate/);
+    assert.match(result.stdout, /soft-harness prompt --analyze/);
     assert.match(result.stdout, /soft-harness remember/);
     assert.match(result.stdout, /soft-harness revert/);
 });
@@ -188,6 +189,21 @@ test('cli: curate plugins command imports llm-curated plugin origins', () => {
     assert.equal(result.status, 0);
     assert.match(result.stdout, /curated target=plugins  updated=1  file=.harness\/plugin-origins.yaml/);
     assert.match(readUtf8(path.join(root, '.harness', 'plugin-origins.yaml')), /acme\/frontend-design/);
+});
+
+test('cli: prompt --analyze prints an account-aware LLM workflow prompt', () => {
+    const result = spawnSync('node', [CLI, 'prompt', '--analyze', '--account'], { encoding: 'utf8' });
+    assert.equal(result.status, 0);
+    assert.match(result.stdout, /You are helping curate soft-harness plugin provenance/);
+    assert.match(result.stdout, /soft-harness analyze --account --category=plugins --json > plugin-research-packet\.json/);
+    assert.match(result.stdout, /soft-harness curate plugins --account --input=plugin-origins\.json/);
+    assert.match(result.stdout, /plugin_origins/);
+});
+
+test('cli: prompt command validates required analyze flag', () => {
+    const result = spawnSync('node', [CLI, 'prompt'], { encoding: 'utf8' });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /prompt requires --analyze/i);
 });
 
 test('cli: remember command reports runtime failures', async () => {

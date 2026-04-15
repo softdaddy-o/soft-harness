@@ -10,6 +10,7 @@ Commands:
   soft-harness sync [options]         Reconcile .harness/ with the project
   soft-harness analyze [options]      Compare prompts, settings, skills, and plugins across hosts
   soft-harness curate plugins [opts]  Import LLM-curated plugin origin data into .harness/
+  soft-harness prompt --analyze       Print an LLM prompt for plugin provenance curation
   soft-harness remember [options]     Record memory into harness truth and regenerate outputs
   soft-harness revert --list          List available backups
   soft-harness revert <timestamp>     Restore files from a backup
@@ -47,6 +48,11 @@ Curate options:
   --root=<path>                      Curate an explicit root instead of the current directory
   --account                          Curate the current account home directory
   --input=<path>                     Read LLM-curated plugin origin data from JSON or YAML
+
+Prompt options:
+  --analyze                          Print the plugin provenance curation workflow prompt
+  --account                          Use account-scoped commands in the generated prompt
+  --no-web                           Tell the LLM not to use web research
 
 Remember options:
   --scope=<project|account>          Write to the project .harness/ or the account home .harness/
@@ -190,6 +196,20 @@ function runCurate(args) {
     }
 }
 
+function runPrompt(args) {
+    const { buildPrompt, parsePromptArgs } = require('./llm-prompt');
+    let promptOptions;
+    try {
+        promptOptions = parsePromptArgs(args);
+    } catch (error) {
+        process.stderr.write(`prompt failed: ${error.message}\n`);
+        return 1;
+    }
+
+    process.stdout.write(`${buildPrompt(promptOptions)}\n`);
+    return 0;
+}
+
 function runRemember(args) {
     const { parseRememberArgs, runRemember: runRememberImpl } = require('./remember');
     let rememberOptions;
@@ -256,6 +276,8 @@ async function main(argv, io) {
             return runAnalyze(argv.slice(3));
         case 'curate':
             return runCurate(argv.slice(3));
+        case 'prompt':
+            return runPrompt(argv.slice(3));
         case 'remember':
             return runRemember(argv.slice(3));
         case 'revert':
