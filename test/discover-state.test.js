@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { discoverInstructions } = require('../src/discover');
 const { loadState, saveState } = require('../src/state');
-const { writeUtf8 } = require('../src/fs-util');
+const { formatOffsetDate, writeUtf8 } = require('../src/fs-util');
 const { loadFresh, makeTempDir } = require('./helpers');
 
 test('discover: finds known instruction files and uses explicit classification callback', async () => {
@@ -49,12 +49,13 @@ test('state: loadState returns merged defaults when no state file exists or part
     });
     assert.deepEqual(missing.classifications, {});
 
-    saveState(root, { assets: { instructions: [{ target: 'CLAUDE.md' }] } }, new Date('2026-04-13T10:00:00+09:00'));
+    const timestamp = new Date('2026-04-13T10:00:00+09:00');
+    saveState(root, { assets: { instructions: [{ target: 'CLAUDE.md' }] } }, timestamp);
     const loaded = loadState(root);
     assert.equal(loaded.assets.instructions.length, 1);
     assert.deepEqual(loaded.assets.skills, []);
     assert.deepEqual(loaded.assets.agents, []);
-    assert.match(loaded.synced_at, /^2026-04-13T10:00:00\+09:00$/);
+    assert.equal(loaded.synced_at, formatOffsetDate(timestamp));
 });
 
 test('state: saveState without explicit input still writes defaults and a timestamp', () => {
