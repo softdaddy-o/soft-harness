@@ -15,10 +15,11 @@ test('cli: help lists sync, analyze, remember, and revert', () => {
     assert.equal(result.status, 0);
     assert.match(result.stdout, /soft-harness sync/);
     assert.match(result.stdout, /soft-harness analyze/);
-    assert.match(result.stdout, /soft-harness curate/);
+    assert.match(result.stdout, /soft-harness plugins import-origins/);
     assert.match(result.stdout, /soft-harness prompt --analyze/);
     assert.match(result.stdout, /soft-harness remember/);
     assert.match(result.stdout, /soft-harness revert/);
+    assert.doesNotMatch(result.stdout, /curat/i);
 });
 
 test('cli: unknown command exits non-zero', () => {
@@ -162,7 +163,7 @@ test('cli: remember command validates required flags', () => {
     assert.match(result.stderr, /remember requires --content/i);
 });
 
-test('cli: curate plugins command imports llm-curated plugin origins', () => {
+test('cli: plugins import-origins command imports LLM-found plugin origins', () => {
     const root = makeProjectTree('soft-harness-cli-curate-', {
         '.harness': {},
         'plugin-research.json': JSON.stringify({
@@ -178,8 +179,8 @@ test('cli: curate plugins command imports llm-curated plugin origins', () => {
 
     const result = spawnSync('node', [
         CLI,
-        'curate',
         'plugins',
+        'import-origins',
         '--input=plugin-research.json'
     ], {
         cwd: root,
@@ -187,17 +188,20 @@ test('cli: curate plugins command imports llm-curated plugin origins', () => {
     });
 
     assert.equal(result.status, 0);
-    assert.match(result.stdout, /curated target=plugins  updated=1  file=.harness\/plugin-origins.yaml/);
+    assert.match(result.stdout, /plugin origins imported target=plugins  updated=1  file=.harness\/plugin-origins.yaml/);
     assert.match(readUtf8(path.join(root, '.harness', 'plugin-origins.yaml')), /acme\/frontend-design/);
 });
 
 test('cli: prompt --analyze prints an account-aware LLM workflow prompt', () => {
     const result = spawnSync('node', [CLI, 'prompt', '--analyze', '--account'], { encoding: 'utf8' });
     assert.equal(result.status, 0);
-    assert.match(result.stdout, /You are helping curate soft-harness plugin provenance/);
+    assert.match(result.stdout, /You are helping resolve soft-harness plugin origins/);
     assert.match(result.stdout, /soft-harness analyze --account --category=plugins --json > plugin-research-packet\.json/);
-    assert.match(result.stdout, /soft-harness curate plugins --account --input=plugin-origins\.json/);
+    assert.match(result.stdout, /soft-harness plugins import-origins --account --input=plugin-origins\.json/);
+    assert.match(result.stdout, /Find GitHub repositories and official marketplace pages/);
+    assert.match(result.stdout, /Run the commands yourself/);
     assert.match(result.stdout, /plugin_origins/);
+    assert.doesNotMatch(result.stdout, /curat/i);
 });
 
 test('cli: prompt command validates required analyze flag', () => {
@@ -596,13 +600,13 @@ test('cli: formatAnalyzeReport renders document-first explain details as trees',
     assert.match(output, /desired plugins/);
     assert.match(output, /plugin: shared-plugin@1\.0\.0 \[llms: claude, codex\]/);
     assert.match(output, /research packet/);
-    assert.match(output, /plugin: shared-plugin \[claude; needs curation\]/);
+    assert.match(output, /plugin: shared-plugin \[claude; origin missing\]/);
     assert.match(output, /plugin: shared-plugin \[shared; also present in codex\]/);
     assert.match(output, /source: marketplace/);
     assert.match(output, /version: 1\.0\.0/);
     assert.match(output, /url: https:\/\/github\.com\/softdaddy-o\/shared-plugin/);
     assert.match(output, /evidence: plugins\[\]/);
-    assert.match(output, /curated source: github/);
+    assert.match(output, /saved source: github/);
     assert.match(output, /repo: softdaddy-o\/shared-plugin/);
     assert.match(output, /latest version: 1\.2\.0/);
     assert.match(output, /update available: yes \(installed 1\.0\.0 < latest 1\.2\.0\)/);

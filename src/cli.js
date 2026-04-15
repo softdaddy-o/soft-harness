@@ -9,8 +9,9 @@ const HELP = `soft-harness - single source of truth for LLM harness files
 Commands:
   soft-harness sync [options]         Reconcile .harness/ with the project
   soft-harness analyze [options]      Compare prompts, settings, skills, and plugins across hosts
-  soft-harness curate plugins [opts]  Import LLM-curated plugin origin data into .harness/
-  soft-harness prompt --analyze       Print an LLM prompt for plugin provenance curation
+  soft-harness plugins import-origins [opts]
+                                      Save LLM-found plugin origins into .harness/
+  soft-harness prompt --analyze       Print an LLM prompt that resolves plugin origins end-to-end
   soft-harness remember [options]     Record memory into harness truth and regenerate outputs
   soft-harness revert --list          List available backups
   soft-harness revert <timestamp>     Restore files from a backup
@@ -44,13 +45,13 @@ Analyze options:
   --body-threshold=<0..1>            Body similarity threshold for cross-host section matching (default: ${DEFAULT_BODY_THRESHOLD})
   --json                             Emit JSON instead of text
 
-Curate options:
-  --root=<path>                      Curate an explicit root instead of the current directory
-  --account                          Curate the current account home directory
-  --input=<path>                     Read LLM-curated plugin origin data from JSON or YAML
+Plugin origin options:
+  --root=<path>                      Save origins under an explicit root instead of the current directory
+  --account                          Save origins under the current account home directory
+  --input=<path>                     Read LLM-found plugin origin data from JSON or YAML
 
 Prompt options:
-  --analyze                          Print the plugin provenance curation workflow prompt
+  --analyze                          Print the plugin origin resolution workflow prompt
   --account                          Use account-scoped commands in the generated prompt
   --no-web                           Tell the LLM not to use web research
 
@@ -196,6 +197,33 @@ function runCurate(args) {
     }
 }
 
+function runPlugins(args) {
+    const subcommand = args[0] || '';
+    if (subcommand !== 'import-origins') {
+        process.stderr.write(`plugins failed: unsupported plugins command: ${subcommand || '(missing)'}\n`);
+        return 1;
+    }
+
+    const { parseCurateArgs, runCurate: runCurateImpl } = require('./curate');
+    let pluginOptions;
+    try {
+        pluginOptions = parseCurateArgs(['plugins', ...args.slice(1)]);
+    } catch (error) {
+        process.stderr.write(`plugins import-origins failed: ${error.message}\n`);
+        return 1;
+    }
+
+    try {
+        const rootDir = resolveCommandRoot(process.cwd(), pluginOptions);
+        const result = runCurateImpl(rootDir, pluginOptions);
+        process.stdout.write(formatCurateReport(result));
+        return 0;
+    } catch (error) {
+        process.stderr.write(`plugins import-origins failed: ${error.message}\n`);
+        return 1;
+    }
+}
+
 function runPrompt(args) {
     const { buildPrompt, parsePromptArgs } = require('./llm-prompt');
     let promptOptions;
@@ -276,6 +304,8 @@ async function main(argv, io) {
             return runAnalyze(argv.slice(3));
         case 'curate':
             return runCurate(argv.slice(3));
+        case 'plugins':
+            return runPlugins(argv.slice(3));
         case 'prompt':
             return runPrompt(argv.slice(3));
         case 'remember':
@@ -597,7 +627,7 @@ function formatAnalyzePlugins(result, options) {
         items.push({
             text: 'research packet',
             children: llmPacket.map((plugin) => ({
-                text: `plugin: ${plugin.display_name} [${plugin.host}${plugin.needs_curation ? '; needs curation' : '; curated'}]`
+                text: `plugin: ${plugin.display_name} [${plugin.host}${plugin.needs_curation ? '; origin missing' : '; origin saved'}]`
             }))
         });
     }
@@ -650,12 +680,12 @@ function formatAnalyzePluginEntry(plugin, llm, annotations, options) {
         details.push({ text: `evidence: ${plugin.evidence}` });
     }
     if (plugin.curatedOrigin) {
-        details.push({ text: `curated source: ${plugin.curatedOrigin.sourceType || 'unknown'}` });
+        details.push({ text: `saved source: ${plugin.curatedOrigin.sourceType || 'unknown'}` });
         if (plugin.curatedOrigin.repo) {
             details.push({ text: `repo: ${plugin.curatedOrigin.repo}` });
         }
         if (plugin.curatedOrigin.url) {
-            details.push({ text: `curated url: ${plugin.curatedOrigin.url}` });
+            details.push({ text: `origin url: ${plugin.curatedOrigin.url}` });
         }
         if (plugin.latestVersion) {
             details.push({ text: `latest version: ${plugin.latestVersion}` });
@@ -664,10 +694,10 @@ function formatAnalyzePluginEntry(plugin, llm, annotations, options) {
             details.push({ text: `update available: yes (installed ${plugin.version} < latest ${plugin.latestVersion})` });
         }
         if (plugin.curatedOrigin.confidence) {
-            details.push({ text: `curation confidence: ${plugin.curatedOrigin.confidence}` });
+            details.push({ text: `origin confidence: ${plugin.curatedOrigin.confidence}` });
         }
         if (plugin.curatedOrigin.notes) {
-            details.push({ text: `curation notes: ${plugin.curatedOrigin.notes}` });
+            details.push({ text: `origin notes: ${plugin.curatedOrigin.notes}` });
         }
     }
     item.children = details;
@@ -675,7 +705,7 @@ function formatAnalyzePluginEntry(plugin, llm, annotations, options) {
 }
 
 function formatCurateReport(result) {
-    return `${ICONS.completed} curated target=${result.target}  updated=${result.updated}  file=${result.file}\n`;
+    return `${ICONS.completed} plugin origins imported target=${result.target}  updated=${result.updated}  file=${result.file}\n`;
 }
 
 function formatRememberReport(result) {
