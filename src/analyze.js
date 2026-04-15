@@ -11,6 +11,16 @@ async function runAnalyze(rootDir, options) {
         documents: [],
         settings: [],
         skills: [],
+        skillOrigins: {
+            llmPacket: {
+                schema_version: 1,
+                instructions: [],
+                output_schema: {
+                    asset_origins: []
+                },
+                assets: []
+            }
+        },
         plugins: {
             desired: [],
             hosts: [],
@@ -39,6 +49,9 @@ async function runAnalyze(rootDir, options) {
         const skillsResult = analyzeSkills(rootDir, options || {});
         parts.push(skillsResult.findings);
         inventory.skills.push(...(skillsResult.inventory || []));
+        inventory.skillOrigins.llmPacket.instructions = ((skillsResult.originsInventory && skillsResult.originsInventory.llmPacket) || {}).instructions || [];
+        inventory.skillOrigins.llmPacket.output_schema = ((skillsResult.originsInventory && skillsResult.originsInventory.llmPacket) || {}).output_schema || { asset_origins: [] };
+        inventory.skillOrigins.llmPacket.assets.push(...(((skillsResult.originsInventory && skillsResult.originsInventory.llmPacket) || {}).assets || []));
     }
     if (categories.includes('plugins')) {
         const pluginsResult = await analyzePlugins(rootDir, options || {});

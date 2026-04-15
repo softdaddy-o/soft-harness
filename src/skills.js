@@ -1,6 +1,6 @@
-const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
+const { getFsBackend } = require('./fs-backend');
 const { hashDirectory, hashFile } = require('./hash');
 const { createLink, isSymlink, readLink } = require('./symlink');
 const { copyPath, ensureDir, exists, readUtf8, removePath, writeUtf8 } = require('./fs-util');
@@ -15,7 +15,7 @@ function discoverSkillsAndAgents(rootDir) {
         const profile = getProfile(llm);
         const skillsDir = path.join(rootDir, profile.skills_dir);
         if (exists(skillsDir)) {
-            for (const item of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+            for (const item of getFsBackend().readdirSync(skillsDir, { withFileTypes: true })) {
                 if (!item.isDirectory()) {
                     continue;
                 }
@@ -36,7 +36,7 @@ function discoverSkillsAndAgents(rootDir) {
 
         const agentsDir = path.join(rootDir, profile.agents_dir);
         if (exists(agentsDir)) {
-            for (const item of fs.readdirSync(agentsDir, { withFileTypes: true })) {
+            for (const item of getFsBackend().readdirSync(agentsDir, { withFileTypes: true })) {
                 if (!item.isFile() || !item.name.endsWith('.md')) {
                     continue;
                 }
@@ -393,7 +393,7 @@ function discoverHarnessAssets(rootDir) {
     for (const bucket of ['common', ...listProfiles()]) {
         const skillsDir = path.join(rootDir, '.harness', 'skills', bucket);
         if (exists(skillsDir)) {
-            for (const item of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+            for (const item of getFsBackend().readdirSync(skillsDir, { withFileTypes: true })) {
                 if (!item.isDirectory()) {
                     continue;
                 }
@@ -412,7 +412,7 @@ function discoverHarnessAssets(rootDir) {
 
         const agentsDir = path.join(rootDir, '.harness', 'agents', bucket);
         if (exists(agentsDir)) {
-            for (const item of fs.readdirSync(agentsDir, { withFileTypes: true })) {
+            for (const item of getFsBackend().readdirSync(agentsDir, { withFileTypes: true })) {
                 if (!item.isFile() || !item.name.endsWith('.md')) {
                     continue;
                 }

@@ -11,7 +11,8 @@ Commands:
   soft-harness analyze [options]      Compare prompts, settings, skills, and plugins across hosts
   soft-harness plugins import-origins [opts]
                                       Save LLM-found plugin origins into .harness/
-  soft-harness prompt --analyze       Print an LLM prompt that resolves plugin origins end-to-end
+  soft-harness origins import [opts]  Save LLM-found skill/agent origins into .harness/
+  soft-harness prompt --analyze       Print an LLM prompt that resolves origins end-to-end
   soft-harness remember [options]     Record memory into harness truth and regenerate outputs
   soft-harness revert --list          List available backups
   soft-harness revert <timestamp>     Restore files from a backup
@@ -45,13 +46,13 @@ Analyze options:
   --body-threshold=<0..1>            Body similarity threshold for cross-host section matching (default: ${DEFAULT_BODY_THRESHOLD})
   --json                             Emit JSON instead of text
 
-Plugin origin options:
+Origin import options:
   --root=<path>                      Save origins under an explicit root instead of the current directory
   --account                          Save origins under the current account home directory
-  --input=<path>                     Read LLM-found plugin origin data from JSON or YAML
+  --input=<path>                     Read LLM-found origin data from JSON or YAML
 
 Prompt options:
-  --analyze                          Print the plugin origin resolution workflow prompt
+  --analyze                          Print the origin resolution workflow prompt
   --account                          Use account-scoped commands in the generated prompt
   --no-web                           Tell the LLM not to use web research
 
@@ -224,6 +225,33 @@ function runPlugins(args) {
     }
 }
 
+function runOrigins(args) {
+    const subcommand = args[0] || '';
+    if (subcommand !== 'import') {
+        process.stderr.write(`origins failed: unsupported origins command: ${subcommand || '(missing)'}\n`);
+        return 1;
+    }
+
+    const { importOrigins, parseOriginsArgs } = require('./origins');
+    let originOptions;
+    try {
+        originOptions = parseOriginsArgs(args.slice(1));
+    } catch (error) {
+        process.stderr.write(`origins import failed: ${error.message}\n`);
+        return 1;
+    }
+
+    try {
+        const rootDir = resolveCommandRoot(process.cwd(), originOptions);
+        const result = importOrigins(rootDir, originOptions);
+        process.stdout.write(formatCurateReport(result));
+        return 0;
+    } catch (error) {
+        process.stderr.write(`origins import failed: ${error.message}\n`);
+        return 1;
+    }
+}
+
 function runPrompt(args) {
     const { buildPrompt, parsePromptArgs } = require('./llm-prompt');
     let promptOptions;
@@ -306,6 +334,8 @@ async function main(argv, io) {
             return runCurate(argv.slice(3));
         case 'plugins':
             return runPlugins(argv.slice(3));
+        case 'origins':
+            return runOrigins(argv.slice(3));
         case 'prompt':
             return runPrompt(argv.slice(3));
         case 'remember':
@@ -577,8 +607,19 @@ function formatAnalyzeSettings(entries) {
 
 function formatAnalyzeSkills(result, options) {
     const entries = result && result.inventory && result.inventory.skills;
+    const originAssets = (result && result.inventory && result.inventory.skillOrigins
+        && result.inventory.skillOrigins.llmPacket && result.inventory.skillOrigins.llmPacket.assets) || [];
     const annotations = buildCategoryAnnotations(result, 'skills');
-    return (entries || []).map((entry) => {
+    const items = [];
+
+    if (originAssets.length > 0) {
+        items.push({
+            text: 'research packet',
+            children: originAssets.map((asset) => formatAnalyzeAssetOriginEntry(asset, options))
+        });
+    }
+
+    for (const entry of entries || []) {
         const children = [
             { text: `skills: ${entry.skills.length}` },
             { text: `agents: ${entry.agents.length}` }
@@ -599,11 +640,59 @@ function formatAnalyzeSkills(result, options) {
                 }))
             });
         }
-        return {
+        items.push({
             text: `host: ${entry.llm}`,
             children
-        };
-    });
+        });
+    }
+
+    return items;
+}
+
+function formatAnalyzeAssetOriginEntry(asset, options) {
+    const status = asset.needs_origin_research ? 'origin missing' : 'origin saved';
+    const item = {
+        text: `${asset.kind}: ${asset.name} [${asset.host}; ${status}]`,
+        children: []
+    };
+
+    if (!(options && options.explain)) {
+        return item;
+    }
+
+    const details = [];
+    if (asset.source_type) {
+        details.push({ text: `source: ${asset.source_type}` });
+    }
+    if (asset.repo) {
+        details.push({ text: `repo: ${asset.repo}` });
+    }
+    if (asset.url) {
+        details.push({ text: `url: ${asset.url}` });
+    }
+    if (asset.source_path) {
+        details.push({ text: `source path: ${asset.source_path}` });
+    }
+    if (asset.installed_version) {
+        details.push({ text: `installed version: ${asset.installed_version}` });
+    }
+    if (asset.latest_version) {
+        details.push({ text: `latest version: ${asset.latest_version}` });
+    }
+    if (asset.git_commit_sha) {
+        details.push({ text: `git commit: ${asset.git_commit_sha}` });
+    }
+    if (asset.confidence) {
+        details.push({ text: `origin confidence: ${asset.confidence}` });
+    }
+    if (asset.evidence) {
+        details.push({ text: `evidence: ${asset.evidence}` });
+    }
+    if (asset.notes) {
+        details.push({ text: `origin notes: ${asset.notes}` });
+    }
+    item.children = details;
+    return item;
 }
 
 function formatAnalyzePlugins(result, options) {
@@ -705,7 +794,8 @@ function formatAnalyzePluginEntry(plugin, llm, annotations, options) {
 }
 
 function formatCurateReport(result) {
-    return `${ICONS.completed} plugin origins imported target=${result.target}  updated=${result.updated}  file=${result.file}\n`;
+    const label = result && result.target === 'assets' ? 'asset origins' : 'plugin origins';
+    return `${ICONS.completed} ${label} imported target=${result.target}  updated=${result.updated}  file=${result.file}\n`;
 }
 
 function formatRememberReport(result) {
@@ -850,6 +940,7 @@ function buildCategoryAnnotations(result, category) {
                     const parts = String(source.file).replace(/\\/g, '/').split('/');
                     const last = parts[parts.length - 1];
                     values.push(last);
+                    values.push(last.replace(/\.md$/u, ''));
                 }
                 if (category === 'plugins' && source.file) {
                     values.push(String(source.file));

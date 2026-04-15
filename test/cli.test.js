@@ -16,6 +16,7 @@ test('cli: help lists sync, analyze, remember, and revert', () => {
     assert.match(result.stdout, /soft-harness sync/);
     assert.match(result.stdout, /soft-harness analyze/);
     assert.match(result.stdout, /soft-harness plugins import-origins/);
+    assert.match(result.stdout, /soft-harness origins import/);
     assert.match(result.stdout, /soft-harness prompt --analyze/);
     assert.match(result.stdout, /soft-harness remember/);
     assert.match(result.stdout, /soft-harness revert/);
@@ -192,15 +193,49 @@ test('cli: plugins import-origins command imports LLM-found plugin origins', () 
     assert.match(readUtf8(path.join(root, '.harness', 'plugin-origins.yaml')), /acme\/frontend-design/);
 });
 
+test('cli: origins import command imports LLM-found skill and agent origins', () => {
+    const root = makeProjectTree('soft-harness-cli-asset-origins-', {
+        '.harness': {},
+        'asset-origins.json': JSON.stringify({
+            asset_origins: [{
+                kind: 'skill',
+                asset: 'gstack',
+                hosts: ['claude'],
+                source_type: 'github',
+                repo: 'acme/gstack',
+                latest_version: '2.0.0'
+            }]
+        }, null, 2)
+    });
+
+    const result = spawnSync('node', [
+        CLI,
+        'origins',
+        'import',
+        '--input=asset-origins.json'
+    ], {
+        cwd: root,
+        encoding: 'utf8'
+    });
+
+    assert.equal(result.status, 0);
+    assert.match(result.stdout, /asset origins imported target=assets  updated=1  file=.harness\/asset-origins.yaml/);
+    assert.match(readUtf8(path.join(root, '.harness', 'asset-origins.yaml')), /acme\/gstack/);
+});
+
 test('cli: prompt --analyze prints an account-aware LLM workflow prompt', () => {
     const result = spawnSync('node', [CLI, 'prompt', '--analyze', '--account'], { encoding: 'utf8' });
     assert.equal(result.status, 0);
-    assert.match(result.stdout, /You are helping resolve soft-harness plugin origins/);
+    assert.match(result.stdout, /You are helping resolve soft-harness origins/);
     assert.match(result.stdout, /soft-harness analyze --account --category=plugins --json > plugin-research-packet\.json/);
+    assert.match(result.stdout, /soft-harness analyze --account --category=skills --json > asset-research-packet\.json/);
     assert.match(result.stdout, /soft-harness plugins import-origins --account --input=plugin-origins\.json/);
+    assert.match(result.stdout, /soft-harness origins import --account --input=asset-origins\.json/);
     assert.match(result.stdout, /Find GitHub repositories and official marketplace pages/);
+    assert.match(result.stdout, /expert agents/);
     assert.match(result.stdout, /Run the commands yourself/);
     assert.match(result.stdout, /plugin_origins/);
+    assert.match(result.stdout, /asset_origins/);
     assert.doesNotMatch(result.stdout, /curat/i);
 });
 

@@ -156,6 +156,84 @@ test('analyze: skills classify common, similar, conflict, and host-only content'
     assert.ok(result.host_only.some((entry) => entry.key === 'skills.agent.claude-only'));
 });
 
+test('analyze: skills expose git origin evidence and agent research packet', async () => {
+    const memoryFs = createMemoryFs();
+    await memoryFs.run(async () => {
+        const root = memoryFs.root('soft-harness-analyze-skill-origins-root');
+        memoryFs.writeTree(root, {
+            '.claude': {
+                skills: {
+                    gstack: {
+                        '.git': {
+                            config: [
+                                '[remote "origin"]',
+                                '    url = https://github.com/acme/gstack.git',
+                                ''
+                            ].join('\n'),
+                            HEAD: 'ref: refs/heads/main\n',
+                            refs: {
+                                heads: {
+                                    main: '0123456789abcdef0123456789abcdef01234567\n'
+                                }
+                            }
+                        },
+                        'SKILL.md': [
+                            '# GStack',
+                            '',
+                            'Use Gemini Stack for expert repository analysis.'
+                        ].join('\n')
+                    }
+                },
+                agents: {
+                    'engineering-ai-engineer.md': [
+                        '# Engineering AI Engineer',
+                        '',
+                        'Expert agent for AI engineering work.'
+                    ].join('\n')
+                }
+            },
+            '.harness': {
+                'asset-origins.yaml': [
+                    'asset_origins:',
+                    '  - kind: skill',
+                    '    asset: gstack',
+                    '    hosts: [claude]',
+                    '    source_type: unknown',
+                    '    notes: Previous LLM pass could not identify the source',
+                    '  - kind: agent',
+                    '    asset: engineering-ai-engineer',
+                    '    hosts: [claude]',
+                    '    source_type: github',
+                    '    repo: acme/expert-agents',
+                    '    url: https://github.com/acme/expert-agents',
+                    '    confidence: llm-inferred',
+                    '    notes: Matched by agent title and README',
+                    ''
+                ].join('\n')
+            }
+        });
+
+        const result = await runAnalyze(root, { category: 'skills' });
+        const packet = result.inventory.skillOrigins.llmPacket;
+        assert.equal(packet.schema_version, 1);
+        assert.equal(Array.isArray(packet.output_schema.asset_origins), true);
+
+        const gstack = packet.assets.find((entry) => entry.kind === 'skill' && entry.name === 'gstack');
+        assert.equal(gstack.host, 'claude');
+        assert.equal(gstack.source_type, 'github');
+        assert.equal(gstack.repo, 'acme/gstack');
+        assert.equal(gstack.url, 'https://github.com/acme/gstack');
+        assert.equal(gstack.git_commit_sha, '0123456789abcdef0123456789abcdef01234567');
+        assert.equal(gstack.needs_origin_research, false);
+
+        const agent = packet.assets.find((entry) => entry.kind === 'agent' && entry.name === 'engineering-ai-engineer');
+        assert.equal(agent.source_type, 'github');
+        assert.equal(agent.repo, 'acme/expert-agents');
+        assert.equal(agent.needs_origin_research, false);
+        assert.match(agent.content_preview, /Expert agent/);
+    });
+});
+
 test('analyze: same-named agents use agent file content for comparison', async () => {
     const root = makeProjectTree('soft-harness-analyze-agents-', {
         '.claude': {

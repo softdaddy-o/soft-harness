@@ -14,11 +14,14 @@ test('prompt: parsePromptArgs validates analyze mode and account/no-web flags', 
 test('prompt: buildPrompt emits web and no-web variants', () => {
     const webPrompt = buildPrompt({ account: false, web: true });
     assert.match(webPrompt, /soft-harness analyze --category=plugins --json/);
+    assert.match(webPrompt, /soft-harness analyze --category=skills --json/);
     assert.match(webPrompt, /soft-harness plugins import-origins --input=plugin-origins\.json/);
+    assert.match(webPrompt, /soft-harness origins import --input=asset-origins\.json/);
     assert.match(webPrompt, /GitHub releases\/tags/);
     assert.match(webPrompt, /Use your available web search\/browser tools/);
-    assert.match(webPrompt, /Search the web for each unresolved or weakly-evidenced plugin origin/);
+    assert.match(webPrompt, /Search the web for each unresolved or weakly-evidenced plugin, skill, or agent origin/);
     assert.match(webPrompt, /Find GitHub repositories and official marketplace pages/);
+    assert.match(webPrompt, /expert agents/);
     assert.match(webPrompt, /Run the commands yourself/);
     assert.match(webPrompt, /It is safe before first sync/);
     assert.match(webPrompt, /Do not run `soft-harness sync`/);
@@ -26,7 +29,9 @@ test('prompt: buildPrompt emits web and no-web variants', () => {
 
     const offlinePrompt = buildPrompt({ account: true, web: false });
     assert.match(offlinePrompt, /soft-harness analyze --account --category=plugins --json/);
+    assert.match(offlinePrompt, /soft-harness analyze --account --category=skills --json/);
     assert.match(offlinePrompt, /soft-harness plugins import-origins --account --input=plugin-origins\.json/);
+    assert.match(offlinePrompt, /soft-harness origins import --account --input=asset-origins\.json/);
     assert.match(offlinePrompt, /Do not guess latest_version from memory/);
     assert.doesNotMatch(offlinePrompt, /Use your available web search\/browser tools/);
 });
