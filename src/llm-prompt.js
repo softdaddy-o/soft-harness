@@ -15,6 +15,8 @@ function buildPrompt(options) {
     const scopeFlag = options && options.account ? ' --account' : '';
     const webInstruction = options && options.web
         ? [
+            'Use your available web search/browser tools for this workflow.',
+            'Search the web for each unresolved or weakly-evidenced plugin origin before deciding it is unknown.',
             'When checking latest versions, prefer official release sources:',
             '- GitHub releases/tags for GitHub repositories',
             '- official marketplace/package metadata when available',
