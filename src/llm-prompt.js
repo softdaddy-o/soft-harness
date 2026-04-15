@@ -49,6 +49,8 @@ function buildPrompt(options) {
         '- If a source cannot be identified confidently, set source_type to "unknown", repo/url/latest_version to null, and explain why in notes.',
         '- Prefer exact plugin name, registry, author, description, local cache metadata, official marketplace metadata, npm package metadata, and GitHub repository metadata.',
         '- For skills and expert agents, prefer local .git metadata, README/package metadata, exact agent or skill names, and official GitHub repository evidence.',
+        '- Do not stop at local metadata. Local metadata is only a shortcut for confirmed entries; unknown skills and expert agents still require GitHub/web search.',
+        '- Use `search_hints` from asset entries as the first GitHub/web search queries.',
         '- Do not invent repository URLs.',
         '- Save only entries that are supported by evidence.',
         '',
@@ -79,6 +81,10 @@ function buildPrompt(options) {
         '```',
         '',
         '4. For each entry under `inventory.skillOrigins.llmPacket.assets`, infer this output schema:',
+        '- First handle entries where `needs_origin_research` is true.',
+        '- For each unresolved skill or agent, run GitHub/web searches using `search_hints` plus exact filename/name queries.',
+        '- Prefer GitHub repositories that contain the exact skill directory, `SKILL.md`, or agent `.md` filename.',
+        '- If several repositories copy the same asset, prefer the upstream repo with releases/tags, README ownership evidence, or the earliest authoritative source.',
         '```json',
         JSON.stringify({
             asset_origins: [{

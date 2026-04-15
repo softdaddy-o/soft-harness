@@ -20,6 +20,8 @@ test('prompt: buildPrompt emits web and no-web variants', () => {
     assert.match(webPrompt, /GitHub releases\/tags/);
     assert.match(webPrompt, /Use your available web search\/browser tools/);
     assert.match(webPrompt, /Search the web for each unresolved or weakly-evidenced plugin, skill, or agent origin/);
+    assert.match(webPrompt, /Use `search_hints` from asset entries as the first GitHub\/web search queries/);
+    assert.match(webPrompt, /Do not stop at local metadata/);
     assert.match(webPrompt, /Find GitHub repositories and official marketplace pages/);
     assert.match(webPrompt, /expert agents/);
     assert.match(webPrompt, /Run the commands yourself/);

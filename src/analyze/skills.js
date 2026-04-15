@@ -178,6 +178,7 @@ function buildSkillOriginEntry(rootDir, item, assetOrigins) {
         localOrigin && localOrigin.evidence
     ].filter(Boolean).join(' + ') || null;
 
+    const comparableContent = readComparableContent(item);
     return {
         id: `skills.${item.type}:${item.name}`,
         host: item.llm,
@@ -194,7 +195,8 @@ function buildSkillOriginEntry(rootDir, item, assetOrigins) {
         confidence,
         evidence,
         notes: origin.notes || null,
-        content_preview: createContentPreview(readComparableContent(item)),
+        content_preview: createContentPreview(comparableContent),
+        search_hints: buildSearchHints(item, comparableContent),
         needs_origin_research: !hasStrongOrigin(sourceType, repo, url, confidence, gitCommitSha)
     };
 }
@@ -325,6 +327,65 @@ function detectInstalledVersion(item) {
 
 function createContentPreview(content) {
     return String(content || '').replace(/\s+/gu, ' ').trim().slice(0, 500) || null;
+}
+
+function buildSearchHints(item, content) {
+    const hints = [
+        quoteSearch(item.name)
+    ];
+    if (item.type === 'agent') {
+        hints.push(quoteSearch(`${item.name}.md`));
+    } else {
+        hints.push(quoteSearch(`${item.name}/SKILL.md`));
+    }
+
+    const title = extractTitle(content);
+    if (title && title.toLowerCase() !== item.name.toLowerCase()) {
+        hints.push(quoteSearch(title));
+    }
+
+    const frontmatterName = extractFrontmatterName(content);
+    if (frontmatterName && frontmatterName.toLowerCase() !== item.name.toLowerCase()) {
+        hints.push(quoteSearch(frontmatterName));
+    }
+
+    const description = extractFrontmatterDescription(content);
+    if (description) {
+        hints.push(quoteSearch(description.slice(0, 120)));
+    }
+
+    hints.push(`${quoteSearch(item.name)} github`);
+    hints.push(`${quoteSearch(item.name)} Claude Code ${item.type}`);
+
+    return Array.from(new Set(hints.filter(Boolean))).slice(0, 8);
+}
+
+function quoteSearch(value) {
+    const text = String(value || '').replace(/\s+/gu, ' ').trim();
+    return text ? `"${text.replace(/"/gu, '\\"')}"` : null;
+}
+
+function extractTitle(content) {
+    const match = String(content || '').match(/^#\s+(.+?)\s*$/mu);
+    return match ? match[1].trim() : null;
+}
+
+function extractFrontmatterName(content) {
+    const text = String(content || '');
+    if (!text.startsWith('---')) {
+        return null;
+    }
+    const match = text.match(/^name:\s*["']?(.+?)["']?\s*$/mu);
+    return match ? match[1].trim() : null;
+}
+
+function extractFrontmatterDescription(content) {
+    const text = String(content || '');
+    if (!text.startsWith('---')) {
+        return null;
+    }
+    const match = text.match(/^description:\s*["']?(.+?)["']?\s*$/mu);
+    return match ? match[1].trim() : null;
 }
 
 function hasStrongOrigin(sourceType, repo, url, confidence, gitCommitSha) {

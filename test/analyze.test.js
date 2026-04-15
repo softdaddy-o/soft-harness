@@ -231,6 +231,11 @@ test('analyze: skills expose git origin evidence and agent research packet', asy
         assert.equal(agent.repo, 'acme/expert-agents');
         assert.equal(agent.needs_origin_research, false);
         assert.match(agent.content_preview, /Expert agent/);
+        assert.deepEqual(agent.search_hints.slice(0, 3), [
+            '"engineering-ai-engineer"',
+            '"engineering-ai-engineer.md"',
+            '"Engineering AI Engineer"'
+        ]);
     });
 });
 
