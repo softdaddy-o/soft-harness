@@ -38,6 +38,8 @@ function buildPrompt(options) {
         'Rules:',
         '- Do not edit host config files directly.',
         '- Use soft-harness commands only.',
+        '- It is safe before first sync: `curate plugins` can create `.harness/plugin-origins.yaml` by itself.',
+        '- Do not run `soft-harness sync` unless the user explicitly asks you to propagate harness truth into host-native files.',
         '- Treat GitHub/source inference as probabilistic unless local metadata or official repository evidence is strong.',
         '- If a plugin source cannot be identified confidently, set source_type to "unknown", repo/url/latest_version to null, and explain why in notes.',
         '- Prefer exact plugin name, registry, author, description, local cache metadata, official marketplace metadata, npm package metadata, and GitHub repository metadata.',

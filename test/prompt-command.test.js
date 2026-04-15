@@ -15,6 +15,8 @@ test('prompt: buildPrompt emits web and no-web variants', () => {
     const webPrompt = buildPrompt({ account: false, web: true });
     assert.match(webPrompt, /soft-harness analyze --category=plugins --json/);
     assert.match(webPrompt, /GitHub releases\/tags/);
+    assert.match(webPrompt, /It is safe before first sync/);
+    assert.match(webPrompt, /Do not run `soft-harness sync`/);
 
     const offlinePrompt = buildPrompt({ account: true, web: false });
     assert.match(offlinePrompt, /soft-harness analyze --account --category=plugins --json/);

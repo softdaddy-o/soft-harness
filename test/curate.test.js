@@ -25,7 +25,6 @@ test('curate: plugin origins can be imported from an llm result file into .harne
     await memoryFs.run(async () => {
         const root = memoryFs.root('soft-harness-curate-plugin-origins-root');
         memoryFs.writeTree(root, {
-            '.harness': {},
             'plugin-research.json': JSON.stringify({
                 plugin_origins: [{
                     plugin: 'frontend-design@claude-code-plugins',
@@ -46,6 +45,7 @@ test('curate: plugin origins can be imported from an llm result file into .harne
         });
 
         assert.equal(result.updated, 1);
+        assert.equal(result.file, '.harness/plugin-origins.yaml');
         assert.match(readUtf8(path.join(root, '.harness', 'plugin-origins.yaml')), /frontend-design@claude-code-plugins/);
         assert.match(readUtf8(path.join(root, '.harness', 'plugin-origins.yaml')), /latest_version: 1.4.0/);
     });

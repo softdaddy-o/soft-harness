@@ -11,7 +11,7 @@ It manages:
 
 ## Status
 
-`v0.4.16` keeps the `.harness/` sync model, adds an in-memory filesystem test backend for broader unit coverage, keeps symlink and junction checks in focused real-filesystem tests, starts the `analyze -> curate -> sync` workflow with stable analyze item metadata, lets `sync`, `analyze`, and `curate` target either an explicit `--root` or the current account home with `--account`, extends `analyze` with document-first inventory for prompts, settings, skills, and plugins, narrows plugin manifest parsing to real plugin fields so Claude permission rules, status line commands, Gemini footer items, and MCP args are not misclassified as plugins, replaces built-in GitHub repository guessing with an LLM-assisted plugin research flow that stores curated origin and latest-version metadata in `.harness/plugin-origins.yaml`, and adds `soft-harness prompt --analyze` to print the complete LLM handoff prompt for that workflow. The old registry schema, `harness/` tree, and legacy commands are gone. The active model is:
+`v0.4.17` keeps the `.harness/` sync model, adds an in-memory filesystem test backend for broader unit coverage, keeps symlink and junction checks in focused real-filesystem tests, starts the `analyze -> curate -> sync` workflow with stable analyze item metadata, lets `sync`, `analyze`, and `curate` target either an explicit `--root` or the current account home with `--account`, extends `analyze` with document-first inventory for prompts, settings, skills, and plugins, narrows plugin manifest parsing to real plugin fields so Claude permission rules, status line commands, Gemini footer items, and MCP args are not misclassified as plugins, replaces built-in GitHub repository guessing with an LLM-assisted plugin research flow that stores curated origin and latest-version metadata in `.harness/plugin-origins.yaml`, and adds `soft-harness prompt --analyze` to print the complete LLM handoff prompt for that workflow. The old registry schema, `harness/` tree, and legacy commands are gone. The active model is:
 
 - `.harness/` is the source of truth
 - the intended workflow is `analyze -> curate -> sync`
@@ -83,7 +83,7 @@ Use `prompt --analyze` when you want another LLM to execute the plugin curation 
 soft-harness prompt --analyze --account
 ```
 
-The prompt tells the LLM to run `analyze`, read the packet, research supported origins and latest versions, write `plugin-origins.json`, run `curate plugins`, and verify the final report. Add `--no-web` when the receiving LLM should not perform web research.
+The prompt tells the LLM to run `analyze`, read the packet, research supported origins and latest versions, write `plugin-origins.json`, run `curate plugins`, and verify the final report. `curate plugins` is safe before first sync because it can create only `.harness/plugin-origins.yaml`; it does not propagate changes to host-native files. Add `--no-web` when the receiving LLM should not perform web research.
 
 Use `remember` when a user asks you to record guidance or memory into the harness source of truth instead of editing generated host files directly:
 
