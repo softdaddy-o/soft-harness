@@ -8,6 +8,7 @@ test('package metadata includes plugin wrappers and shared plugin content in pub
     assert.ok(pkg.files.includes('.agents'));
     assert.ok(pkg.files.includes('.claude-plugin'));
     assert.ok(pkg.files.includes('plugins'));
+    assert.ok(pkg.files.includes('scripts'));
     assert.equal(pkg.bin['soft-harness'], 'src/cli.js');
 });
 

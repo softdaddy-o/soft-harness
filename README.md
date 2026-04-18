@@ -1,11 +1,92 @@
 # soft-harness
 
-`soft-harness` is a **plugin-first workflow** for Claude Code and Codex.
+`soft-harness` looks at the messy Claude Code and Codex setup you already have, shows you what is shared, host-specific, stale, or broken, and helps you clean it up.
 
 The shared plugin core lives in [`plugins/soft-harness`](plugins/soft-harness) and exposes two skills:
 
-- `analyze`
-- `organize`
+- `analyze`: show the current state clearly
+- `organize`: help clean it up safely
+
+If your current setup feels scattered across `CLAUDE.md`, `AGENTS.md`, MCP settings, local skills, agents, and plugin files, `soft-harness` is meant to make that visible first, then help you sort it out.
+
+## Quick Install
+
+GitHub repository:
+
+- `https://github.com/softdaddy-o/soft-harness`
+
+Install into the repo you are currently working in.
+
+### macOS / Linux
+
+Install for both Claude Code and Codex:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.sh | bash -s -- --host=both
+```
+
+Install only for Codex:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.sh | bash -s -- --host=codex
+```
+
+Install only for Claude Code:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.sh | bash -s -- --host=claude
+```
+
+### Windows PowerShell
+
+Install for both Claude Code and Codex:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.ps1))) -Host both
+```
+
+Install only for Codex:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.ps1))) -Host codex
+```
+
+Install only for Claude Code:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.ps1))) -Host claude
+```
+
+### What the installer does
+
+- copies `plugins/soft-harness` into your current repo
+- creates or updates the local plugin marketplace file for Codex and/or Claude Code
+- preserves any existing plugin entries already in those marketplace files
+
+### Requirements
+
+- `git`
+- `node`
+- Claude Code and/or Codex already installed on your machine
+
+Host app install commands:
+
+- Codex CLI: `npm install -g @openai/codex`
+- Claude Code: `npm install -g @anthropic-ai/claude-code`
+
+### Use It
+
+After installation, open your repo in Codex or Claude Code and ask:
+
+```text
+Use Soft Harness analyze to inspect this repo and show me what is shared, host-specific, stale, or broken.
+```
+
+or:
+
+```text
+Use Soft Harness organize to clean up this setup and keep .harness in sync.
+```
 
 The code under `src/` remains a **thin deterministic helper surface** for discovery, parsing, settings/MCP validation, local origin hints, host-file apply steps, backup, and debug workflows.
 

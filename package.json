@@ -17,6 +17,7 @@
     ".agents",
     ".claude-plugin",
     "plugins",
+    "scripts",
     "src",
     "docs",
     "examples",
