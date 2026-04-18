@@ -25,8 +25,8 @@ test('prompt: buildPrompt emits web and no-web variants', () => {
     assert.match(webPrompt, /Find GitHub repositories and official marketplace pages/);
     assert.match(webPrompt, /expert agents/);
     assert.match(webPrompt, /Run the commands yourself/);
-    assert.match(webPrompt, /It is safe before first sync/);
-    assert.match(webPrompt, /Do not run `soft-harness sync`/);
+    assert.match(webPrompt, /It is safe before the first snapshot refresh/);
+    assert.match(webPrompt, /Do not use legacy `soft-harness sync`/);
     assert.doesNotMatch(webPrompt, /curat/i);
 
     const offlinePrompt = buildPrompt({ account: true, web: false });

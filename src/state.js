@@ -15,6 +15,7 @@ function getDefaultState() {
         synced_at: null,
         assets: {
             instructions: [],
+            settings: [],
             skills: [],
             agents: []
         },

@@ -492,9 +492,19 @@ test('analyze: managed prompt stubs resolve to backing harness content instead o
     const claudeDocument = result.inventory.documents.find((entry) => entry.file === 'CLAUDE.md');
     const codexDocument = result.inventory.documents.find((entry) => entry.file === 'AGENTS.md');
     assert.equal(claudeDocument.mode, 'import-stub');
-    assert.deepEqual(claudeDocument.sourceFiles, ['.harness/HARNESS.md', '.harness/llm/claude.md']);
+    assert.deepEqual(claudeDocument.sourceFiles, [
+        '.harness/HARNESS.md',
+        '.harness/memory/shared.md',
+        '.harness/llm/claude.md',
+        '.harness/memory/llm/claude.md'
+    ]);
     assert.equal(codexDocument.mode, 'concat-stub');
-    assert.deepEqual(codexDocument.sourceFiles, ['HARNESS.md', 'llm/codex.md']);
+    assert.deepEqual(codexDocument.sourceFiles, [
+        'HARNESS.md',
+        'memory/shared.md',
+        'llm/codex.md',
+        'memory/llm/codex.md'
+    ]);
     assert.ok(result.common.some((entry) => entry.key === 'prompts.section:Shared'));
     assert.ok(result.host_only.some((entry) => entry.key === 'prompts.section:Claude Only'));
     assert.ok(result.host_only.some((entry) => entry.key === 'prompts.section:Codex Only'));

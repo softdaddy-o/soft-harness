@@ -16,3 +16,4 @@ harness/state/discover-account-tmp.json
 .codex/agents/
 .gemini/skills/
 .gemini/agents/
+sandbox/

@@ -1,0 +1,35 @@
+id: analyze-malformed-mcp
+skill: analyze
+description: Read-only analyze run with an injected malformed Claude settings file so the LLM must surface a parse error.
+root:
+  kind: account
+seed_files:
+  .claude/settings.json: |
+    {
+      "approval_policy": "never",
+      "mcpServers": {
+        "broken":
+flags:
+  dry_run: true
+  web_allowed: false
+user_request: |
+  Use the analyze skill in --dry-run mode.
+
+  Inspect the current host state and highlight malformed MCP or settings problems before discussing any shared-versus-local consolidation ideas.
+
+  Do not change files.
+expectations:
+  filesystem:
+    must_not_write: true
+    forbidden_paths:
+      - .harness
+  transcript:
+    must_mention:
+      - malformed
+      - parse
+      - mcp
+      - dry-run
+    must_not_mention:
+      - setup
+      - sync
+    max_question_lines: 2

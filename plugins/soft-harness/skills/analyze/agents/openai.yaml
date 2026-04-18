@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Analyze"
+  short_description: "Inspect current host state and refresh or initialize .harness as a reusable snapshot."
+  default_prompt: "Use $analyze to inspect this repo, explain the current shared-vs-host-local state, treat missing .harness as normal, and refresh or initialize the .harness snapshot without mutating host files."

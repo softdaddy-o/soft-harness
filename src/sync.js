@@ -9,6 +9,7 @@ const { importInstructions } = require('./import');
 const { syncPlugins } = require('./plugins');
 const { getProfile } = require('./profiles');
 const { pullBackInstructionDrift } = require('./pullback');
+const { buildSettingsState, exportSettings } = require('./settings');
 const { discoverHarnessAssets, discoverSkillsAndAgents, exportSkillsAndAgents, importSkillsAndAgents, pullBackSkillsAndAgents } = require('./skills');
 const { loadState, saveState } = require('./state');
 
@@ -105,6 +106,11 @@ async function runSync(rootDir, options, io) {
         exported.push(...exportResult.exported);
         plan.export.push(...exportResult.exported);
         details.exports.push(...(exportResult.routes || []));
+
+        const settingsExportResult = exportSettings(rootDir, options);
+        exported.push(...settingsExportResult.exported);
+        plan.export.push(...settingsExportResult.exported);
+        details.exports.push(...(settingsExportResult.routes || []));
 
         const assetExportResult = exportSkillsAndAgents(rootDir, options);
         exported.push(...assetExportResult.exported);
@@ -209,6 +215,8 @@ function collectInitialBackupTargets(rootDir, discovered, state) {
     const paths = new Set([
         '.harness/HARNESS.md',
         '.harness/llm',
+        '.harness/memory',
+        '.harness/settings',
         '.harness/skills',
         '.harness/agents',
         '.harness/plugins.yaml',
@@ -219,10 +227,21 @@ function collectInitialBackupTargets(rootDir, discovered, state) {
     for (const item of discovered) {
         paths.add(item.relativePath);
         paths.add(`.harness/llm/${item.llm}.md`);
+        paths.add(`.harness/memory/llm/${item.llm}.md`);
         for (const target of getProfile(item.llm).instruction_files) {
             paths.add(target);
         }
     }
+
+    for (const llm of ['claude', 'codex', 'gemini']) {
+        const profile = getProfile(llm);
+        if (profile.settings_file) {
+            paths.add(profile.settings_file);
+            paths.add(`.harness/settings/llm/${llm}.yaml`);
+        }
+    }
+    paths.add('.harness/settings/portable.yaml');
+    paths.add('.harness/memory/shared.md');
 
     for (const item of discoverHarnessAssets(rootDir)) {
         paths.add(item.source);
@@ -248,6 +267,7 @@ function buildNextState(rootDir, state, discovered, plugins) {
         synced_at: formatOffsetDate(new Date()),
         assets: {
             instructions,
+            settings: buildSettingsState(rootDir),
             skills: [],
             agents: []
         },

@@ -1,0 +1,20 @@
+{
+  "name": "soft-harness-local",
+  "interface": {
+    "displayName": "Soft Harness Local"
+  },
+  "plugins": [
+    {
+      "name": "soft-harness",
+      "source": {
+        "source": "local",
+        "path": "./plugins/soft-harness"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

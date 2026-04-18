@@ -17,7 +17,7 @@ function analyzeSettings(rootDir, options) {
 
     for (const llm of llms) {
         const profile = getProfile(llm);
-        const settingsPath = profile.plugins_manifest;
+        const settingsPath = profile.settings_file || profile.plugins_manifest;
         if (!settingsPath) {
             continue;
         }

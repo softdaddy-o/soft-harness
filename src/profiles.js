@@ -5,6 +5,7 @@ const PROFILES = {
         supports_imports: true,
         skills_dir: '.claude/skills',
         agents_dir: '.claude/agents',
+        settings_file: '.claude/settings.json',
         plugins_manifest: '.claude/settings.json'
     },
     codex: {
@@ -14,6 +15,7 @@ const PROFILES = {
         supports_imports: false,
         skills_dir: '.codex/skills',
         agents_dir: '.codex/agents',
+        settings_file: '.codex/config.toml',
         plugins_manifest: '.codex/config.toml'
     },
     gemini: {
@@ -23,6 +25,7 @@ const PROFILES = {
         supports_imports: false,
         skills_dir: '.gemini/skills',
         agents_dir: '.gemini/agents',
+        settings_file: '.gemini/settings.json',
         plugins_manifest: '.gemini/settings.json'
     }
 };

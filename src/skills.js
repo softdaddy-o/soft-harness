@@ -204,21 +204,21 @@ function ensureManagedTarget(rootDir, entry, options) {
 
     removePath(absoluteTarget);
     copyPath(absoluteSource, absoluteTarget);
-    if (entry.type === 'skill') {
-        writeUtf8(path.join(absoluteTarget, MANAGED_MARKER), [
-            `source: ${entry.source}`,
-            `content_hash: sha256:${hashDirectory(absoluteTarget, { ignore: [MANAGED_MARKER] })}`,
-            'regenerate: soft-harness sync',
-            ''
-        ].join('\n'));
-    } else {
-        writeUtf8(`${absoluteTarget}.${MANAGED_MARKER}`, [
-            `source: ${entry.source}`,
-            `content_hash: sha256:${hashFile(absoluteTarget)}`,
-            'regenerate: soft-harness sync',
-            ''
-        ].join('\n'));
-    }
+        if (entry.type === 'skill') {
+            writeUtf8(path.join(absoluteTarget, MANAGED_MARKER), [
+                `source: ${entry.source}`,
+                `content_hash: sha256:${hashDirectory(absoluteTarget, { ignore: [MANAGED_MARKER] })}`,
+                'regenerate: soft-harness organize',
+                ''
+            ].join('\n'));
+        } else {
+            writeUtf8(`${absoluteTarget}.${MANAGED_MARKER}`, [
+                `source: ${entry.source}`,
+                `content_hash: sha256:${hashFile(absoluteTarget)}`,
+                'regenerate: soft-harness organize',
+                ''
+            ].join('\n'));
+        }
     return {
         mode: 'copy',
         reason: desired.reason || null

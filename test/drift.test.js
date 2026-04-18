@@ -32,7 +32,8 @@ test('export: buildInstructionState records source and target hashes for regener
     const codex = instructions.find((entry) => entry.target === 'AGENTS.md');
 
     assert.ok(codex);
-    assert.equal(codex.source, '.harness/llm/codex.md');
+    assert.ok(Array.isArray(codex.sources));
+    assert.ok(codex.sources.includes('.harness/llm/codex.md'));
     assert.equal(codex.source_hash, getCurrentSourceHash(root, 'codex'));
     assert.notEqual(codex.target_hash, '');
     assert.match(readUtf8(path.join(root, '.harness', 'llm', 'codex.md')), /Codex/);

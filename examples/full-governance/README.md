@@ -1,6 +1,6 @@
 # Full Governance
 
-This example owns both project-wide and account-wide instruction stubs.
+This is an archived registry-era example that owned both project-wide and account-wide instruction stubs.
 
 It imports:
 
@@ -9,4 +9,4 @@ It imports:
 - account Claude stub
 - account Codex stub
 
-Use it when you want one repository to define the account-level entry points as well as the repo-level ones.
+Use it only as migration reference material for older `harness/` layouts.

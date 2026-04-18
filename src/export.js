@@ -7,29 +7,29 @@ const { buildConcatStub, buildImportStub } = require('./stubs');
 function buildInstructionExports(rootDir, options) {
     const state = (options && options.state) || { assets: { instructions: [] } };
     const exports = [];
-    const harnessPath = path.join(rootDir, '.harness', 'HARNESS.md');
-    const commonContent = exists(harnessPath) ? readUtf8(harnessPath) : '';
 
     for (const llm of listProfiles()) {
-        const llmSource = path.join(rootDir, '.harness', 'llm', `${llm}.md`);
-        const shouldExport = commonContent.trim().length > 0
-            || exists(llmSource)
+        const sources = getInstructionSourceEntries(rootDir, llm);
+        const shouldExport = sources.some((entry) => entry.present || entry.content.trim().length > 0)
             || state.assets.instructions.some((item) => item.llm === llm);
         if (!shouldExport) {
             continue;
         }
 
         const profile = getProfile(llm);
-        const llmContent = exists(llmSource) ? readUtf8(llmSource) : '';
         const expected = profile.supports_imports
-            ? buildImportStub(llm)
-            : buildConcatStub(llm, commonContent, llmContent);
+            ? buildImportStub(sources.map((entry) => entry.source))
+            : buildConcatStub(sources.map((entry) => ({
+                path: entry.blockPath,
+                content: entry.content
+            })));
 
         for (const relativePath of profile.instruction_files) {
             exports.push({
                 llm,
                 relativePath,
-                expected
+                expected,
+                sources: sources.map((entry) => entry.source)
             });
         }
     }
@@ -56,7 +56,7 @@ function exportInstructions(rootDir, options) {
         routes.push({
             action: 'export-instruction',
             llm: entry.llm,
-            from: [`.harness/HARNESS.md`, `.harness/llm/${entry.llm}.md`],
+            from: entry.sources,
             to: entry.relativePath
         });
 
@@ -83,7 +83,7 @@ function buildInstructionState(rootDir, state) {
     for (const entry of buildInstructionExports(rootDir, { state })) {
         instructions.push({
             llm: entry.llm,
-            source: `.harness/llm/${entry.llm}.md`,
+            sources: getInstructionSourceEntries(rootDir, entry.llm).map((source) => source.source),
             target: entry.relativePath,
             source_hash: getCurrentSourceHash(rootDir, entry.llm),
             target_hash: hashString(entry.expected)
@@ -112,9 +112,27 @@ module.exports = {
 };
 
 function getCurrentSourceHash(rootDir, llm) {
-    const commonPath = path.join(rootDir, '.harness', 'HARNESS.md');
-    const llmPath = path.join(rootDir, '.harness', 'llm', `${llm}.md`);
-    const commonContent = exists(commonPath) ? readUtf8(commonPath) : '';
-    const llmContent = exists(llmPath) ? readUtf8(llmPath) : '';
-    return hashString(`${commonContent}\n\0\n${llmContent}`);
+    const content = getInstructionSourceEntries(rootDir, llm)
+        .map((entry) => `${entry.source}\n${entry.content}`)
+        .join('\n\0\n');
+    return hashString(content);
+}
+
+function getInstructionSourceEntries(rootDir, llm) {
+    const sources = [
+        { source: '.harness/HARNESS.md', blockPath: 'HARNESS.md' },
+        { source: '.harness/memory/shared.md', blockPath: 'memory/shared.md' },
+        { source: `.harness/llm/${llm}.md`, blockPath: `llm/${llm}.md` },
+        { source: `.harness/memory/llm/${llm}.md`, blockPath: `memory/llm/${llm}.md` }
+    ];
+
+    return sources.map((entry) => {
+        const absolutePath = path.join(rootDir, entry.source);
+        const present = exists(absolutePath);
+        return {
+            ...entry,
+            content: present ? readUtf8(absolutePath) : '',
+            present
+        };
+    });
 }

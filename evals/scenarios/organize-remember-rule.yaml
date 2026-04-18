@@ -1,0 +1,32 @@
+id: organize-remember-rule
+skill: organize
+description: Live organize run that should record a durable shared rule and refresh the .harness snapshot after touching host-facing guidance.
+root:
+  kind: account
+user_request: |
+  Use the organize skill.
+
+  Remember this durable shared rule for future maintenance: always explain risky MCP changes with a short rollback note.
+
+  Apply the necessary host-facing guidance updates and refresh the .harness snapshot plus decision memory.
+flags:
+  dry_run: false
+  web_allowed: false
+expectations:
+  filesystem:
+    must_write: true
+    required_paths:
+      - .harness/HARNESS.md
+      - .harness/memory/shared.md
+      - .harness/llm/claude.md
+      - .harness/llm/codex.md
+    backup_required: true
+  transcript:
+    must_mention:
+      - rollback
+      - .harness
+      - memory
+    must_not_mention:
+      - setup
+      - sync
+    max_question_lines: 2

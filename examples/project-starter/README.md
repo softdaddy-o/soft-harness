@@ -1,6 +1,6 @@
 # Project Starter
 
-This example keeps governance project-local.
+This is an archived registry-era example that kept governance project-local.
 
 It imports:
 
@@ -8,4 +8,4 @@ It imports:
 - project `AGENTS.md` and `CLAUDE.md` stubs
 - project-owned `.mcp.json`
 
-Use it when you want one repository to be self-contained without owning account-wide files.
+Use it only as migration reference material for older `harness/` layouts.

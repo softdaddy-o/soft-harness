@@ -1,7 +1,7 @@
 {
   "name": "soft-harness",
   "version": "0.4.23",
-  "description": "Single-source harness sync for Claude, Codex, and Gemini environments",
+  "description": "Shared plugin core with Claude Code and Codex wrappers for analyzing and organizing live host configs",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/softdaddy-o/soft-harness.git"
@@ -14,6 +14,9 @@
     "soft-harness": "src/cli.js"
   },
   "files": [
+    ".agents",
+    ".claude-plugin",
+    "plugins",
     "src",
     "docs",
     "examples",
@@ -28,6 +31,9 @@
   },
   "scripts": {
     "start": "node src/cli.js",
+    "eval:llm": "node scripts/run-llm-eval.js list",
+    "eval:llm:codex": "node scripts/run-llm-eval.js codex analyze-clean-start-dry-run",
+    "eval:skills": "node scripts/run-skill-evals.js",
     "test": "node --test",
     "test:coverage": "node --test --experimental-test-coverage"
   },
@@ -40,7 +46,8 @@
     "plugins",
     "harness",
     "analyze",
-    "remember"
+    "organize",
+    "plugin"
   ],
   "author": "softdaddy-o",
   "license": "MIT",

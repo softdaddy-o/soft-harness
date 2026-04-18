@@ -11,14 +11,16 @@ test('plugins: loadPlugins parses yaml', () => {
         'plugins:',
         '  - name: superpowers',
         '    llms: [claude]',
-        '    install: echo install',
-        '    uninstall: echo uninstall',
+        '    version: 1.0.0',
+        '    source_type: github',
+        '    url: https://github.com/example-org/superpowers',
         ''
     ].join('\n'));
 
     const plugins = loadPlugins(root);
     assert.equal(plugins.length, 1);
     assert.equal(plugins[0].name, 'superpowers');
+    assert.equal(plugins[0].version, '1.0.0');
 });
 
 test('plugins: detectPluginDrift reports installed plugins missing from plugins.yaml', () => {
@@ -32,20 +34,20 @@ test('plugins: detectPluginDrift reports installed plugins missing from plugins.
     assert.ok(drift.some((entry) => entry.name === 'manual-plugin'));
 });
 
-test('plugins: syncPlugins plans installs during dry-run', () => {
+test('plugins: syncPlugins tracks metadata changes during dry-run without shell execution', () => {
     const root = makeTempDir('soft-harness-plugins-sync-');
     writeUtf8(path.join(root, '.harness', 'plugins.yaml'), [
         'plugins:',
         '  - name: superpowers',
         '    llms: [claude]',
-        '    install: echo install',
-        '    uninstall: echo uninstall',
+        '    version: 1.0.0',
         ''
     ].join('\n'));
 
     const result = syncPlugins(root, { plugins: [] }, { dryRun: true });
     assert.equal(result.actions.length, 1);
     assert.equal(result.actions[0].status, 'planned');
+    assert.equal(result.actions[0].type, 'track');
 });
 
 test('plugins: loadPlugins handles missing file and validates schema', () => {
@@ -58,24 +60,20 @@ test('plugins: loadPlugins handles missing file and validates schema', () => {
     writeUtf8(path.join(root, '.harness', 'plugins.yaml'), [
         'plugins:',
         '  - name: broken',
-        '    llms: [claude]',
-        '    install: echo install',
         ''
     ].join('\n'));
-    assert.throws(() => loadPlugins(root), /name, install, and uninstall/i);
+    assert.throws(() => loadPlugins(root), /name and llms/i);
 
     writeUtf8(path.join(root, '.harness', 'plugins.yaml'), [
         'plugins:',
         '  - name: invalid',
         '    llms: [bogus]',
-        '    install: echo install',
-        '    uninstall: echo uninstall',
         ''
     ].join('\n'));
     assert.throws(() => loadPlugins(root), /invalid llms/i);
 });
 
-test('plugins: syncPlugins runs install and uninstall commands and records next state', () => {
+test('plugins: syncPlugins records metadata-only state and removed entries without commands', () => {
     const root = makeProjectTree('soft-harness-plugins-run-', {
         '.harness': {
             'plugins.yaml': [
@@ -83,8 +81,8 @@ test('plugins: syncPlugins runs install and uninstall commands and records next 
                 '  - name: superpowers',
                 '    version: 2.0.0',
                 '    llms: [claude]',
-                '    install: echo installed>install.txt',
-                '    uninstall: echo unused>uninstall.txt',
+                '    source_type: github',
+                '    url: https://github.com/example-org/superpowers',
                 ''
             ].join('\n')
         }
@@ -93,44 +91,41 @@ test('plugins: syncPlugins runs install and uninstall commands and records next 
     const result = syncPlugins(root, {
         plugins: [{
             name: 'old-plugin',
-            uninstall: `"${process.execPath}" -e "require('fs').writeFileSync('removed.txt','removed')"`,
-            install_hash: 'old'
+            llms: ['claude'],
+            version: '0.9.0'
         }]
     }, {});
 
     assert.equal(result.actions.length, 2);
-    assert.equal(result.actions.every((action) => action.status === 'ran'), true);
+    assert.equal(result.actions.every((action) => action.status === 'tracked'), true);
     assert.equal(result.state[0].version, '2.0.0');
-    assert.equal(result.state[0].uninstall, 'echo unused>uninstall.txt');
-    assert.match(readUtf8(path.join(root, 'install.txt')), /installed/i);
-    assert.match(readUtf8(path.join(root, 'removed.txt')), /removed/i);
+    assert.equal(result.state[0].source_type, 'github');
+    assert.equal(result.actions.some((action) => action.type === 'remove'), true);
 });
 
-test('plugins: syncPlugins can skip uninstalls and surfaces command failures', () => {
+test('plugins: syncPlugins can drop removed metadata entries without install or uninstall hooks', () => {
     const root = makeProjectTree('soft-harness-plugins-fail-', {
         '.harness': {
             'plugins.yaml': [
                 'plugins:',
                 '  - name: superpowers',
                 '    llms: [claude]',
-                "    install: 'node -e \"process.stderr.write(''boom'');process.exit(2)\"'",
-                '    uninstall: echo uninstall',
+                '    version: 1.0.0',
                 ''
             ].join('\n')
         }
     });
 
-    assert.throws(() => syncPlugins(root, { plugins: [] }, {}), /install failed for superpowers: boom/i);
-
     writeUtf8(path.join(root, '.harness', 'plugins.yaml'), 'plugins: []\n');
     const skipped = syncPlugins(root, {
         plugins: [{
             name: 'legacy',
-            uninstall: `"${process.execPath}" -e "process.exit(2)"`,
-            install_hash: 'old'
+            llms: ['claude'],
+            version: '0.9.0'
         }]
-    }, { noRunUninstalls: true });
+    }, { dryRun: true });
     assert.equal(skipped.actions[0].status, 'planned');
+    assert.equal(skipped.actions[0].type, 'remove');
 });
 
 test('plugins: detectPluginDrift reads top-level plugin names from JSON and TOML manifests defensively', () => {
@@ -172,8 +167,6 @@ test('plugins: detectPluginDrift respects desired llm assignments and array mani
                 'plugins:',
                 '  - name: shared-plugin',
                 '    llms: [claude, codex]',
-                '    install: echo install',
-                '    uninstall: echo uninstall',
                 ''
             ].join('\n')
         },

@@ -1,9 +1,7 @@
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
 const YAML = require('yaml');
 const { exists, readUtf8, walkFiles } = require('./fs-util');
 const { listProfiles, getProfile } = require('./profiles');
-const { hashString } = require('./hash');
 
 function loadPlugins(rootDir) {
     const pluginsPath = path.join(rootDir, '.harness', 'plugins.yaml');
@@ -24,10 +22,10 @@ function validatePlugins(plugins) {
 
     const knownLlms = new Set(listProfiles());
     for (const plugin of plugins) {
-        if (!plugin.name || !plugin.install || !plugin.uninstall) {
-            throw new Error('plugins must include name, install, and uninstall');
+        if (!plugin.name || !Array.isArray(plugin.llms) || plugin.llms.length === 0) {
+            throw new Error('plugins must include name and llms');
         }
-        if (!Array.isArray(plugin.llms) || plugin.llms.some((llm) => !knownLlms.has(llm))) {
+        if (plugin.llms.some((llm) => !knownLlms.has(llm))) {
             throw new Error(`plugin ${plugin.name} has invalid llms`);
         }
     }
@@ -67,18 +65,13 @@ function detectPluginDrift(rootDir, options) {
 function syncPlugins(rootDir, state, options) {
     const desired = loadPlugins(rootDir);
     const previous = new Map((state.plugins || []).map((plugin) => [plugin.name, plugin]));
-    const desiredMap = new Map(desired.map((plugin) => [plugin.name, plugin]));
+    const desiredMap = new Map(desired.map((plugin) => [plugin.name, normalizeDesiredPlugin(plugin)]));
     const actions = [];
 
-    for (const plugin of desired) {
-        const installHash = hashString(`${plugin.version || ''}\n${plugin.install}`);
+    for (const plugin of desiredMap.values()) {
         const prior = previous.get(plugin.name);
-        if (!prior || prior.install_hash !== installHash) {
-            actions.push(runPluginCommand(rootDir, {
-                type: 'install',
-                name: plugin.name,
-                command: plugin.install
-            }, options));
+        if (!prior || JSON.stringify(prior) !== JSON.stringify(plugin)) {
+            actions.push(buildPluginAction('track', plugin, options));
         }
     }
 
@@ -86,54 +79,35 @@ function syncPlugins(rootDir, state, options) {
         if (desiredMap.has(plugin.name)) {
             continue;
         }
-        actions.push(runPluginCommand(rootDir, {
-            type: 'uninstall',
-            name: plugin.name,
-            command: plugin.uninstall
-        }, {
-            ...options,
-            dryRun: options && options.noRunUninstalls ? true : options && options.dryRun
-        }));
+        actions.push(buildPluginAction('remove', plugin, options));
     }
 
     return {
         actions,
-        state: desired.map((plugin) => ({
-            name: plugin.name,
-            version: plugin.version || null,
-            llms: plugin.llms,
-            install_hash: hashString(`${plugin.version || ''}\n${plugin.install}`),
-            uninstall: plugin.uninstall
-        }))
+        state: Array.from(desiredMap.values()).sort((left, right) => left.name.localeCompare(right.name))
     };
 }
 
-function runPluginCommand(rootDir, action, options) {
-    const dryRun = options && (options.dryRun
-        || (action.type === 'install' && options.noRunInstalls)
-        || (action.type === 'uninstall' && options.noRunUninstalls));
-
-    if (dryRun) {
-        return {
-            ...action,
-            status: 'planned'
-        };
-    }
-
-    const result = spawnSync(action.command, {
-        cwd: rootDir,
-        shell: true,
-        encoding: 'utf8'
-    });
-
-    if (result.status !== 0) {
-        throw new Error(`${action.type} failed for ${action.name}: ${result.stderr || result.stdout}`);
-    }
-
+function buildPluginAction(type, plugin, options) {
     return {
-        ...action,
-        status: 'ran',
-        stdout: result.stdout
+        type,
+        name: plugin.name,
+        version: plugin.version || null,
+        llms: plugin.llms || [],
+        status: options && options.dryRun ? 'planned' : 'tracked'
+    };
+}
+
+function normalizeDesiredPlugin(plugin) {
+    return {
+        name: plugin.name,
+        llms: plugin.llms.slice().sort(),
+        version: plugin.version || null,
+        registry: plugin.registry || null,
+        source_type: plugin.source_type || null,
+        url: normalizeRepositoryUrl(plugin.url || null),
+        author: normalizePluginAuthor(plugin.author || null),
+        description: plugin.description || null
     };
 }
 

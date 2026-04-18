@@ -154,7 +154,7 @@ test('cli: remember command writes memory and regenerates outputs', () => {
 
     assert.equal(result.status, 0);
     assert.match(result.stdout, /remembered scope=project  target=shared/);
-    assert.match(readUtf8(path.join(root, '.harness', 'HARNESS.md')), /Always use KST/);
+    assert.match(readUtf8(path.join(root, '.harness', 'memory', 'shared.md')), /Always use KST/);
     assert.equal(fs.existsSync(path.join(root, 'AGENTS.md')), true);
 });
 

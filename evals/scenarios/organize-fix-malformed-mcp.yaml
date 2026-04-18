@@ -1,0 +1,38 @@
+id: organize-fix-malformed-mcp
+skill: organize
+description: Live organize run with an injected malformed settings file that should be fixed, backed up, and reflected in the snapshot.
+root:
+  kind: account
+seed_files:
+  .claude/settings.json: |
+    {
+      "approval_policy": "never",
+      "mcpServers": {
+        "broken":
+user_request: |
+  Use the organize skill.
+
+  Fix the malformed Claude MCP settings, keep host-specific risk local, and refresh the .harness snapshot after applying the change.
+
+  Explain what was wrong, what changed, and any safe optimization opportunities that remain.
+flags:
+  dry_run: false
+  web_allowed: false
+expectations:
+  filesystem:
+    must_write: true
+    required_paths:
+      - .claude/settings.json
+      - .harness/HARNESS.md
+      - .harness/llm/claude.md
+    backup_required: true
+  transcript:
+    must_mention:
+      - malformed
+      - mcp
+      - fixed
+      - backup
+    must_not_mention:
+      - setup
+      - sync
+    max_question_lines: 2

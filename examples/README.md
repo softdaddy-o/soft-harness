@@ -1,8 +1,10 @@
 # Examples
 
-These examples show how to compose `soft-harness` registry files from reusable policy packs.
+These examples are archived registry-era fixtures kept for migration and archaeology.
 
-Included examples:
+They do not represent the active plugin-first `analyze` / `organize` workflow.
+
+Included archive examples:
 
 - `project-starter`: project-wide stubs plus an owned project MCP file
 - `full-governance`: project stubs plus account-wide Claude/Codex stubs

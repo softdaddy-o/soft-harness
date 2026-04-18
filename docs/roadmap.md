@@ -1,33 +1,27 @@
 # Roadmap
 
-## Phase 0
-
-- create public repo scaffold
-- define vocabulary
-- draft registry schema
-- define `harness/guides` model for shared and per-LLM custom guides
-
-## Phase 1
-
-- implement discovery
-- implement doctor checks
-- implement registry merge from `registry.yaml` and `registry.d/*.yaml`
-- implement output generation and apply model
-
-## Phase 2
-
-- generate stable stubs and generated outputs
-- support project-wide and account-wide targets
-
-## Phase 3
-
-- implement migrate flow
-- implement diff/apply flow
-- add policy packs and examples
-
 ## Current State
 
-- Phase 0 complete
-- Phase 1 complete
-- Phase 2 complete
-- Phase 3 complete
+The active product direction is plugin-first and `.harness`-centric.
+
+Implemented or in progress:
+
+- shared plugin core under `plugins/soft-harness/`
+- dual wrappers for Claude Code and Codex
+- `analyze` and `organize` skills
+- `.harness` snapshot, decision-memory, and settings layout
+- thin helper support for apply, backup, settings inspection, and origin hints
+- sanitized virtual-PC fixture generation for LLM-driven testing
+
+## Near-Term Work
+
+1. Keep shrinking the legacy CLI surface into debug-only helpers.
+2. Align helper code with host-authoritative state instead of `.harness`-authoritative export flows.
+3. Improve `organize` support for MCP/settings validation and optimization guidance.
+4. Expand fixture-based end-to-end testing around real-world adoption scenarios.
+
+## Not On The Roadmap
+
+- restoring the old registry-first product model
+- reintroducing plugin install/uninstall execution
+- treating `.harness` as more authoritative than the real host files

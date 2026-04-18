@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Organize"
+  short_description: "Organize live host configs and refresh or initialize .harness as snapshot state."
+  default_prompt: "Use $organize to change the real host configs, catch config issues, treat missing .harness as normal, and refresh or initialize the .harness snapshot afterward."

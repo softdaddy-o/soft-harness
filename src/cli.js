@@ -4,18 +4,22 @@ const path = require('node:path');
 const { listBackups } = require('./backup');
 const { DEFAULT_BODY_THRESHOLD, DEFAULT_HEADING_THRESHOLD } = require('./section-match');
 
-const HELP = `soft-harness - single source of truth for LLM harness files
+const HELP = `soft-harness - internal deterministic helpers for the soft-harness plugin
+
+Active user workflow lives in the plugin skills:
+  analyze                           Read-only inspection and snapshot refresh
+  organize                          Natural-language host maintenance plus snapshot refresh
 
 Commands:
-  soft-harness sync [options]         Reconcile .harness/ with the project
-  soft-harness analyze [options]      Compare prompts, settings, skills, and plugins across hosts
+  soft-harness sync [options]         Legacy reconcile helper during plugin migration
+  soft-harness analyze [options]      Debug analysis for prompts, settings, skills, and plugins
   soft-harness plugins import-origins [opts]
-                                      Save LLM-found plugin origins into .harness/
-  soft-harness origins import [opts]  Save LLM-found skill/agent origins into .harness/
-  soft-harness prompt --analyze       Print an LLM prompt that resolves origins end-to-end
-  soft-harness remember [options]     Record memory into harness truth and regenerate outputs
-  soft-harness revert --list          List available backups
-  soft-harness revert <timestamp>     Restore files from a backup
+                                      Save LLM-found plugin origins into .harness/ (debug helper)
+  soft-harness origins import [opts]  Save LLM-found skill/agent origins into .harness/ (debug helper)
+  soft-harness prompt --analyze       Print the legacy origin-research prompt (debug helper)
+  soft-harness remember [options]     Internal memory helper that refreshes derived instruction files
+  soft-harness revert --list          List available backups created by helper flows
+  soft-harness revert <timestamp>     Restore files from a backup created by helper flows
   soft-harness help                   Show this message
 
 Sync options:
@@ -32,8 +36,6 @@ Sync options:
   --no-export                        Skip .harness -> project export
   --link-mode=<mode>                 Export skill/agent links using copy, symlink, or junction
   --force-export-untracked-hosts     Allow repo-internal link exports even when target paths are not gitignored
-  --no-run-installs                  Skip plugin install commands
-  --no-run-uninstalls                Skip plugin uninstall commands
 
 Analyze options:
   --root=<path>                      Analyze an explicit root instead of the current directory
@@ -58,7 +60,7 @@ Prompt options:
 
 Remember options:
   --scope=<project|account>          Write to the project .harness/ or the account home .harness/
-  --llm=<shared|claude|codex|gemini> Choose the shared or per-LLM destination
+  --llm=<shared|claude|codex|gemini> Choose the shared or per-LLM memory destination
   --section=<name>                   Store the entry under this section heading
   --title=<name>                     Entry title to create or update
   --content=<text>                   Entry body content
@@ -972,7 +974,7 @@ function formatPromptSectionSuffix(entry, section, annotations, options) {
 
     const otherSources = (finding.sources || []).filter((source) => source.llm !== entry.llm);
     const peerLlms = Array.from(new Set(otherSources.map((source) => source.llm)));
-    const peerLabel = peerLlms.length === 0 ? '다른 LLM' : peerLlms.join(', ');
+    const peerLabel = peerLlms.length === 0 ? 'other hosts' : peerLlms.join(', ');
 
     if (finding.bucket === 'common') {
         return ` [shared; also present in ${peerLabel}]`;

@@ -2,44 +2,46 @@
 
 ## Problem
 
-Claude and Codex environments accumulate configuration across many places:
+Claude Code and Codex setups drift across many local surfaces:
 
-- instruction files
-- skills
-- agents
-- plugins
-- MCP definitions
-- local account settings
-- project settings
+- host instruction files
+- host settings and MCP definitions
+- local skills and agents
+- plugin metadata
+- durable memory and rules
 
-That state drifts over time and becomes hard to audit, share, or clean up.
+That drift makes it hard to explain the current state, safely reorganize it, or keep multiple hosts aligned.
 
 ## Goal
 
-Build a governance-first harness that gives a single source of truth while preserving host-native behavior.
+`soft-harness` should provide a plugin-first workflow where an LLM can inspect and organize real Claude Code and Codex state through shared skills while `.harness/` records the latest snapshot and user decisions.
 
-All user-managed truth should live under `harness/`, including custom guides that apply to:
+The product model is:
 
-- both hosts
-- Claude only
-- Codex only
+- shared plugin content under `plugins/soft-harness/`
+- host-specific wrappers for Claude Code and Codex
+- `analyze` for current-state inspection and snapshot refresh
+- `organize` for ongoing maintenance and repair of real host files
+- thin deterministic helpers in `src/` for discovery, parsing, origin hints, apply steps, and backup
 
 ## Non-Goals
 
-- replacing vendor-native plugin installers
-- handling secrets beyond local references
-- building a generic multi-LLM runtime from day one
+- building a generic multi-LLM runtime
+- executing plugin install or uninstall commands
+- acting as an MCP server
+- storing secrets
 
-## Initial Supported Hosts
+## Current Direction
 
-- Claude
-- Codex
+- host files remain authoritative
+- `.harness/` stores prompts, settings, skills, agents, plugins, origins, and memory as the latest snapshot plus decision memory
+- `analyze` and `organize` support dry-run workflows
+- local analysis should help the LLM, not replace LLM judgment
 
-## Core Product Ideas
+## Success Criteria
 
-- discovery-first onboarding
-- registry-driven generation
-- guide-first customization under `harness/`
-- doctor-style governance checks
-- migration from unstructured local state
-- clear support for account-wide and project-wide scope
+- a user can inspect a messy Claude/Codex setup and capture its state into `.harness/`
+- a user can ask for natural-language changes such as shared-vs-host-only splits
+- malformed MCP/settings state is surfaced and explained
+- host files can be updated safely while `.harness` stays in sync as remembered state
+- a sanitized virtual-PC fixture can be used to test the workflow with an LLM

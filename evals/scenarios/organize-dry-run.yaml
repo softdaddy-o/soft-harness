@@ -1,0 +1,30 @@
+id: organize-dry-run
+skill: organize
+description: Planning-only organize run that should inspect state, show proposed host changes, and leave the fixture untouched.
+root:
+  kind: account
+user_request: |
+  Use the organize skill in --dry-run mode.
+
+  Show the current host state, explain any malformed MCP or settings issues, and propose safe optimizations for shared versus host-local MCP servers.
+
+  Do not write files. Show the host changes and .harness snapshot updates that would happen after a real organize run.
+flags:
+  dry_run: true
+  web_allowed: false
+expectations:
+  filesystem:
+    must_not_write: true
+    forbidden_paths:
+      - .harness
+  transcript:
+    must_mention:
+      - organize
+      - dry-run
+      - host changes
+      - .harness
+      - optimization
+    must_not_mention:
+      - setup
+      - sync
+    max_question_lines: 2

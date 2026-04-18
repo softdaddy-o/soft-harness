@@ -34,7 +34,9 @@ test('import: first run extracts common content and llm-specific content', async
 test('export: builds expected root instruction files from harness sources', () => {
     const root = makeTempDir('soft-harness-export-');
     writeUtf8(path.join(root, '.harness', 'HARNESS.md'), '# Shared');
+    writeUtf8(path.join(root, '.harness', 'memory', 'shared.md'), '## Shared Memory\nKeep this');
     writeUtf8(path.join(root, '.harness', 'llm', 'codex.md'), '# Codex');
+    writeUtf8(path.join(root, '.harness', 'memory', 'llm', 'codex.md'), '## Codex Memory\nKeep that');
 
     const plan = buildInstructionExports(root, { state: { assets: { instructions: [] } } });
     assert.ok(plan.some((entry) => entry.relativePath === 'AGENTS.md'));
@@ -44,7 +46,10 @@ test('export: builds expected root instruction files from harness sources', () =
     const result = exportInstructions(root, { state: { assets: { instructions: [] } } });
     assert.equal(result.exported.length, 4);
     assert.match(readUtf8(path.join(root, 'CLAUDE.md')), /@\.harness\/HARNESS\.md/);
+    assert.match(readUtf8(path.join(root, 'CLAUDE.md')), /@\.harness\/memory\/shared\.md/);
     assert.match(readUtf8(path.join(root, 'AGENTS.md')), /BEGIN HARNESS.md/);
+    assert.match(readUtf8(path.join(root, 'AGENTS.md')), /BEGIN memory\/shared\.md/);
+    assert.match(readUtf8(path.join(root, 'AGENTS.md')), /Keep that/);
     assert.match(readUtf8(path.join(root, 'GEMINI.md')), /BEGIN HARNESS.md/);
     assert.ok(result.routes.some((entry) => entry.action === 'export-instruction' && entry.to === 'AGENTS.md'));
 });

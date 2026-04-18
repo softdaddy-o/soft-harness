@@ -1,0 +1,40 @@
+{
+  "name": "soft-harness",
+  "version": "0.4.23",
+  "description": "Universal analyze and organize skills for inspecting live Claude Code and Codex state and keeping .harness as snapshot memory.",
+  "author": {
+    "name": "softdaddy-o",
+    "url": "https://github.com/softdaddy-o"
+  },
+  "homepage": "https://github.com/softdaddy-o/soft-harness",
+  "repository": "https://github.com/softdaddy-o/soft-harness",
+  "license": "MIT",
+  "keywords": [
+    "harness",
+    "claude",
+    "codex",
+    "analyze",
+    "organize"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Soft Harness",
+    "shortDescription": "Analyze and organize live host configs with LLM-guided workflows.",
+    "longDescription": "Soft Harness is a plugin-first workflow for inspecting and organizing live Claude Code and Codex state. `.harness` is kept as a reusable snapshot and decision-memory layer, while the real host files remain authoritative. The plugin keeps the user-facing surface in two skills, analyze and organize, and relies on thin deterministic helper code for inventory, origin hints, apply steps, and backups.",
+    "developerName": "softdaddy-o",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/softdaddy-o/soft-harness",
+    "privacyPolicyURL": "https://github.com/softdaddy-o/soft-harness",
+    "termsOfServiceURL": "https://github.com/softdaddy-o/soft-harness",
+    "defaultPrompt": [
+      "Use Soft Harness analyze to inspect this repo and refresh the .harness snapshot.",
+      "Use Soft Harness organize to share this MCP with Gemini too.",
+      "Use Soft Harness organize to remember this rule."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

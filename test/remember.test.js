@@ -58,11 +58,11 @@ test('remember: resolveRememberRoot uses project cwd or account home', () => {
 
 test('remember: resolveRememberTarget maps shared and llm-specific outputs', () => {
     assert.deepEqual(resolveRememberTarget('shared'), {
-        source: '.harness/HARNESS.md',
+        source: '.harness/memory/shared.md',
         outputs: ['CLAUDE.md', '.claude/CLAUDE.md', 'AGENTS.md', 'GEMINI.md']
     });
     assert.deepEqual(resolveRememberTarget('codex'), {
-        source: '.harness/llm/codex.md',
+        source: '.harness/memory/llm/codex.md',
         outputs: ['AGENTS.md']
     });
 });
@@ -126,8 +126,8 @@ test('remember: project shared memory updates .harness and regenerates host outp
     assert.equal(result.target, 'shared');
     assert.equal(result.outputRoot, root);
     assert.equal(result.exports.length, 4);
-    assert.match(readUtf8(path.join(root, '.harness', 'HARNESS.md')), /## Working Agreements/);
-    assert.match(readUtf8(path.join(root, '.harness', 'HARNESS.md')), /### Timezone/);
+    assert.match(readUtf8(path.join(root, '.harness', 'memory', 'shared.md')), /## Working Agreements/);
+    assert.match(readUtf8(path.join(root, '.harness', 'memory', 'shared.md')), /### Timezone/);
     assert.equal(exists(path.join(root, 'CLAUDE.md')), true);
     assert.equal(exists(path.join(root, '.claude', 'CLAUDE.md')), true);
     assert.match(readUtf8(path.join(root, 'AGENTS.md')), /Always use KST/);
@@ -146,7 +146,7 @@ test('remember: llm-specific project memory only regenerates that host outputs',
     });
 
     assert.equal(result.exports.length, 2);
-    assert.match(readUtf8(path.join(root, '.harness', 'llm', 'claude.md')), /Prioritize findings first\./);
+    assert.match(readUtf8(path.join(root, '.harness', 'memory', 'llm', 'claude.md')), /Prioritize findings first\./);
     assert.equal(exists(path.join(root, 'AGENTS.md')), false);
     assert.equal(exists(path.join(root, 'GEMINI.md')), false);
     assert.equal(loadState(root).assets.instructions.length, 2);
@@ -166,8 +166,8 @@ test('remember: account scope uses home .harness and can skip export', () => {
     });
 
     assert.equal(result.outputRoot, homeDir);
-    assert.match(readUtf8(path.join(homeDir, '.harness', 'llm', 'codex.md')), /Keep them imperative\./);
+    assert.match(readUtf8(path.join(homeDir, '.harness', 'memory', 'llm', 'codex.md')), /Keep them imperative\./);
     assert.equal(exists(path.join(homeDir, 'AGENTS.md')), false);
     assert.equal(exists(path.join(homeDir, '.harness', '.sync-state.json')), false);
-    assert.equal(exists(path.join(projectRoot, '.harness', 'llm', 'codex.md')), false);
+    assert.equal(exists(path.join(projectRoot, '.harness', 'memory', 'llm', 'codex.md')), false);
 });

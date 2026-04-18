@@ -111,13 +111,13 @@ function resolveRememberRoot(rootDir, options) {
 function resolveRememberTarget(target) {
     if (target === 'shared') {
         return {
-            source: '.harness/HARNESS.md',
+            source: '.harness/memory/shared.md',
             outputs: listProfiles().flatMap((name) => getProfile(name).instruction_files)
         };
     }
 
     return {
-        source: `.harness/llm/${target}.md`,
+        source: `.harness/memory/llm/${target}.md`,
         outputs: getProfile(target).instruction_files
     };
 }

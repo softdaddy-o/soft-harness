@@ -1,0 +1,30 @@
+id: analyze-clean-start-dry-run
+skill: analyze
+description: Read-only first-pass review from the sanitized account fixture without an existing .harness snapshot.
+root:
+  kind: account
+user_request: |
+  Use the analyze skill in --dry-run mode.
+
+  Inspect the current host state, treat a missing .harness folder as normal, summarize what looks shared versus host-local, and call out malformed MCP or settings issues if you find any.
+
+  Do not change files. Show which .harness snapshot files would be created if analyze ran without --dry-run.
+flags:
+  dry_run: true
+  web_allowed: false
+expectations:
+  filesystem:
+    must_not_write: true
+    forbidden_paths:
+      - .harness
+  transcript:
+    must_mention:
+      - analyze
+      - dry-run
+      - .harness
+      - shared
+      - host-local
+    must_not_mention:
+      - setup
+      - sync
+    max_question_lines: 2

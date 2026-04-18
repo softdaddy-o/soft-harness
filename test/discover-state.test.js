@@ -29,6 +29,7 @@ test('state: saveState persists and loadState restores values', () => {
         },
         assets: {
             instructions: [{ target: 'AGENTS.md', source: '.harness/llm/codex.md' }],
+            settings: [],
             skills: [],
             agents: []
         }
@@ -44,6 +45,7 @@ test('state: loadState returns merged defaults when no state file exists or part
     const missing = loadState(root);
     assert.deepEqual(missing.assets, {
         instructions: [],
+        settings: [],
         skills: [],
         agents: []
     });
@@ -53,6 +55,7 @@ test('state: loadState returns merged defaults when no state file exists or part
     saveState(root, { assets: { instructions: [{ target: 'CLAUDE.md' }] } }, timestamp);
     const loaded = loadState(root);
     assert.equal(loaded.assets.instructions.length, 1);
+    assert.deepEqual(loaded.assets.settings, []);
     assert.deepEqual(loaded.assets.skills, []);
     assert.deepEqual(loaded.assets.agents, []);
     assert.equal(loaded.synced_at, formatOffsetDate(timestamp));
