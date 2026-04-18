@@ -17,44 +17,55 @@ GitHub repository:
 
 Install into the repo you are currently working in.
 
-### macOS / Linux
+### 1. Install your host app
 
-Install for both Claude Code and Codex:
+- Claude Code: `npm install -g @anthropic-ai/claude-code`
+- Codex CLI: `npm install -g @openai/codex`
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.sh | bash -s -- --host=both
+### 2. Choose the install path
+
+#### Claude Code
+
+Claude Code supports GitHub-backed plugin marketplaces directly, so this is the preferred install flow:
+
+```text
+/plugin marketplace add softdaddy-o/soft-harness
+/plugin install soft-harness@soft-harness
+/reload-plugins
 ```
 
-Install only for Codex:
+If `/plugin` is missing, update Claude Code first.
+
+#### Codex
+
+Codex currently documents repo-local and personal marketplaces rather than a public GitHub marketplace add command, so the simplest path here is the installer script.
+
+macOS / Linux:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.sh | bash -s -- --host=codex
 ```
 
-Install only for Claude Code:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.sh | bash -s -- --host=claude
-```
-
-### Windows PowerShell
-
-Install for both Claude Code and Codex:
-
-```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.ps1))) -Host both
-```
-
-Install only for Codex:
+Windows PowerShell:
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.ps1))) -Host codex
 ```
 
-Install only for Claude Code:
+After install, open Codex in the repo and use `/plugins` if you want to confirm the local marketplace entry.
+
+#### Want both Claude Code and Codex in the same repo?
+
+macOS / Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.sh | bash -s -- --host=both
+```
+
+Windows PowerShell:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.ps1))) -Host claude
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.ps1))) -Host both
 ```
 
 ### What the installer does
@@ -68,11 +79,6 @@ Install only for Claude Code:
 - `git`
 - `node`
 - Claude Code and/or Codex already installed on your machine
-
-Host app install commands:
-
-- Codex CLI: `npm install -g @openai/codex`
-- Claude Code: `npm install -g @anthropic-ai/claude-code`
 
 ### Use It
 
