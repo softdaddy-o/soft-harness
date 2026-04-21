@@ -118,6 +118,7 @@ The skill content is shared, but the plugin wrappers are host-specific.
 
 ## Important References
 
+- docs entrypoint: [`docs/README.md`](docs/README.md)
 - active architecture: [`docs/plugin-architecture.md`](docs/plugin-architecture.md)
 - `.harness` snapshot rules: [`plugins/soft-harness/skills/references/harness-folder-rules.md`](plugins/soft-harness/skills/references/harness-folder-rules.md)
 - retained deterministic helper surface: [`plugins/soft-harness/skills/references/helper-surface.md`](plugins/soft-harness/skills/references/helper-surface.md)
