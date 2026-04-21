@@ -1,5 +1,7 @@
 # soft-harness
 
+## Introduction
+
 `soft-harness` looks at the messy Claude Code and Codex setup you already have, shows you what is shared, host-specific, stale, or broken, and helps you clean it up.
 
 The shared plugin core lives in [`plugins/soft-harness`](plugins/soft-harness) and exposes two skills:
@@ -9,11 +11,7 @@ The shared plugin core lives in [`plugins/soft-harness`](plugins/soft-harness) a
 
 If your current setup feels scattered across `CLAUDE.md`, `AGENTS.md`, MCP settings, local skills, agents, and plugin files, `soft-harness` is meant to make that visible first, then help you sort it out.
 
-## Docs Guide
-
-If you want the repo documentation entrypoint or an LLM-ready handoff prompt, start with [`docs/README.md`](docs/README.md).
-
-## Quick Install
+## Setup And Use For Humans And LLMs
 
 GitHub repository:
 
@@ -99,6 +97,45 @@ Use Soft Harness organize to clean up this setup and keep .harness in sync.
 ```
 
 The code under `src/` remains a **thin deterministic helper surface** for discovery, parsing, settings/MCP validation, local origin hints, host-file apply steps, backup, and debug workflows.
+
+### Give This To An LLM
+
+If your LLM can read repository files directly, give it this prompt:
+
+```text
+Read these files first, in order:
+1. README.md
+2. docs/plugin-architecture.md
+3. plugins/soft-harness/skills/analyze/SKILL.md
+4. plugins/soft-harness/skills/organize/SKILL.md
+
+Then inspect the current repository and help me with this task:
+[describe your task here]
+
+Constraints:
+- Treat README.md as the primary product guide.
+- Treat docs/superpowers as historical context unless needed for rationale.
+- Do not invent product behavior that is not supported by the current repo.
+- If behavior is unclear, quote the file path that supports your conclusion.
+```
+
+If your LLM cannot read repo files directly, attach or paste at least these files:
+
+- `README.md`
+- `docs/plugin-architecture.md`
+- `plugins/soft-harness/skills/analyze/SKILL.md`
+- `plugins/soft-harness/skills/organize/SKILL.md`
+
+Then use this prompt:
+
+```text
+Use the attached README and skill docs as the authoritative context for this repository.
+Follow the documented product model and workflow instead of making assumptions.
+If the docs conflict, prioritize README.md first, then current skill docs, then architecture docs.
+
+Task:
+[describe your task here]
+```
 
 ## Wrappers
 
