@@ -9,6 +9,10 @@ The shared plugin core lives in [`plugins/soft-harness`](plugins/soft-harness) a
 
 If your current setup feels scattered across `CLAUDE.md`, `AGENTS.md`, MCP settings, local skills, agents, and plugin files, `soft-harness` is meant to make that visible first, then help you sort it out.
 
+## Docs Guide
+
+If you want the repo documentation entrypoint or an LLM-ready handoff prompt, start with [`docs/README.md`](docs/README.md).
+
 ## Quick Install
 
 GitHub repository:
@@ -118,7 +122,6 @@ The skill content is shared, but the plugin wrappers are host-specific.
 
 ## Important References
 
-- docs entrypoint: [`docs/README.md`](docs/README.md)
 - active architecture: [`docs/plugin-architecture.md`](docs/plugin-architecture.md)
 - `.harness` snapshot rules: [`plugins/soft-harness/skills/references/harness-folder-rules.md`](plugins/soft-harness/skills/references/harness-folder-rules.md)
 - retained deterministic helper surface: [`plugins/soft-harness/skills/references/helper-surface.md`](plugins/soft-harness/skills/references/helper-surface.md)
