@@ -2,7 +2,7 @@
 
 ## Introduction
 
-`soft-harness` helps you analyze and organize the messy AI-related settings already scattered across your repo, including `CLAUDE.md`, `AGENTS.md`, MCP settings, local skills, agents, plugins, and `.harness` state.
+`soft-harness` helps you analyze and organize the messy AI-related settings already scattered across your repo, including `CLAUDE.md`, `AGENTS.md`, MCP settings, local skills, agents, and plugins.
 
 The shared plugin core lives in [`plugins/soft-harness`](plugins/soft-harness) and exposes two skills:
 
@@ -34,6 +34,8 @@ npm install -g @anthropic-ai/claude-code
 ```text
 Use Soft Harness analyze to inspect this repo and show me what is shared, host-specific, stale, or broken.
 ```
+
+When it recommends `organize`, it should show the validation results first, tell you that displaced files will be backed up under `.harness/backups/`, and start in chat mode by asking whether you want to review changes one by one or see a full organize plan first.
 
 If `/plugin` is missing, update Claude Code first.
 
@@ -98,7 +100,13 @@ Use Soft Harness analyze to inspect this repo and show me what is shared, host-s
 or:
 
 ```text
-Use Soft Harness organize to clean up this setup and keep .harness in sync.
+Use Soft Harness organize to show the validation results, tell me what will be backed up in .harness/backups/, and ask whether I want to review changes one by one or see the full organize plan first.
+```
+
+By default, `organize` should work in small chat-based steps. It should ask how you want to review the work first, such as:
+
+```text
+Do you want to go one by one, or see the full proposed organize plan first?
 ```
 
 The code under `src/` remains a **thin deterministic helper surface** for discovery, parsing, settings/MCP validation, local origin hints, host-file apply steps, backup, and debug workflows.

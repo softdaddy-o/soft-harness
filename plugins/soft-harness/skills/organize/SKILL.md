@@ -1,6 +1,6 @@
 ---
 name: organize
-description: Organize current host settings and prompts using natural-language requests such as remembering a rule, showing the current state, sharing an MCP with another host, splitting host-specific settings, or cleaning up stale prompt, memory, skill, agent, or plugin entries. Use when the user wants to change real Claude Code or Codex state and keep `.harness` in sync as a snapshot plus decision memory. Respect `--dry-run` by planning only and not writing files.
+description: Organize current host settings and prompts using natural-language requests such as remembering a rule, showing the current state, sharing an MCP with another host, splitting host-specific settings, or cleaning up stale prompt, memory, skill, agent, or plugin entries. Use when the user wants to change real Claude Code or Codex state and decide the best way to organize it. By default, organize should work in small chat-based steps: show validation findings first, explain that displaced files will be backed up under `.harness/backups/`, and ask whether to review changes one by one or see the full organize plan first. Respect `--dry-run` by planning only and not writing files.
 ---
 
 # Organize
@@ -18,15 +18,20 @@ Read `../references/harness-folder-rules.md` first. Read `../references/helper-s
    - malformed settings or parse-error detection
    - host profile paths and apply targets
    - local origin hints for skills, agents, and plugins
-5. Ask follow-up questions only when the user intent is ambiguous or the merge/split decision has real semantic risk.
-6. If not `--dry-run`, back up displaced host files first.
-7. Update the real host files that the user actually uses.
-8. Refresh or initialize `.harness` so it records the resulting snapshot, decisions, and origin notes.
+5. Show validation findings before proposing edits.
+6. Tell the user that any displaced host files will be backed up under `.harness/backups/`.
+7. Start in chat mode by asking whether the user wants to review changes one by one or see the full organize plan first. Use this pattern by default:
+   - `Do you want to go one by one, or see the full proposed organize plan first?`
+8. Ask any additional follow-up questions only when the user intent is ambiguous or the merge/split decision has real semantic risk.
+9. If not `--dry-run`, back up displaced host files first.
+10. Update the real host files that the user actually uses.
+11. Refresh or initialize `.harness` so it records the resulting snapshot, decisions, and origin notes.
 
 ## Settings And MCP Review
 
 - Catch invalid or unsupported settings file formats when helpers can prove them.
 - Flag malformed MCP definitions such as missing commands, unsupported shapes, parse errors, or host-only keys with no safe shared mapping.
+- Show those validation findings to the user before asking for organize approval or review mode.
 - Propose optimizations when they are defensible:
   - deduplicate identical MCP servers across hosts
   - align truly shared MCP definitions across hosts
@@ -43,5 +48,7 @@ Read `../references/harness-folder-rules.md` first. Read `../references/helper-s
 ## Dry Run
 
 - In `--dry-run`, do not write files.
-- Show the relevant current state, the proposed host changes, the `.harness` snapshot updates that would follow, and any unresolved semantic questions.
+- Show the relevant current state, the validation findings, the proposed host changes, the `.harness` snapshot updates that would follow, and any unresolved semantic questions.
+- In that explanation, explicitly mention that real writes would back up displaced files under `.harness/backups/`.
+- Ask whether the user wants to review changes one by one or see the full organize plan first.
 - If `.harness` is absent, show which snapshot files would be created after the host changes instead of assuming snapshot files already exist.

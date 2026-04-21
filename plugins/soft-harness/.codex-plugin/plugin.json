@@ -1,7 +1,7 @@
 {
   "name": "soft-harness",
   "version": "0.4.23",
-  "description": "Universal analyze and organize skills for inspecting live Claude Code and Codex state and keeping .harness as snapshot memory.",
+  "description": "Universal analyze and organize skills for inspecting and organizing live Claude Code and Codex state.",
   "author": {
     "name": "softdaddy-o",
     "url": "https://github.com/softdaddy-o"
@@ -20,7 +20,7 @@
   "interface": {
     "displayName": "Soft Harness",
     "shortDescription": "Analyze and organize live host configs with LLM-guided workflows.",
-    "longDescription": "Soft Harness is a plugin-first workflow for inspecting and organizing live Claude Code and Codex state. `.harness` is kept as a reusable snapshot and decision-memory layer, while the real host files remain authoritative. The plugin keeps the user-facing surface in two skills, analyze and organize, and relies on thin deterministic helper code for inventory, origin hints, apply steps, and backups.",
+    "longDescription": "Soft Harness is a plugin-first workflow for inspecting and organizing live Claude Code and Codex state. It helps make messy prompts, settings, MCPs, skills, agents, and plugins understandable and easier to reorganize. Organize should default to a chat-based flow: show validation findings first, explain that displaced files will be backed up under .harness/backups/, and ask whether to review changes one by one or see the full plan first. The plugin keeps the user-facing surface in two skills, analyze and organize, and relies on thin deterministic helper code for inventory, origin hints, apply steps, and backups.",
     "developerName": "softdaddy-o",
     "category": "Productivity",
     "capabilities": [
@@ -31,9 +31,9 @@
     "privacyPolicyURL": "https://github.com/softdaddy-o/soft-harness",
     "termsOfServiceURL": "https://github.com/softdaddy-o/soft-harness",
     "defaultPrompt": [
-      "Use Soft Harness analyze to inspect this repo and refresh the .harness snapshot.",
-      "Use Soft Harness organize to share this MCP with Gemini too.",
-      "Use Soft Harness organize to remember this rule."
+      "Use Soft Harness analyze to inspect this repo and show me what is shared, host-specific, stale, or broken.",
+      "Use Soft Harness organize to show the validation results, explain what will be backed up under .harness/backups/, and ask whether I want to review changes one by one or see the full plan first.",
+      "Use Soft Harness organize to help me split shared settings from host-specific ones."
     ],
     "brandColor": "#2563EB"
   }
