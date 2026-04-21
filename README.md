@@ -89,6 +89,33 @@ Windows PowerShell:
 - `node`
 - Claude Code and/or Codex already installed on your machine
 
+### Updating An Existing Install
+
+If you already installed Soft Harness in Claude Code from a marketplace, update the marketplace entry and then reload plugins:
+
+```text
+/plugin marketplace update soft-harness
+/reload-plugins
+```
+
+If Claude Code marketplace auto-update is enabled for `soft-harness`, Claude Code can fetch plugin updates automatically at startup, but you may still need to run `/reload-plugins` to activate the new version.
+
+Marketplace installs pick up new plugin releases when the published plugin version changes.
+
+If you installed for Codex with the installer script, run the installer again in the repo you want to update.
+
+Windows PowerShell:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.ps1))) -Host codex
+```
+
+macOS / Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.sh | bash -s -- --host=codex
+```
+
 ### Use It
 
 After installation, open your repo in Codex or Claude Code and ask:
