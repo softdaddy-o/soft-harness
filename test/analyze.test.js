@@ -105,6 +105,8 @@ test('analyze: settings classify common, similar, conflict, host-only, and unkno
     assert.ok(result.host_only.some((entry) => entry.key === 'settings.claude.theme'));
     assert.ok(result.host_only.some((entry) => entry.key === 'settings.codex.approval_policy'));
     assert.ok(result.unknown.some((entry) => entry.key === 'settings.gemini'));
+    assert.ok(result.score_reasons.some((entry) => /LLM-specific settings conflict/.test(entry)));
+    assert.ok(result.score_reasons.some((entry) => /LLM-specific settings item.*out of sync across hosts/.test(entry)));
 });
 
 test('analyze: skills classify common, similar, conflict, and host-only content', async () => {

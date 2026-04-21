@@ -150,6 +150,9 @@ test('analyze: runAnalyze selects categories explicitly and by default', async (
 
     const explicitAll = await runAnalyze(root, { category: 'all' });
     assert.ok(explicitAll.summary.host_only >= 1);
+    assert.equal(typeof explicitAll.score, 'number');
+    assert.ok(Array.isArray(explicitAll.score_reasons));
+    assert.ok(explicitAll.score >= 0 && explicitAll.score <= 100);
 
     const allCategories = await runAnalyze(root, {});
     assert.ok(allCategories.inventory.documents.length > 0);

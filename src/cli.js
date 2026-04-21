@@ -525,6 +525,13 @@ function formatConflictDetails(entries) {
 
 function formatAnalyzeReport(result, options) {
     const lines = [];
+    if (typeof result.score === 'number') {
+        const reasons = Array.isArray(result.score_reasons) ? result.score_reasons.filter(Boolean) : [];
+        const reasonText = reasons.length > 0
+            ? ` - ${reasons.join('; ')}`
+            : '';
+        lines.push(`score: ${result.score}/100${reasonText}`);
+    }
     lines.push(`${ICONS.analyze} common=${result.summary.common}  similar=${result.summary.similar}  conflicts=${result.summary.conflicts}  host_only=${result.summary.host_only}  unknown=${result.summary.unknown}`);
 
     appendTreeSection(lines, ICONS.documents, formatAnalyzeDocuments(result, options));

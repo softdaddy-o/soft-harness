@@ -651,6 +651,8 @@ test('cli: formatAnalyzeReport renders document-first explain details as trees',
 
 test('cli: formatAnalyzeReport keeps zero-count skill hosts in the document-first inventory', () => {
     const output = formatAnalyzeReport({
+        score: 100,
+        score_reasons: ['No major drift, conflict, or parse issues were detected'],
         summary: { common: 0, similar: 0, conflicts: 0, host_only: 0, unknown: 0 },
         inventory: {
             documents: [],
@@ -669,6 +671,7 @@ test('cli: formatAnalyzeReport keeps zero-count skill hosts in the document-firs
         unknown: []
     }, { explain: false });
 
+    assert.match(output, /score: 100\/100 - No major drift, conflict, or parse issues were detected/);
     assert.match(output, /Skills/u);
     assert.match(output, /host: claude/);
     assert.match(output, /host: codex/);
@@ -680,6 +683,11 @@ test('cli: formatAnalyzeReport keeps zero-count skill hosts in the document-firs
 
 test('cli: formatAnalyzeReport shows similar percentages and unknown reasons', () => {
     const output = formatAnalyzeReport({
+        score: 74,
+        score_reasons: [
+            '2 unknown items still need classification',
+            '1 shared item is already aligned across hosts'
+        ],
         summary: { common: 0, similar: 1, conflicts: 0, host_only: 0, unknown: 2 },
         inventory: {
             documents: [{
@@ -735,6 +743,7 @@ test('cli: formatAnalyzeReport shows similar percentages and unknown reasons', (
         ]
     }, { explain: true });
 
+    assert.match(output, /score: 74\/100 - 2 unknown items still need classification; 1 shared item is already aligned across hosts/);
     assert.match(output, /section: Repository Overview \[similar section also exists in codex, kept separate\]/u);
     assert.doesNotMatch(output, /🔀 Similar/u);
     assert.doesNotMatch(output, /Unknown/u);
