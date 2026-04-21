@@ -2,33 +2,26 @@
 
 ## Introduction
 
-`soft-harness` looks at the messy Claude Code and Codex setup you already have, shows you what is shared, host-specific, stale, or broken, and helps you clean it up.
+`soft-harness` helps you analyze and organize the messy AI-related settings already scattered across your repo, including `CLAUDE.md`, `AGENTS.md`, MCP settings, local skills, agents, plugins, and `.harness` state.
 
 The shared plugin core lives in [`plugins/soft-harness`](plugins/soft-harness) and exposes two skills:
 
 - `analyze`: show the current state clearly
 - `organize`: help clean it up safely
 
-If your current setup feels scattered across `CLAUDE.md`, `AGENTS.md`, MCP settings, local skills, agents, and plugin files, `soft-harness` is meant to make that visible first, then help you sort it out.
+If your setup feels scattered or hard to reason about, start with `analyze`, then use `organize` to clean it up safely.
 
-## Setup And Use For Humans And LLMs
+## Easiest Start: Claude Code
 
-GitHub repository:
+If you want the fastest path, install through the Claude Code marketplace in the repo you want to inspect.
 
-- `https://github.com/softdaddy-o/soft-harness`
+1. Install Claude Code:
 
-Install into the repo you are currently working in.
+```bash
+npm install -g @anthropic-ai/claude-code
+```
 
-### 1. Install your host app
-
-- Claude Code: `npm install -g @anthropic-ai/claude-code`
-- Codex CLI: `npm install -g @openai/codex`
-
-### 2. Choose the install path
-
-#### Claude Code
-
-Claude Code supports GitHub-backed plugin marketplaces directly, so this is the preferred install flow:
+2. In Claude Code, run:
 
 ```text
 /plugin marketplace add softdaddy-o/soft-harness
@@ -36,9 +29,21 @@ Claude Code supports GitHub-backed plugin marketplaces directly, so this is the 
 /reload-plugins
 ```
 
+3. Then ask Claude Code:
+
+```text
+Use Soft Harness analyze to inspect this repo and show me what is shared, host-specific, stale, or broken.
+```
+
 If `/plugin` is missing, update Claude Code first.
 
-#### Codex
+## Other Setup And Use
+
+GitHub repository:
+
+- `https://github.com/softdaddy-o/soft-harness`
+
+### Codex
 
 Codex currently documents repo-local and personal marketplaces rather than a public GitHub marketplace add command, so the simplest path here is the installer script.
 
@@ -56,7 +61,7 @@ Windows PowerShell:
 
 After install, open Codex in the repo and use `/plugins` if you want to confirm the local marketplace entry.
 
-#### Want both Claude Code and Codex in the same repo?
+### Want both Claude Code and Codex in the same repo?
 
 macOS / Linux:
 
