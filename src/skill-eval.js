@@ -44,11 +44,19 @@ async function ensureVirtualPcFixture(repoRoot, accountRoot, workspaceRoot, opti
         return;
     }
 
-    await buildVirtualPc({
-        docsRoot: options.virtualPcDocsRoot || 'F:\\src3\\docs',
-        homeRoot: options.virtualPcHomeRoot || process.env.USERPROFILE || process.env.HOME,
-        outputRoot: path.join(repoRoot, 'sandbox', 'virtual-pc')
-    });
+    const docsRoot = options.virtualPcDocsRoot || 'F:\\src3\\docs';
+    const homeRoot = options.virtualPcHomeRoot || process.env.USERPROFILE || process.env.HOME;
+    if (docsRoot && homeRoot && exists(docsRoot) && exists(homeRoot)) {
+        await buildVirtualPc({
+            docsRoot,
+            homeRoot,
+            outputRoot: path.join(repoRoot, 'sandbox', 'virtual-pc')
+        });
+    } else {
+        fs.mkdirSync(accountRoot, { recursive: true });
+        fs.mkdirSync(workspaceRoot, { recursive: true });
+    }
+
     ensureVirtualPcAnalyzeSurface(accountRoot, 'account');
     ensureVirtualPcAnalyzeSurface(workspaceRoot, 'workspace');
 }
@@ -57,6 +65,7 @@ function ensureVirtualPcAnalyzeSurface(root, label) {
     if (!exists(root)) {
         return;
     }
+    fs.rmSync(path.join(root, '.harness'), { recursive: true, force: true });
     if (!hasInstructionDocument(root)) {
         writeUtf8(path.join(root, 'AGENTS.md'), `# ${capitalize(label)} Sandbox\n\nSandbox guidance for analyze evals.\n`);
     }
