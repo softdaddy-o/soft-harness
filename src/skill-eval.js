@@ -7,12 +7,15 @@ const { exportInstructions } = require('./export');
 const { exists, readJson, readUtf8, writeUtf8 } = require('./fs-util');
 const { exportSettings } = require('./settings');
 const { exportSkillsAndAgents } = require('./skills');
+const { buildVirtualPc } = require('./virtual-pc');
 
 async function runSkillEvals(options = {}) {
     const repoRoot = path.resolve(options.repoRoot || path.join(__dirname, '..'));
     const accountRoot = path.resolve(options.virtualPcRoot || path.join(repoRoot, 'sandbox', 'virtual-pc', 'pc-image', 'C', 'Users', 'primary-user'));
     const workspaceRoot = path.resolve(options.workspaceRoot || path.join(repoRoot, 'sandbox', 'virtual-pc', 'pc-image', 'F', 'src3', 'docs'));
     const checks = [];
+
+    await ensureVirtualPcFixture(repoRoot, accountRoot, workspaceRoot, options);
 
     await collect(checks, 'analyze-contract', async () => evaluateAnalyzeContract(repoRoot));
     await collect(checks, 'analyze-virtual-pc-account', async () => evaluateAnalyzeVirtualPcAccount(accountRoot));
@@ -32,6 +35,83 @@ async function runSkillEvals(options = {}) {
         },
         checks
     };
+}
+
+async function ensureVirtualPcFixture(repoRoot, accountRoot, workspaceRoot, options) {
+    if (exists(accountRoot) && exists(workspaceRoot)) {
+        ensureVirtualPcAnalyzeSurface(accountRoot, 'account');
+        ensureVirtualPcAnalyzeSurface(workspaceRoot, 'workspace');
+        return;
+    }
+
+    await buildVirtualPc({
+        docsRoot: options.virtualPcDocsRoot || 'F:\\src3\\docs',
+        homeRoot: options.virtualPcHomeRoot || process.env.USERPROFILE || process.env.HOME,
+        outputRoot: path.join(repoRoot, 'sandbox', 'virtual-pc')
+    });
+    ensureVirtualPcAnalyzeSurface(accountRoot, 'account');
+    ensureVirtualPcAnalyzeSurface(workspaceRoot, 'workspace');
+}
+
+function ensureVirtualPcAnalyzeSurface(root, label) {
+    if (!exists(root)) {
+        return;
+    }
+    if (!hasInstructionDocument(root)) {
+        writeUtf8(path.join(root, 'AGENTS.md'), `# ${capitalize(label)} Sandbox\n\nSandbox guidance for analyze evals.\n`);
+    }
+    if (!exists(path.join(root, '.claude', 'settings.json'))) {
+        writeUtf8(path.join(root, '.claude', 'settings.json'), JSON.stringify({
+            mcpServers: {
+                sandbox: {
+                    command: 'node',
+                    args: ['sandbox.js']
+                }
+            },
+            enabledPlugins: {
+                'soft-harness@local': true
+            }
+        }, null, 2));
+    }
+    if (!exists(path.join(root, '.codex', 'config.toml'))) {
+        writeUtf8(path.join(root, '.codex', 'config.toml'), [
+            'approval_policy = "never"',
+            '',
+            '[mcp_servers.sandbox]',
+            'command = "node"',
+            '',
+            '[[plugins]]',
+            'name = "soft-harness"',
+            ''
+        ].join('\n'));
+    }
+    if (!exists(path.join(root, '.claude', 'skills', 'sandbox-review', 'SKILL.md'))) {
+        writeUtf8(path.join(root, '.claude', 'skills', 'sandbox-review', 'SKILL.md'), [
+            '---',
+            'name: sandbox-review',
+            `description: ${capitalize(label)} analyze fixture skill.`,
+            '---',
+            '',
+            '# Sandbox Review',
+            '',
+            'Use this skill to exercise analyze inventory paths.',
+            ''
+        ].join('\n'));
+    }
+}
+
+function hasInstructionDocument(root) {
+    return [
+        'AGENTS.md',
+        'CLAUDE.md',
+        'GEMINI.md',
+        '.claude/CLAUDE.md'
+    ].some((relativePath) => exists(path.join(root, relativePath)));
+}
+
+function capitalize(value) {
+    const text = String(value || '');
+    return text ? `${text[0].toUpperCase()}${text.slice(1)}` : '';
 }
 
 async function collect(checks, name, fn) {

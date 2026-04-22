@@ -505,6 +505,18 @@ function formatExportDetails(entries, options) {
         if (entry.action === 'export') {
             const reason = options && options.explain && entry.reason ? ` (${entry.reason})` : '';
             items.push(`${entry.from} -> ${entry.to} [${entry.mode}]${reason}`);
+            continue;
+        }
+        if (entry.action === 'skip-export') {
+            const details = [];
+            if (options && options.explain && entry.reason) {
+                details.push(entry.reason);
+            }
+            if (entry.detail) {
+                details.push(entry.detail);
+            }
+            const suffix = details.length > 0 ? ` (${details.join('; ')})` : '';
+            items.push(`${entry.from} -> ${entry.to} [blocked]${suffix}`);
         }
     }
     return items;

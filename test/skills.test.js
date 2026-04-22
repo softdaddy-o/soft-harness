@@ -131,3 +131,55 @@ test('skills: pull-back skips unsupported entries and dry-run avoids re-export',
     assert.deepEqual(pulledBack, [{ from: '.claude/agents/worker.md', to: '.harness/agents/claude/worker.md' }]);
     assert.equal(exists(path.join(root, '.harness', 'agents', 'claude', 'worker.md')), true);
 });
+
+test('skills: codex exports normalize argument-hint frontmatter and force copy mode', () => {
+    const root = makeProjectTree('soft-harness-skills-codex-frontmatter-', {
+        '.gitignore': '.codex/skills/\n',
+        '.harness': {
+            skills: {
+                common: {
+                    writer: {
+                        'SKILL.md': [
+                            '---',
+                            'name: writer',
+                            'description: Help write clearly',
+                            'argument-hint: [--dry-run] [--max N] [--days N]',
+                            '---',
+                            '',
+                            '# Writer'
+                        ].join('\n')
+                    }
+                }
+            }
+        }
+    });
+
+    const exported = exportSkillsAndAgents(root, { linkMode: 'symlink' });
+    const codexEntry = exported.exported.find((entry) => entry.to === '.codex/skills/writer');
+
+    assert.ok(codexEntry);
+    assert.equal(codexEntry.mode, 'copy');
+    assert.match(readUtf8(path.join(root, '.codex', 'skills', 'writer', 'SKILL.md')), /argument-hint: "\[--dry-run\] \[--max N\] \[--days N\]"/);
+});
+
+test('skills: codex exports block skills without YAML frontmatter', () => {
+    const root = makeProjectTree('soft-harness-skills-codex-missing-frontmatter-', {
+        '.harness': {
+            skills: {
+                common: {
+                    daily: {
+                        'SKILL.md': '# Daily Start'
+                    }
+                }
+            }
+        }
+    });
+
+    const exported = exportSkillsAndAgents(root, {});
+    const blocked = exported.routes.find((entry) => entry.action === 'skip-export' && entry.to === '.codex/skills/daily');
+
+    assert.ok(blocked);
+    assert.equal(blocked.reason, 'codex-frontmatter-required');
+    assert.equal(exists(path.join(root, '.codex', 'skills', 'daily', 'SKILL.md')), false);
+    assert.equal(exists(path.join(root, '.claude', 'skills', 'daily', 'SKILL.md')), true);
+});

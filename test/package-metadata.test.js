@@ -26,3 +26,17 @@ test('plugin wrapper manifests and marketplaces are valid json', () => {
         assert.equal(typeof parsed, 'object', relativePath);
     }
 });
+
+test('publish-facing versions stay aligned with package.json', () => {
+    const pkg = require(path.join('..', 'package.json'));
+    const lock = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package-lock.json'), 'utf8'));
+    const marketplace = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '.claude-plugin', 'marketplace.json'), 'utf8'));
+    const claudePlugin = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'plugins', 'soft-harness', '.claude-plugin', 'plugin.json'), 'utf8'));
+    const codexPlugin = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'plugins', 'soft-harness', '.codex-plugin', 'plugin.json'), 'utf8'));
+
+    assert.equal(lock.version, pkg.version);
+    assert.equal(lock.packages[''].version, pkg.version);
+    assert.equal(marketplace.plugins[0].version, pkg.version);
+    assert.equal(claudePlugin.version, pkg.version);
+    assert.equal(codexPlugin.version, pkg.version);
+});

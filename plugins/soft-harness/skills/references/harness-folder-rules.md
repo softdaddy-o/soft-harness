@@ -40,6 +40,8 @@ Use this document as the structure reference for both `analyze` and `organize`.
       claude.md
       codex.md
       gemini.md
+  hooks/
+    <hook-name>
   plugins.yaml
   plugin-origins.yaml
   asset-origins.yaml
@@ -55,6 +57,7 @@ Use this document as the structure reference for both `analyze` and `organize`.
 - `settings/llm/*.yaml`: snapshot of host-specific settings or overrides.
 - `skills/` and `agents/`: snapshot buckets recording whether an asset looks common or host-specific.
 - `memory/`: durable user memory and prior decision notes.
+- `hooks/`: tracked hook scripts that the user may choose to install manually into `.git/hooks/`.
 - `plugins.yaml`: snapshot of plugin targeting and user decisions.
 - `plugin-origins.yaml` and `asset-origins.yaml`: origin evidence collected from local hints plus later LLM research.
 - `.sync-state.json` and `backups/`: implementation support files, not user-authored truth.

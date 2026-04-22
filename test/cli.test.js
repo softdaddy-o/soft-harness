@@ -458,6 +458,37 @@ test('cli: formatSyncReport includes plugins, drift targets, bucket reasons, and
     assert.match(output, /planned: superpowers@1\.0\.0/);
 });
 
+test('cli: formatSyncReport shows blocked codex skill exports', () => {
+    const output = formatSyncReport({
+        phase: 'dry-run',
+        plan: {
+            import: [],
+            export: [1],
+            drift: [],
+            conflicts: []
+        },
+        details: {
+            imports: [],
+            exports: [
+                {
+                    action: 'skip-export',
+                    from: '.harness/skills/common/daily',
+                    to: '.codex/skills/daily',
+                    reason: 'codex-frontmatter-required',
+                    detail: 'SKILL.md is missing YAML frontmatter delimited by ---'
+                }
+            ],
+            drift: [],
+            conflicts: []
+        },
+        pluginActions: []
+    }, { explain: true });
+
+    assert.match(output, /\.harness\/skills\/common\/daily -> \.codex\/skills\/daily \[blocked\]/);
+    assert.match(output, /codex-frontmatter-required/);
+    assert.match(output, /missing YAML frontmatter delimited by ---/);
+});
+
 test('cli: formatSyncReport explain covers maybe-common legacy imports and grouped skill buckets', () => {
     const output = formatSyncReport({
         phase: 'dry-run',

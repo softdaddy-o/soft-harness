@@ -1,6 +1,6 @@
 {
   "name": "soft-harness",
-  "version": "0.4.23",
+  "version": "0.4.24",
   "description": "Shared plugin core with Claude Code and Codex wrappers for analyzing and organizing live host configs",
   "repository": {
     "type": "git",
@@ -35,8 +35,10 @@
     "eval:llm": "node scripts/run-llm-eval.js list",
     "eval:llm:codex": "node scripts/run-llm-eval.js codex analyze-clean-start-dry-run",
     "eval:skills": "node scripts/run-skill-evals.js",
+    "release:patch": "npm version patch",
     "test": "node --test",
-    "test:coverage": "node --test --experimental-test-coverage"
+    "test:coverage": "node --test --experimental-test-coverage",
+    "version": "node scripts/sync-version.js"
   },
   "keywords": [
     "claude",

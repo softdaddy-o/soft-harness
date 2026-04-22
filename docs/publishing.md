@@ -30,6 +30,19 @@ After the trusted publisher is registered, publish by either:
 1. creating a GitHub release
 2. running the workflow manually with `workflow_dispatch`
 
+Before either path, bump the package version from the repo root:
+
+```bash
+npm version patch
+```
+
+That command now syncs the publish-facing wrapper versions in:
+
+- `package-lock.json`
+- `.claude-plugin/marketplace.json`
+- `plugins/soft-harness/.claude-plugin/plugin.json`
+- `plugins/soft-harness/.codex-plugin/plugin.json`
+
 The workflow runs:
 
 1. `npm ci`

@@ -29,7 +29,8 @@ Read `../references/harness-folder-rules.md` first. Read `../references/helper-s
 8. Recommend a chat-based organize flow that starts by asking:
    - whether the user wants to review changes one by one
    - or see the full organize plan first
-9. If not `--dry-run`, refresh or initialize `.harness` so it captures:
+9. If you recommend tracking a git hook such as `pre-commit`, describe the tracked `.harness/hooks/` copy and a manual install command for `.git/hooks/`. Do not claim the skill will install the hook automatically.
+10. If not `--dry-run`, refresh or initialize `.harness` so it captures:
    - the current host snapshot
    - the user's prior decisions
    - origin evidence and confidence notes

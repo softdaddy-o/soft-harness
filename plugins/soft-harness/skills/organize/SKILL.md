@@ -26,6 +26,8 @@ Read `../references/harness-folder-rules.md` first. Read `../references/helper-s
 9. If not `--dry-run`, back up displaced host files first.
 10. Update the real host files that the user actually uses.
 11. Refresh or initialize `.harness` so it records the resulting snapshot, decisions, and origin notes.
+12. If the user wants a git hook such as `pre-commit`, keep the tracked copy under `.harness/hooks/`, but do not install into `.git/hooks/` yourself. Print a clearly marked manual command block for the user to run instead, for example:
+   - `! cp .harness/hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit`
 
 ## Settings And MCP Review
 

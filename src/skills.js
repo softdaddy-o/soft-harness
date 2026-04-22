@@ -1,5 +1,6 @@
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
+const YAML = require('yaml');
 const { getFsBackend } = require('./fs-backend');
 const { hashDirectory, hashFile } = require('./hash');
 const { createLink, isSymlink, readLink } = require('./symlink');
@@ -147,7 +148,23 @@ function exportSkillsAndAgents(rootDir, options) {
 
     for (const entry of plan) {
         const outcome = ensureManagedTarget(rootDir, entry, options);
-        const mode = outcome && outcome.mode;
+        if (!outcome) {
+            continue;
+        }
+        if (outcome.blocked) {
+            routes.push({
+                action: 'skip-export',
+                type: entry.type,
+                llm: entry.llm,
+                from: entry.source,
+                to: entry.target,
+                reason: outcome.reason || null,
+                detail: outcome.detail || null
+            });
+            continue;
+        }
+
+        const mode = outcome.mode;
         if (!mode) {
             continue;
         }
@@ -178,7 +195,16 @@ function exportSkillsAndAgents(rootDir, options) {
 function ensureManagedTarget(rootDir, entry, options) {
     const absoluteSource = path.join(rootDir, entry.source);
     const absoluteTarget = path.join(rootDir, entry.target);
-    const desired = resolveManagedMode(rootDir, entry, options);
+    const rendered = renderManagedEntry(rootDir, entry);
+    if (rendered.blocked) {
+        return {
+            blocked: true,
+            reason: rendered.reason || null,
+            detail: rendered.detail || null
+        };
+    }
+
+    const desired = resolveManagedMode(rootDir, entry, options, rendered);
     const desiredMode = desired.mode;
 
     if (targetMatches(rootDir, entry, desiredMode)) {
@@ -204,21 +230,24 @@ function ensureManagedTarget(rootDir, entry, options) {
 
     removePath(absoluteTarget);
     copyPath(absoluteSource, absoluteTarget);
-        if (entry.type === 'skill') {
-            writeUtf8(path.join(absoluteTarget, MANAGED_MARKER), [
-                `source: ${entry.source}`,
-                `content_hash: sha256:${hashDirectory(absoluteTarget, { ignore: [MANAGED_MARKER] })}`,
-                'regenerate: soft-harness organize',
-                ''
-            ].join('\n'));
-        } else {
-            writeUtf8(`${absoluteTarget}.${MANAGED_MARKER}`, [
-                `source: ${entry.source}`,
-                `content_hash: sha256:${hashFile(absoluteTarget)}`,
-                'regenerate: soft-harness organize',
-                ''
-            ].join('\n'));
+    if (entry.type === 'skill') {
+        if (rendered.skillContent !== null) {
+            writeUtf8(path.join(absoluteTarget, 'SKILL.md'), rendered.skillContent);
         }
+        writeUtf8(path.join(absoluteTarget, MANAGED_MARKER), [
+            `source: ${entry.source}`,
+            `content_hash: sha256:${hashDirectory(absoluteTarget, { ignore: [MANAGED_MARKER] })}`,
+            'regenerate: soft-harness organize',
+            ''
+        ].join('\n'));
+    } else {
+        writeUtf8(`${absoluteTarget}.${MANAGED_MARKER}`, [
+            `source: ${entry.source}`,
+            `content_hash: sha256:${hashFile(absoluteTarget)}`,
+            'regenerate: soft-harness organize',
+            ''
+        ].join('\n'));
+    }
     return {
         mode: 'copy',
         reason: desired.reason || null
@@ -309,13 +338,20 @@ function detectSkillsAndAgentsDrift(rootDir) {
     return drift;
 }
 
-function resolveManagedMode(rootDir, entry, options) {
+function resolveManagedMode(rootDir, entry, options, rendered) {
     const settings = options || {};
     const requestedMode = settings.linkMode || 'copy';
     if (requestedMode === 'copy') {
         return {
             mode: 'copy',
             reason: 'default-copy'
+        };
+    }
+
+    if (rendered && rendered.requiresCopy) {
+        return {
+            mode: 'copy',
+            reason: rendered.copyReason || 'host-specific-render'
         };
     }
 
@@ -340,6 +376,129 @@ function resolveManagedMode(rootDir, entry, options) {
         mode: 'symlink',
         reason: 'explicit-symlink'
     };
+}
+
+function renderManagedEntry(rootDir, entry) {
+    if (entry.type !== 'skill') {
+        return {
+            blocked: false,
+            requiresCopy: false,
+            copyReason: null,
+            skillContent: null
+        };
+    }
+
+    const skillPath = path.join(rootDir, entry.source, 'SKILL.md');
+    const skillContent = readUtf8(skillPath);
+    if (entry.llm !== 'codex') {
+        return {
+            blocked: false,
+            requiresCopy: false,
+            copyReason: null,
+            skillContent
+        };
+    }
+
+    return renderCodexSkillContent(skillContent);
+}
+
+function renderCodexSkillContent(skillContent) {
+    const frontmatter = splitFrontmatter(skillContent);
+    if (!frontmatter) {
+        return {
+            blocked: true,
+            reason: 'codex-frontmatter-required',
+            detail: 'SKILL.md is missing YAML frontmatter delimited by ---'
+        };
+    }
+
+    const parsedOriginal = parseYamlFrontmatter(frontmatter.frontmatter);
+    if (parsedOriginal.valid) {
+        return {
+            blocked: false,
+            requiresCopy: false,
+            copyReason: null,
+            skillContent
+        };
+    }
+
+    const normalizedFrontmatter = normalizeCodexFrontmatter(frontmatter.frontmatter);
+    const parsedNormalized = parseYamlFrontmatter(normalizedFrontmatter);
+    if (!parsedNormalized.valid) {
+        return {
+            blocked: true,
+            reason: 'codex-frontmatter-invalid',
+            detail: parsedNormalized.detail || parsedOriginal.detail || 'SKILL.md frontmatter is not valid YAML'
+        };
+    }
+
+    return {
+        blocked: false,
+        requiresCopy: true,
+        copyReason: 'codex-frontmatter-normalized',
+        skillContent: `${frontmatter.opening}${frontmatter.eol}${normalizedFrontmatter}${frontmatter.eol}${frontmatter.closing}${frontmatter.suffix}`
+    };
+}
+
+function splitFrontmatter(content) {
+    const text = String(content || '');
+    const match = text.match(/^(---)(\r?\n)([\s\S]*?)\r?\n(---)([\s\S]*)$/u);
+    if (!match) {
+        return null;
+    }
+
+    return {
+        opening: match[1],
+        eol: match[2],
+        frontmatter: match[3],
+        closing: match[4],
+        suffix: match[5]
+    };
+}
+
+function parseYamlFrontmatter(frontmatter) {
+    try {
+        const document = YAML.parseDocument(String(frontmatter || ''), {
+            prettyErrors: false,
+            strict: true
+        });
+        if (document.errors && document.errors.length > 0) {
+            return {
+                valid: false,
+                detail: document.errors[0].message
+            };
+        }
+        return {
+            valid: true,
+            detail: null
+        };
+    } catch (error) {
+        return {
+            valid: false,
+            detail: error.message
+        };
+    }
+}
+
+function normalizeCodexFrontmatter(frontmatter) {
+    return String(frontmatter || '')
+        .split(/\r?\n/u)
+        .map((line) => normalizeCodexFrontmatterLine(line))
+        .join('\n');
+}
+
+function normalizeCodexFrontmatterLine(line) {
+    const match = String(line || '').match(/^(\s*argument-hint\s*:\s*)(.+?)\s*$/u);
+    if (!match) {
+        return line;
+    }
+
+    const value = match[2].trim();
+    if (!/\][ \t]+\[/u.test(value) || /^['"]/u.test(value)) {
+        return line;
+    }
+
+    return `${match[1]}${JSON.stringify(value)}`;
 }
 
 function isRepoInternalPath(rootDir, absoluteTarget) {
