@@ -19,7 +19,7 @@ async function runSkillEvals(options = {}) {
 
     await collect(checks, 'analyze-contract', async () => evaluateAnalyzeContract(repoRoot));
     await collect(checks, 'analyze-virtual-pc-account', async () => evaluateAnalyzeVirtualPcAccount(accountRoot));
-    await collect(checks, 'analyze-virtual-pc-workspace', async () => evaluateAnalyzeVirtualPcWorkspace(workspaceRoot));
+    await collect(checks, 'analyze-virtual-pc-workspace', async () => evaluateAnalyzeVirtualPcWorkspace(workspaceRoot, accountRoot));
     await collect(checks, 'organize-contract', async () => evaluateOrganizeContract(repoRoot));
     await collect(checks, 'organize-helper-flow', async () => evaluateOrganizeHelperFlow());
     await collect(checks, 'organize-dry-run-helper-flow', async () => evaluateOrganizeDryRunHelperFlow());
@@ -169,7 +169,7 @@ async function evaluateAnalyzeVirtualPcAccount(accountRoot) {
     expect(exists(accountRoot), `virtual PC account root not found: ${accountRoot}`);
     expect(!exists(path.join(accountRoot, '.harness')), 'virtual PC account root must not include a prebuilt .harness snapshot');
 
-    const result = await runAnalyze(accountRoot, {});
+    const result = await runAnalyze(accountRoot, { homeDir: accountRoot });
 
     expect(result.inventory.documents.length >= 1, 'account analysis should discover at least one instruction document');
     expect(result.inventory.settings.length >= 1, 'account analysis should discover host settings');
@@ -190,11 +190,11 @@ async function evaluateAnalyzeVirtualPcAccount(accountRoot) {
     };
 }
 
-async function evaluateAnalyzeVirtualPcWorkspace(workspaceRoot) {
+async function evaluateAnalyzeVirtualPcWorkspace(workspaceRoot, accountRoot) {
     expect(exists(workspaceRoot), `virtual PC workspace root not found: ${workspaceRoot}`);
     expect(!exists(path.join(workspaceRoot, '.harness')), 'virtual PC workspace root must not include a prebuilt .harness snapshot');
 
-    const result = await runAnalyze(workspaceRoot, {});
+    const result = await runAnalyze(workspaceRoot, { homeDir: accountRoot });
 
     expect(result.inventory.documents.length >= 1, 'workspace analysis should discover instruction documents');
     expect(result.inventory.skills.length >= 1, 'workspace analysis should discover skills or agents');
@@ -254,7 +254,7 @@ function evaluateOrganizeHelperFlow() {
         ], { reason: 'skill-eval-organize' });
 
         const instructionExport = exportInstructions(root, {});
-        const settingsExport = exportSettings(root, {});
+        const settingsExport = exportSettings(root, { homeDir: root });
         const assetExport = exportSkillsAndAgents(root, {});
 
         const claudeRoot = readUtf8(path.join(root, 'CLAUDE.md'));
@@ -307,7 +307,7 @@ function evaluateOrganizeDryRunHelperFlow() {
         };
 
         const instructionExport = exportInstructions(root, { dryRun: true });
-        const settingsExport = exportSettings(root, { dryRun: true });
+        const settingsExport = exportSettings(root, { dryRun: true, homeDir: root });
         const assetExport = exportSkillsAndAgents(root, { dryRun: true });
 
         expect(instructionExport.exported.length >= 1, 'Organize dry-run should still plan instruction exports');

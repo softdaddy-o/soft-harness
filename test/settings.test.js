@@ -68,6 +68,7 @@ test('settings: exportSettings preserves unrelated JSON keys and writes managed 
 
 test('settings: exportSettings preserves unrelated TOML content and replaces managed mcp_servers sections', () => {
     const root = makeTempDir('soft-harness-settings-toml-');
+    const homeDir = makeTempDir('soft-harness-settings-toml-home-');
     writeUtf8(path.join(root, '.harness', 'settings', 'portable.yaml'), [
         'version: 1',
         'mcp_servers:',
@@ -78,7 +79,7 @@ test('settings: exportSettings preserves unrelated TOML content and replaces man
         '    enabled_for: [codex]',
         ''
     ].join('\n'));
-    writeUtf8(path.join(root, '.codex', 'config.toml'), [
+    writeUtf8(path.join(homeDir, '.codex', 'config.toml'), [
         'approval_policy = "never"',
         '',
         '[mcp_servers.stale]',
@@ -89,9 +90,11 @@ test('settings: exportSettings preserves unrelated TOML content and replaces man
         ''
     ].join('\n'));
 
-    exportSettings(root, {});
-    const config = readUtf8(path.join(root, '.codex', 'config.toml'));
+    const result = exportSettings(root, { homeDir });
+    const config = readUtf8(path.join(homeDir, '.codex', 'config.toml'));
 
+    assert.equal(result.exported[0].path, '~/.codex/config.toml');
+    assert.equal(result.exported[0].scope, 'account');
     assert.match(config, /approval_policy = "never"/);
     assert.match(config, /\[ui\]/);
     assert.match(config, /theme = "dark"/);

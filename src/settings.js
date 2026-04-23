@@ -3,6 +3,7 @@ const YAML = require('yaml');
 const { exists, readUtf8, writeUtf8 } = require('./fs-util');
 const { hashString } = require('./hash');
 const { getProfile, listProfiles } = require('./profiles');
+const { resolveSettingsWriteTarget } = require('./settings-targets');
 
 function loadHarnessSettings(rootDir, relativePath) {
     const absolutePath = path.join(rootDir, relativePath);
@@ -55,20 +56,28 @@ function exportSettings(rootDir, options) {
         }
 
         const merged = mergeHarnessSettings(rootDir, llm);
-        if (Object.keys(merged.mcp_servers).length === 0 && !exists(path.join(rootDir, profile.settings_file))) {
+        const target = resolveSettingsWriteTarget(rootDir, llm, options);
+        if (!target) {
+            continue;
+        }
+        const hasManagedServers = Object.keys(merged.mcp_servers).length > 0;
+        if (!hasManagedServers && target.scope === 'account') {
+            continue;
+        }
+        if (!hasManagedServers && !exists(target.absolutePath)) {
             continue;
         }
 
-        const nextContent = renderHostSettings(rootDir, llm, merged);
-        const absolutePath = path.join(rootDir, profile.settings_file);
-        const current = exists(absolutePath) ? readUtf8(absolutePath) : null;
+        const nextContent = renderHostSettings(rootDir, llm, merged, options);
+        const current = exists(target.absolutePath) ? readUtf8(target.absolutePath) : null;
         if (current === nextContent) {
             continue;
         }
 
         exported.push({
             llm,
-            path: profile.settings_file
+            path: target.displayPath,
+            scope: target.scope
         });
         routes.push({
             action: 'export-settings',
@@ -77,14 +86,17 @@ function exportSettings(rootDir, options) {
                 '.harness/settings/portable.yaml',
                 `.harness/settings/llm/${llm}.yaml`
             ],
-            to: profile.settings_file
+            to: target.displayPath,
+            reason: target.reason || null,
+            detail: target.detail || null,
+            scope: target.scope
         });
 
         if (options && options.dryRun) {
             continue;
         }
 
-        writeUtf8(absolutePath, nextContent);
+        writeUtf8(target.absolutePath, nextContent);
     }
 
     return {
@@ -101,10 +113,19 @@ function buildSettingsState(rootDir) {
             continue;
         }
 
-        const content = renderHostSettings(rootDir, llm, mergeHarnessSettings(rootDir, llm));
+        const target = resolveSettingsWriteTarget(rootDir, llm, null);
+        if (!target) {
+            continue;
+        }
+        const merged = mergeHarnessSettings(rootDir, llm);
+        if (target.scope === 'account' && Object.keys(merged.mcp_servers).length === 0) {
+            continue;
+        }
+        const content = renderHostSettings(rootDir, llm, merged, null);
         settings.push({
             llm,
-            target: profile.settings_file,
+            target: target.displayPath,
+            scope: target.scope,
             managed_subtree: profile.settings_file.endsWith('.toml') ? 'mcp_servers' : 'mcpServers',
             hash: hashString(content)
         });
@@ -112,11 +133,13 @@ function buildSettingsState(rootDir) {
     return settings;
 }
 
-function renderHostSettings(rootDir, llm, merged) {
-    const profile = getProfile(llm);
-    const absolutePath = path.join(rootDir, profile.settings_file);
-    const current = exists(absolutePath) ? readUtf8(absolutePath) : '';
-    if (profile.settings_file.endsWith('.toml')) {
+function renderHostSettings(rootDir, llm, merged, options) {
+    const target = resolveSettingsWriteTarget(rootDir, llm, options);
+    if (!target) {
+        return '';
+    }
+    const current = exists(target.absolutePath) ? readUtf8(target.absolutePath) : '';
+    if (target.displayPath.endsWith('.toml')) {
         return renderTomlSettings(current, merged);
     }
     return renderJsonSettings(current, merged);

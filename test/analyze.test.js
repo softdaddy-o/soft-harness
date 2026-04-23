@@ -1,8 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('node:path');
 const { runAnalyze } = require('../src/analyze');
 const { buildConcatStub, buildImportStub } = require('../src/stubs');
 const { createMemoryFs, makeProjectTree } = require('./helpers');
+const { writeUtf8 } = require('../src/fs-util');
 
 test('analyze: prompts classify common, similar, host-only, and unknown sections', async () => {
     const root = makeProjectTree('soft-harness-analyze-prompts-', {
@@ -107,6 +109,51 @@ test('analyze: settings classify common, similar, conflict, host-only, and unkno
     assert.ok(result.unknown.some((entry) => entry.key === 'settings.gemini'));
     assert.ok(result.score_reasons.some((entry) => /LLM-specific settings conflict/.test(entry)));
     assert.ok(result.score_reasons.some((entry) => /LLM-specific settings item.*out of sync across hosts/.test(entry)));
+});
+
+test('analyze: settings fall back to account-scoped Codex config and capture project trust separately', async () => {
+    const homeDir = makeProjectTree('soft-harness-analyze-settings-home-', {
+        '.codex': {
+            'config.toml': [
+                'model = "gpt-5.4"',
+                '[mcp_servers.shared]',
+                'command = "node"',
+                'args = ["shared.js"]',
+                `[projects.'\\\\?\\${process.platform === 'win32' ? 'D:\\srcp\\placeholder' : '/tmp/placeholder'}']`,
+                'trust_level = "trusted"',
+                ''
+            ].join('\n')
+        }
+    });
+    const root = makeProjectTree('soft-harness-analyze-settings-account-fallback-', {
+        '.claude': {
+            'settings.json': JSON.stringify({
+                mcpServers: {
+                    shared: { command: 'node', args: ['shared.js'] }
+                }
+            }, null, 2)
+        }
+    });
+    const projectPath = path.resolve(root);
+    writeUtf8(path.join(homeDir, '.codex', 'config.toml'), [
+        'model = "gpt-5.4"',
+        '[mcp_servers.shared]',
+        'command = "node"',
+        'args = ["shared.js"]',
+        `[projects.'${process.platform === 'win32' ? `\\\\?\\${projectPath}` : projectPath}']`,
+        'trust_level = "trusted"',
+        ''
+    ].join('\n'));
+
+    const result = await runAnalyze(root, { category: 'settings', homeDir });
+    const codexSettings = result.inventory.settings.find((entry) => entry.llm === 'codex');
+
+    assert.ok(codexSettings);
+    assert.equal(codexSettings.file, '~/.codex/config.toml');
+    assert.equal(codexSettings.scope, 'account');
+    assert.ok(codexSettings.hostOnlyKeys.includes('project.trust_level'));
+    assert.ok(result.common.some((entry) => entry.key === 'settings.mcp.shared'));
+    assert.ok(result.host_only.some((entry) => entry.key === 'settings.codex.project.trust_level'));
 });
 
 test('analyze: skills classify common, similar, conflict, and host-only content', async () => {

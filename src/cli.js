@@ -507,6 +507,18 @@ function formatExportDetails(entries, options) {
             items.push(`${entry.from} -> ${entry.to} [${entry.mode}]${reason}`);
             continue;
         }
+        if (entry.action === 'export-settings') {
+            const details = [];
+            if (options && options.explain && entry.reason) {
+                details.push(entry.reason);
+            }
+            if (entry.detail) {
+                details.push(entry.detail);
+            }
+            const suffix = details.length > 0 ? ` (${details.join('; ')})` : '';
+            items.push(`${entry.from.join(' + ')} -> ${entry.to}${suffix}`);
+            continue;
+        }
         if (entry.action === 'skip-export') {
             const details = [];
             if (options && options.explain && entry.reason) {
@@ -601,9 +613,16 @@ function formatAnalyzeDocuments(result, options) {
 function formatAnalyzeSettings(entries) {
     return (entries || []).map((entry) => {
         const children = [
+            { text: `scope: ${entry.scope || 'project'}` },
             { text: `mcp servers: ${entry.mcpServers.length}` },
             { text: `host-only keys: ${entry.hostOnlyKeys.length}` }
         ];
+        if (entry.projectEntry) {
+            children.push({ text: `project entry: ${entry.projectEntry}` });
+        }
+        if (entry.scopeNote) {
+            children.push({ text: `scope note: ${entry.scopeNote}` });
+        }
         if (entry.mcpServers.length > 0) {
             children.push({
                 text: 'servers',

@@ -11,6 +11,9 @@ test('profiles: getProfile returns full profile object', () => {
     assert.equal(claude.name, 'claude');
     assert.equal(claude.supports_imports, true);
     assert.deepEqual(claude.instruction_files, ['CLAUDE.md', '.claude/CLAUDE.md']);
+    const codex = getProfile('codex');
+    assert.equal(codex.settings_scope, 'account');
+    assert.equal(codex.settings_capabilities.project_mcp, 'unverified');
 });
 
 test('profiles: matchInstructionFile identifies exact matches', () => {

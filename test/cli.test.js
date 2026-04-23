@@ -887,6 +887,62 @@ test('cli: formatAnalyzeReport includes untitled prompt counts and settings pars
     assert.doesNotMatch(output, /Unknown/u);
 });
 
+test('cli: formatAnalyzeReport shows account-scoped Codex settings metadata', () => {
+    const output = formatAnalyzeReport({
+        summary: { common: 0, similar: 0, conflicts: 0, host_only: 0, unknown: 0 },
+        inventory: {
+            documents: [],
+            settings: [{
+                llm: 'codex',
+                file: '~/.codex/config.toml',
+                scope: 'account',
+                format: 'toml',
+                status: 'parsed',
+                mcpServers: ['shared'],
+                hostOnlyKeys: ['project.trust_level'],
+                projectEntry: '\\\\?\\D:\\srcp\\soft-harness',
+                scopeNote: 'Treat Codex MCP settings as account-scoped until project-local MCP support is confirmed.'
+            }],
+            skills: [],
+            plugins: { desired: [], hosts: [] }
+        },
+        common: [],
+        similar: [],
+        conflicts: [],
+        host_only: [],
+        unknown: []
+    }, { explain: true });
+
+    assert.match(output, /file: codex:~\/\.codex\/config\.toml \[toml\/parsed\]/);
+    assert.match(output, /scope: account/);
+    assert.ok(output.includes('project entry: \\\\?\\D:\\srcp\\soft-harness'));
+    assert.match(output, /scope note: Treat Codex MCP settings as account-scoped/);
+});
+
+test('cli: formatSyncReport includes account-scoped Codex settings exports', () => {
+    const output = formatSyncReport({
+        phase: 'dry-run',
+        plan: { import: [], export: [1], drift: [], conflicts: [] },
+        details: {
+            imports: [],
+            exports: [{
+                action: 'export-settings',
+                from: ['.harness/settings/portable.yaml', '.harness/settings/llm/codex.yaml'],
+                to: '~/.codex/config.toml',
+                reason: 'Codex MCP settings are exported to the account config until project-local Codex MCP support is confirmed.',
+                detail: 'this writes shared Codex MCP state to ~/.codex/config.toml instead of a repo-local .codex/config.toml file'
+            }],
+            drift: [],
+            conflicts: []
+        },
+        pluginActions: []
+    }, { explain: true });
+
+    assert.match(output, /\.harness\/settings\/portable\.yaml \+ \.harness\/settings\/llm\/codex\.yaml -> ~\/\.codex\/config\.toml/);
+    assert.match(output, /project-local Codex MCP support is confirmed/);
+    assert.match(output, /repo-local \.codex\/config\.toml file/);
+});
+
 test('cli: main runs sync, analyze, and revert flows in-process', async () => {
     const root = makeProjectTree('soft-harness-cli-main-', {
         '.harness': {

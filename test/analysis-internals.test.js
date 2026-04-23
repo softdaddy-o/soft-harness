@@ -139,7 +139,7 @@ test('analyze: runAnalyze selects categories explicitly and by default', async (
     assert.ok(promptsOnly.inventory.documents.length > 0);
     assert.deepEqual(promptsOnly.inventory.settings, []);
 
-    const settingsOnly = await runAnalyze(root, { category: 'settings' });
+    const settingsOnly = await runAnalyze(root, { category: 'settings', homeDir: root });
     assert.deepEqual(settingsOnly.inventory.documents, []);
     assert.ok(Array.isArray(settingsOnly.inventory.settings));
 
@@ -148,13 +148,13 @@ test('analyze: runAnalyze selects categories explicitly and by default', async (
     assert.deepEqual(skillsOnly.inventory.settings, []);
     assert.ok(skillsOnly.summary.host_only >= 1);
 
-    const explicitAll = await runAnalyze(root, { category: 'all' });
+    const explicitAll = await runAnalyze(root, { category: 'all', homeDir: root });
     assert.ok(explicitAll.summary.host_only >= 1);
     assert.equal(typeof explicitAll.score, 'number');
     assert.ok(Array.isArray(explicitAll.score_reasons));
     assert.ok(explicitAll.score >= 0 && explicitAll.score <= 100);
 
-    const allCategories = await runAnalyze(root, {});
+    const allCategories = await runAnalyze(root, { homeDir: root });
     assert.ok(allCategories.inventory.documents.length > 0);
     assert.ok(Array.isArray(allCategories.inventory.settings));
     assert.ok(allCategories.summary.host_only >= 1);

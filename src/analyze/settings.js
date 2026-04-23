@@ -1,6 +1,7 @@
 const path = require('node:path');
 const { exists, readUtf8 } = require('../fs-util');
 const { listProfiles, getProfile } = require('../profiles');
+const { resolveSettingsReadTarget } = require('../settings-targets');
 const { createFinding, normalizeText, similarity } = require('./shared');
 
 function analyzeSettings(rootDir, options) {
@@ -17,30 +18,38 @@ function analyzeSettings(rootDir, options) {
 
     for (const llm of llms) {
         const profile = getProfile(llm);
-        const settingsPath = profile.settings_file || profile.plugins_manifest;
-        if (!settingsPath) {
+        const source = resolveSettingsReadTarget(rootDir, llm, options);
+        if (!source) {
             continue;
         }
-
-        const absolutePath = path.join(rootDir, settingsPath);
-        if (!exists(absolutePath)) {
+        if (!exists(source.absolutePath)) {
             continue;
         }
 
         try {
-            const parsed = parseSettingsFile(settingsPath, readUtf8(absolutePath));
+            const parsed = parseSettingsFile(source.displayPath, readUtf8(source.absolutePath), {
+                llm,
+                profile,
+                projectRoot: rootDir,
+                sourceScope: source.scope
+            });
             settings.push({
                 llm,
-                file: settingsPath,
+                file: source.displayPath,
+                scope: source.scope,
                 format: parsed.format,
                 status: 'parsed',
                 mcpServers: parsed.mcpServers.map((server) => server.name),
-                hostOnlyKeys: parsed.hostOnlyKeys
+                hostOnlyKeys: parsed.hostOnlyKeys,
+                projectEntry: parsed.projectEntry || null,
+                scopeNote: profile.settings_scope_note || null,
+                capabilities: profile.settings_capabilities || null
             });
             mcpEntries.push(...parsed.mcpServers.map((server) => ({
                 ...server,
                 llm,
-                sourceFile: settingsPath
+                scope: source.scope,
+                sourceFile: source.displayPath
             })));
 
             for (const key of parsed.hostOnlyKeys) {
@@ -50,20 +59,24 @@ function analyzeSettings(rootDir, options) {
                     key: `settings.${llm}.${key}`,
                     sources: [{
                         llm,
-                        file: settingsPath,
-                        path: `${settingsPath}#${key}`
+                        file: source.displayPath,
+                        path: `${source.displayPath}#${key}`,
+                        scope: source.scope
                     }],
-                    reason: 'no portable cross-host mapping is defined'
+                    reason: buildHostOnlyKeyReason(llm, key, source.scope)
                 }));
             }
         } catch (error) {
             settings.push({
                 llm,
-                file: settingsPath,
-                format: detectSettingsFormat(settingsPath),
+                file: source.displayPath,
+                scope: source.scope,
+                format: detectSettingsFormat(source.displayPath),
                 status: 'parse-error',
                 mcpServers: [],
                 hostOnlyKeys: [],
+                scopeNote: profile.settings_scope_note || null,
+                capabilities: profile.settings_capabilities || null,
                 error: error.message
             });
             findings.unknown.push(createFinding('unknown', {
@@ -72,8 +85,9 @@ function analyzeSettings(rootDir, options) {
                 key: `settings.${llm}`,
                 sources: [{
                     llm,
-                    file: settingsPath,
-                    path: settingsPath
+                    file: source.displayPath,
+                    path: source.displayPath,
+                    scope: source.scope
                 }],
                 reason: `settings adapter could not parse file: ${error.message}`
             }));
@@ -130,12 +144,12 @@ function analyzeSettings(rootDir, options) {
     };
 }
 
-function parseSettingsFile(settingsPath, content) {
+function parseSettingsFile(settingsPath, content, context) {
     if (settingsPath.endsWith('.json')) {
         return parseJsonSettings(content);
     }
     if (settingsPath.endsWith('.toml')) {
-        return parseTomlSettings(content);
+        return parseTomlSettings(content, context);
     }
     throw new Error(`unsupported settings file type: ${settingsPath}`);
 }
@@ -151,10 +165,11 @@ function parseJsonSettings(content) {
     };
 }
 
-function parseTomlSettings(content) {
+function parseTomlSettings(content, context) {
     const lines = String(content || '').replace(/\r\n/g, '\n').split('\n');
-    const root = {};
+    const hostOnlyKeys = [];
     const mcpServers = {};
+    const projectSections = new Map();
     let section = null;
 
     for (const rawLine of lines) {
@@ -185,15 +200,29 @@ function parseTomlSettings(content) {
                 mcpServers[serverName] = {};
             }
             mcpServers[serverName][key] = value;
+        } else if (section && section.startsWith('projects.')) {
+            const projectKey = parseTomlSectionName(section.replace(/^projects\./, ''));
+            if (!projectSections.has(projectKey)) {
+                projectSections.set(projectKey, {});
+            }
+            projectSections.get(projectKey)[key] = value;
+        } else if (section) {
+            hostOnlyKeys.push(`${section}.${key}`);
         } else {
-            root[key] = value;
+            hostOnlyKeys.push(key);
         }
+    }
+
+    const currentProject = selectCurrentProjectSection(projectSections, context);
+    if (currentProject) {
+        hostOnlyKeys.push(...Object.keys(currentProject.values).map((key) => `project.${key}`));
     }
 
     return {
         format: 'toml',
         mcpServers: Object.entries(mcpServers).map(([name, value]) => buildMcpServer(name, value)),
-        hostOnlyKeys: Object.keys(root)
+        hostOnlyKeys,
+        projectEntry: currentProject ? currentProject.projectKey : null
     };
 }
 
@@ -223,6 +252,14 @@ function parseTomlValue(rawValue) {
         return value === 'true';
     }
     return value;
+}
+
+function parseTomlSectionName(value) {
+    const trimmed = String(value || '').trim();
+    if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith('\'') && trimmed.endsWith('\''))) {
+        return trimmed.slice(1, -1);
+    }
+    return trimmed;
 }
 
 function buildMcpServer(name, value) {
@@ -287,7 +324,8 @@ function createSettingsSource(member) {
     return {
         llm: member.llm,
         file: member.sourceFile,
-        path: `${member.sourceFile}#${member.name}`
+        path: `${member.sourceFile}#${member.name}`,
+        scope: member.scope
     };
 }
 
@@ -297,6 +335,47 @@ function selectLlms(options) {
         return listProfiles();
     }
     return requested;
+}
+
+function selectCurrentProjectSection(projectSections, context) {
+    if (!context || context.llm !== 'codex' || context.sourceScope !== 'account' || !context.projectRoot) {
+        return null;
+    }
+
+    const expected = normalizeComparablePath(context.projectRoot);
+    for (const [projectKey, values] of projectSections.entries()) {
+        if (normalizeComparablePath(projectKey) === expected) {
+            return {
+                projectKey,
+                values
+            };
+        }
+    }
+    return null;
+}
+
+function normalizeComparablePath(value) {
+    const withoutPrefix = String(value || '')
+        .trim()
+        .replace(/^\\\\\?\\/u, '')
+        .replace(/[\\/]+$/u, '');
+    const normalizedSeparators = withoutPrefix.replace(/[\\/]+/g, path.sep);
+    const resolved = path.isAbsolute(normalizedSeparators)
+        ? path.resolve(normalizedSeparators)
+        : normalizedSeparators;
+    return path.sep === '\\'
+        ? resolved.toLowerCase()
+        : resolved;
+}
+
+function buildHostOnlyKeyReason(llm, key, scope) {
+    if (llm === 'codex' && scope === 'account' && key.startsWith('project.')) {
+        return 'Codex stores this project-specific key in the account config under [projects.*]';
+    }
+    if (llm === 'codex' && scope === 'account') {
+        return 'Codex stores this key in the account config and no portable cross-host mapping is defined';
+    }
+    return 'no portable cross-host mapping is defined';
 }
 
 module.exports = {

@@ -6,7 +6,8 @@ const PROFILES = {
         skills_dir: '.claude/skills',
         agents_dir: '.claude/agents',
         settings_file: '.claude/settings.json',
-        plugins_manifest: '.claude/settings.json'
+        plugins_manifest: '.claude/settings.json',
+        settings_scope: 'project'
     },
     codex: {
         name: 'codex',
@@ -16,7 +17,13 @@ const PROFILES = {
         skills_dir: '.codex/skills',
         agents_dir: '.codex/agents',
         settings_file: '.codex/config.toml',
-        plugins_manifest: '.codex/config.toml'
+        plugins_manifest: '.codex/config.toml',
+        settings_scope: 'account',
+        settings_scope_note: 'Treat Codex MCP settings as account-scoped until project-local MCP support is confirmed.',
+        settings_capabilities: {
+            project_mcp: 'unverified',
+            project_trust: 'account-project-table'
+        }
     },
     gemini: {
         name: 'gemini',
@@ -26,7 +33,8 @@ const PROFILES = {
         skills_dir: '.gemini/skills',
         agents_dir: '.gemini/agents',
         settings_file: '.gemini/settings.json',
-        plugins_manifest: '.gemini/settings.json'
+        plugins_manifest: '.gemini/settings.json',
+        settings_scope: 'project'
     }
 };
 
