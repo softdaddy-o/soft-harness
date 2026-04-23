@@ -7,31 +7,177 @@ const { exportInstructions } = require('./export');
 const { exists, readJson, readUtf8, writeUtf8 } = require('./fs-util');
 const { exportSettings } = require('./settings');
 const { exportSkillsAndAgents } = require('./skills');
+const { buildVirtualPc } = require('./virtual-pc');
 
 async function runSkillEvals(options = {}) {
     const repoRoot = path.resolve(options.repoRoot || path.join(__dirname, '..'));
-    const accountRoot = path.resolve(options.virtualPcRoot || path.join(repoRoot, 'sandbox', 'virtual-pc', 'pc-image', 'C', 'Users', 'primary-user'));
-    const workspaceRoot = path.resolve(options.workspaceRoot || path.join(repoRoot, 'sandbox', 'virtual-pc', 'pc-image', 'F', 'src3', 'docs'));
+    const fixture = await resolveAnalyzeEvalRoots(repoRoot, options);
+    const accountRoot = fixture.accountRoot;
+    const workspaceRoot = fixture.workspaceRoot;
     const checks = [];
 
-    await collect(checks, 'analyze-contract', async () => evaluateAnalyzeContract(repoRoot));
-    await collect(checks, 'analyze-virtual-pc-account', async () => evaluateAnalyzeVirtualPcAccount(accountRoot));
-    await collect(checks, 'analyze-virtual-pc-workspace', async () => evaluateAnalyzeVirtualPcWorkspace(workspaceRoot));
-    await collect(checks, 'organize-contract', async () => evaluateOrganizeContract(repoRoot));
-    await collect(checks, 'organize-helper-flow', async () => evaluateOrganizeHelperFlow());
-    await collect(checks, 'organize-dry-run-helper-flow', async () => evaluateOrganizeDryRunHelperFlow());
+    try {
+        await collect(checks, 'analyze-contract', async () => evaluateAnalyzeContract(repoRoot));
+        await collect(checks, 'analyze-virtual-pc-account', async () => evaluateAnalyzeVirtualPcAccount(accountRoot));
+        await collect(checks, 'analyze-virtual-pc-workspace', async () => evaluateAnalyzeVirtualPcWorkspace(workspaceRoot));
+        await collect(checks, 'organize-contract', async () => evaluateOrganizeContract(repoRoot));
+        await collect(checks, 'organize-helper-flow', async () => evaluateOrganizeHelperFlow());
+        await collect(checks, 'organize-dry-run-helper-flow', async () => evaluateOrganizeDryRunHelperFlow());
 
-    return {
-        repoRoot,
-        virtualPcRoot: accountRoot,
-        workspaceRoot,
-        summary: {
-            total: checks.length,
-            passed: checks.filter((entry) => entry.ok).length,
-            failed: checks.filter((entry) => !entry.ok).length
+        return {
+            repoRoot,
+            virtualPcRoot: accountRoot,
+            workspaceRoot,
+            summary: {
+                total: checks.length,
+                passed: checks.filter((entry) => entry.ok).length,
+                failed: checks.filter((entry) => !entry.ok).length
+            },
+            checks
+        };
+    } finally {
+        if (typeof fixture.cleanup === 'function') {
+            fixture.cleanup();
+        }
+    }
+}
+
+async function resolveAnalyzeEvalRoots(repoRoot, options) {
+    const bundledAccountRoot = path.resolve(path.join(repoRoot, 'sandbox', 'virtual-pc', 'pc-image', 'C', 'Users', 'primary-user'));
+    const bundledWorkspaceRoot = path.resolve(path.join(repoRoot, 'sandbox', 'virtual-pc', 'pc-image', 'F', 'src3', 'docs'));
+    const requestedAccountRoot = options.virtualPcRoot
+        ? path.resolve(options.virtualPcRoot)
+        : bundledAccountRoot;
+    const requestedWorkspaceRoot = options.workspaceRoot
+        ? path.resolve(options.workspaceRoot)
+        : bundledWorkspaceRoot;
+
+    if ((options.virtualPcRoot || options.workspaceRoot) && !options.forceGeneratedVirtualPc) {
+        return {
+            accountRoot: requestedAccountRoot,
+            workspaceRoot: requestedWorkspaceRoot,
+            cleanup: null
+        };
+    }
+
+    if (!options.forceGeneratedVirtualPc && exists(requestedAccountRoot) && exists(requestedWorkspaceRoot)) {
+        return {
+            accountRoot: requestedAccountRoot,
+            workspaceRoot: requestedWorkspaceRoot,
+            cleanup: null
+        };
+    }
+
+    const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soft-harness-skill-eval-vpc-'));
+    try {
+        const virtualPc = await buildAnalyzeEvalVirtualPc(fixtureRoot);
+        return {
+            accountRoot: virtualPc.homeImageRoot,
+            workspaceRoot: virtualPc.docsImageRoot,
+            cleanup() {
+                fs.rmSync(fixtureRoot, { recursive: true, force: true });
+            }
+        };
+    } catch (error) {
+        fs.rmSync(fixtureRoot, { recursive: true, force: true });
+        throw error;
+    }
+}
+
+async function buildAnalyzeEvalVirtualPc(fixtureRoot) {
+    const docsRoot = path.join(fixtureRoot, 'docs-source');
+    const homeRoot = path.join(fixtureRoot, 'home-source');
+    const outputRoot = path.join(fixtureRoot, 'virtual-pc');
+
+    seedAnalyzeEvalSourceFixture(docsRoot, homeRoot);
+
+    return buildVirtualPc({
+        docsRoot,
+        homeRoot,
+        outputRoot,
+        translateKorean: false
+    });
+}
+
+function seedAnalyzeEvalSourceFixture(docsRoot, homeRoot) {
+    writeUtf8(path.join(homeRoot, 'AGENTS.md'), '# Account Codex Notes\n\nKeep shared rules visible.\n');
+    writeUtf8(path.join(homeRoot, '.claude', 'CLAUDE.md'), '# Account Claude Notes\n\nReview account prompts before reuse.\n');
+    writeUtf8(path.join(homeRoot, '.claude', 'settings.json'), JSON.stringify({
+        enabledPlugins: {
+            'account-plugin@local': true
         },
-        checks
-    };
+        mcpServers: {
+            accountShared: {
+                command: 'node',
+                args: ['account-mcp.js']
+            }
+        }
+    }, null, 2));
+    writeUtf8(path.join(homeRoot, '.codex', 'config.toml'), [
+        'approval_policy = "never"',
+        '',
+        '[mcp_servers.account_shared]',
+        'command = "node"',
+        'args = ["account-mcp.js"]',
+        '',
+        '[[plugins]]',
+        'name = "account-codex-plugin"',
+        ''
+    ].join('\n'));
+    writeUtf8(path.join(homeRoot, '.claude', 'skills', 'account-review', 'SKILL.md'), [
+        '---',
+        'name: account-review',
+        'description: Account-scoped review guidance.',
+        '---',
+        '',
+        '# Account Review',
+        '',
+        'Use this skill to review account-level host drift.',
+        ''
+    ].join('\n'));
+    writeUtf8(path.join(homeRoot, '.codex', 'agents', 'account-helper.md'), '# Account Helper\n\nSummarize host-only findings.\n');
+    writeUtf8(path.join(homeRoot, '.gemini', 'settings.json'), JSON.stringify({
+        enabledPlugins: {
+            'gemini-account-plugin': true
+        }
+    }, null, 2));
+
+    writeUtf8(path.join(docsRoot, 'AGENTS.md'), '# Workspace Codex Notes\n\nInspect repository-level drift carefully.\n');
+    writeUtf8(path.join(docsRoot, '.claude', 'CLAUDE.md'), '# Workspace Claude Notes\n\nPrefer project-local findings.\n');
+    writeUtf8(path.join(docsRoot, '.claude', 'settings.json'), JSON.stringify({
+        enabledPlugins: {
+            'workspace-plugin@local': true
+        },
+        mcpServers: {
+            workspaceShared: {
+                command: 'node',
+                args: ['workspace-mcp.js']
+            }
+        }
+    }, null, 2));
+    writeUtf8(path.join(docsRoot, '.codex', 'config.toml'), [
+        'approval_policy = "never"',
+        '',
+        '[mcp_servers.workspace_shared]',
+        'command = "node"',
+        'args = ["workspace-mcp.js"]',
+        '',
+        '[[plugins]]',
+        'name = "workspace-codex-plugin"',
+        ''
+    ].join('\n'));
+    writeUtf8(path.join(docsRoot, '.claude', 'skills', 'workspace-review', 'SKILL.md'), [
+        '---',
+        'name: workspace-review',
+        'description: Workspace-scoped review guidance.',
+        '---',
+        '',
+        '# Workspace Review',
+        '',
+        'Use this skill to review project-level host drift.',
+        ''
+    ].join('\n'));
+    writeUtf8(path.join(docsRoot, '.claude', 'agents', 'workspace-helper.md'), '# Workspace Helper\n\nCapture repository findings.\n');
 }
 
 async function collect(checks, name, fn) {
