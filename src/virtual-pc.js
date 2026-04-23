@@ -630,7 +630,7 @@ async function requestGoogleTranslation(text) {
         try {
             const response = await fetch(url, {
                 headers: {
-                    'User-Agent': 'soft-harness/0.4.23'
+                    'User-Agent': 'soft-harness/0.4.26'
                 }
             });
             if (!response.ok) {

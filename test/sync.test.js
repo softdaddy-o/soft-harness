@@ -23,6 +23,8 @@ test('sync: first run imports instruction files, exports stubs, and saves state'
     assert.equal(state.assets.instructions.length, 4);
     assert.ok(state.assets.instructions.some((entry) => entry.target === '.claude/CLAUDE.md'));
     assert.ok(state.assets.instructions.some((entry) => entry.target === 'GEMINI.md'));
+    assert.ok(Array.isArray(state.assets.skills));
+    assert.ok(Array.isArray(state.assets.agents));
     assert.ok(listBackups(root).length >= 1);
     assert.ok(result.details.imports.some((entry) => entry.action === 'adopt'));
 });

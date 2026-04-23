@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { exists, writeUtf8 } = require('../src/fs-util');
-const { detectSkillsAndAgentsDrift, exportSkillsAndAgents } = require('../src/skills');
+const { buildManagedAssetState, detectSkillsAndAgentsDrift, exportSkillsAndAgents } = require('../src/skills');
 const { initGitRepo, makeProjectTree, makeTempDir } = require('./helpers');
 
 test('skills-links: explicit link mode still downgrades repo-internal exports to copy when target is not gitignored', () => {
@@ -14,7 +14,7 @@ test('skills-links: explicit link mode still downgrades repo-internal exports to
     const entry = exported.exported.find((item) => item.to === '.claude/skills/safe');
 
     assert.equal(entry.mode, 'copy');
-    assert.equal(exists(path.join(root, '.claude', 'skills', 'safe', '.harness-managed')), true);
+    assert.equal(exists(path.join(root, '.claude', 'skills', 'safe', '.harness-managed')), false);
 });
 
 test('skills-links: gitignored targets allow planned link exports and stable re-export detection', () => {
@@ -137,14 +137,13 @@ test('skills-links: junction requests and agent drift paths are handled', () => 
     const exported = exportSkillsAndAgents(root, { linkMode: 'junction' });
     const skillEntry = exported.exported.find((entry) => entry.to === '.claude/skills/junc');
     assert.ok(skillEntry);
+    const state = {
+        assets: buildManagedAssetState(root)
+    };
 
     const agentPath = path.join(root, '.claude', 'agents', 'worker.md');
-    const markerPath = `${agentPath}.harness-managed`;
     writeUtf8(agentPath, '# Worker changed');
-    if (exists(markerPath)) {
-        fs.rmSync(markerPath, { force: true });
-    }
 
-    const drift = detectSkillsAndAgentsDrift(root);
+    const drift = detectSkillsAndAgentsDrift(root, { state });
     assert.ok(drift.some((entry) => entry.type === 'agent' && entry.target === '.claude/agents/worker.md'));
 });

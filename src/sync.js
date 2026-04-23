@@ -10,7 +10,7 @@ const { syncPlugins } = require('./plugins');
 const { getProfile } = require('./profiles');
 const { pullBackInstructionDrift } = require('./pullback');
 const { buildSettingsState, exportSettings } = require('./settings');
-const { discoverHarnessAssets, discoverSkillsAndAgents, exportSkillsAndAgents, importSkillsAndAgents, pullBackSkillsAndAgents } = require('./skills');
+const { buildManagedAssetState, discoverHarnessAssets, discoverSkillsAndAgents, exportSkillsAndAgents, importSkillsAndAgents, pullBackSkillsAndAgents } = require('./skills');
 const { loadState, saveState } = require('./state');
 
 async function runSync(rootDir, options, io) {
@@ -268,8 +268,7 @@ function buildNextState(rootDir, state, discovered, plugins) {
         assets: {
             instructions,
             settings: buildSettingsState(rootDir),
-            skills: [],
-            agents: []
+            ...buildManagedAssetState(rootDir)
         },
         classifications: {
             ...state.classifications,

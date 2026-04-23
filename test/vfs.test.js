@@ -39,13 +39,13 @@ test('vfs: hash helpers work against memory-backed files and directories', () =>
                 'two.txt': '2'
             },
             beta: {
-                '.harness-managed': 'meta'
+                '.ignore-me': 'meta'
             }
         });
 
         const fileHash = hashFile(path.join(root, 'alpha', 'one.txt'));
         const dirHash = hashDirectory(path.join(root, 'alpha'));
-        const ignoredHash = hashDirectory(path.join(root, 'beta'), { ignore: ['.harness-managed'] });
+        const ignoredHash = hashDirectory(path.join(root, 'beta'), { ignore: ['.ignore-me'] });
 
         assert.equal(typeof fileHash, 'string');
         assert.equal(fileHash.length, 64);

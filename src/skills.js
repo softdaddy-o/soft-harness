@@ -6,8 +6,6 @@ const { createLink, isSymlink, readLink } = require('./symlink');
 const { copyPath, ensureDir, exists, readUtf8, removePath, writeUtf8 } = require('./fs-util');
 const { getProfile, listProfiles } = require('./profiles');
 
-const MANAGED_MARKER = '.harness-managed';
-
 function discoverSkillsAndAgents(rootDir) {
     const items = [];
 
@@ -29,7 +27,7 @@ function discoverSkillsAndAgents(rootDir) {
                     llm,
                     relativePath: path.posix.join(profile.skills_dir, item.name),
                     absolutePath: skillDir,
-                    hash: hashDirectory(skillDir, { ignore: [MANAGED_MARKER] })
+                    hash: hashDirectory(skillDir)
                 });
             }
         }
@@ -182,6 +180,9 @@ function ensureManagedTarget(rootDir, entry, options) {
     const desiredMode = desired.mode;
 
     if (targetMatches(rootDir, entry, desiredMode)) {
+        if (!options || !options.dryRun) {
+            removeLegacyManagedMarker(absoluteTarget, entry.type);
+        }
         return null;
     }
 
@@ -204,21 +205,7 @@ function ensureManagedTarget(rootDir, entry, options) {
 
     removePath(absoluteTarget);
     copyPath(absoluteSource, absoluteTarget);
-        if (entry.type === 'skill') {
-            writeUtf8(path.join(absoluteTarget, MANAGED_MARKER), [
-                `source: ${entry.source}`,
-                `content_hash: sha256:${hashDirectory(absoluteTarget, { ignore: [MANAGED_MARKER] })}`,
-                'regenerate: soft-harness organize',
-                ''
-            ].join('\n'));
-        } else {
-            writeUtf8(`${absoluteTarget}.${MANAGED_MARKER}`, [
-                `source: ${entry.source}`,
-                `content_hash: sha256:${hashFile(absoluteTarget)}`,
-                'regenerate: soft-harness organize',
-                ''
-            ].join('\n'));
-        }
+    removeLegacyManagedMarker(absoluteTarget, entry.type);
     return {
         mode: 'copy',
         reason: desired.reason || null
@@ -246,22 +233,23 @@ function targetMatches(rootDir, entry, desiredMode) {
     }
 
     if (entry.type === 'skill') {
-        const markerPath = path.join(absoluteTarget, MANAGED_MARKER);
-        return exists(markerPath)
-            && readUtf8(markerPath).includes(`content_hash: sha256:${hashDirectory(absoluteTarget, { ignore: [MANAGED_MARKER] })}`);
+        return hashDirectory(absoluteSource) === hashDirectory(absoluteTarget);
     }
 
-    const markerPath = `${absoluteTarget}.${MANAGED_MARKER}`;
-    return exists(markerPath)
-        && readUtf8(markerPath).includes(`content_hash: sha256:${hashFile(absoluteTarget)}`);
+    return hashFile(absoluteSource) === hashFile(absoluteTarget);
 }
 
-function detectSkillsAndAgentsDrift(rootDir) {
+function detectSkillsAndAgentsDrift(rootDir, options) {
     const drift = [];
+    const managed = buildManagedAssetIndex(options && options.state);
     for (const entry of discoverHarnessAssets(rootDir)) {
         const absoluteSource = path.join(rootDir, entry.source);
         const absoluteTarget = path.join(rootDir, entry.target);
+        const prior = managed.get(getManagedAssetKey(entry));
 
+        if (!prior) {
+            continue;
+        }
         if (!exists(absoluteTarget)) {
             continue;
         }
@@ -280,10 +268,19 @@ function detectSkillsAndAgentsDrift(rootDir) {
             continue;
         }
 
+        if (prior.mode === 'symlink' || prior.mode === 'junction') {
+            drift.push({
+                type: entry.type,
+                mode: prior.mode,
+                target: entry.target,
+                source: entry.source
+            });
+            continue;
+        }
+
         if (entry.type === 'skill') {
-            const markerPath = path.join(absoluteTarget, MANAGED_MARKER);
-            const currentHash = hashDirectory(absoluteTarget, { ignore: [MANAGED_MARKER] });
-            if (!exists(markerPath) || !readUtf8(markerPath).includes(`content_hash: sha256:${currentHash}`)) {
+            const currentHash = hashDirectory(absoluteTarget);
+            if (prior.target_hash !== currentHash) {
                 drift.push({
                     type: 'skill',
                     mode: 'copy',
@@ -294,9 +291,8 @@ function detectSkillsAndAgentsDrift(rootDir) {
             continue;
         }
 
-        const markerPath = `${absoluteTarget}.${MANAGED_MARKER}`;
         const currentHash = hashFile(absoluteTarget);
-        if (!exists(markerPath) || !readUtf8(markerPath).includes(`content_hash: sha256:${currentHash}`)) {
+        if (prior.target_hash !== currentHash) {
             drift.push({
                 type: 'agent',
                 mode: 'copy',
@@ -371,9 +367,6 @@ function pullBackSkillsAndAgents(rootDir, driftEntries, options) {
 
         removePath(absoluteSource);
         copyPath(absoluteTarget, absoluteSource);
-        if (entry.type === 'skill') {
-            removePath(path.join(absoluteSource, MANAGED_MARKER));
-        }
         pulledBack.push({
             from: entry.target,
             to: entry.source
@@ -433,8 +426,72 @@ function discoverHarnessAssets(rootDir) {
     return plan;
 }
 
+function buildManagedAssetState(rootDir) {
+    const state = {
+        skills: [],
+        agents: []
+    };
+
+    for (const entry of discoverHarnessAssets(rootDir)) {
+        const absoluteTarget = path.join(rootDir, entry.target);
+        if (!exists(absoluteTarget)) {
+            continue;
+        }
+
+        const record = {
+            target: entry.target,
+            source: entry.source,
+            mode: isSymlink(absoluteTarget) ? detectLinkMode(absoluteTarget) : 'copy',
+            target_hash: null
+        };
+
+        if (record.mode === 'copy') {
+            record.target_hash = entry.type === 'skill'
+                ? hashDirectory(absoluteTarget)
+                : hashFile(absoluteTarget);
+        }
+
+        if (entry.type === 'skill') {
+            state.skills.push(record);
+        } else {
+            state.agents.push(record);
+        }
+    }
+
+    return state;
+}
+
+function buildManagedAssetIndex(state) {
+    const index = new Map();
+    const assets = (state && state.assets) || state || {};
+
+    for (const entry of assets.skills || []) {
+        index.set(`skill:${entry.target}`, entry);
+    }
+    for (const entry of assets.agents || []) {
+        index.set(`agent:${entry.target}`, entry);
+    }
+
+    return index;
+}
+
+function getManagedAssetKey(entry) {
+    return `${entry.type}:${entry.target}`;
+}
+
+function detectLinkMode(absoluteTarget) {
+    return process.platform === 'win32' ? 'junction' : 'symlink';
+}
+
+function removeLegacyManagedMarker(absoluteTarget, type) {
+    const markerPath = type === 'skill'
+        ? path.join(absoluteTarget, '.harness-managed')
+        : `${absoluteTarget}.harness-managed`;
+    removePath(markerPath);
+}
+
 module.exports = {
-    MANAGED_MARKER,
+    buildManagedAssetState,
     detectSkillsAndAgentsDrift,
     discoverHarnessAssets,
     discoverSkillsAndAgents,

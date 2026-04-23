@@ -20,8 +20,8 @@ test('hash: hashDirectory ignores marker files when asked', () => {
     const dir = makeTempDir('soft-harness-dirhash-');
     fs.writeFileSync(path.join(dir, 'a.txt'), 'A');
     const before = hashDirectory(dir);
-    fs.writeFileSync(path.join(dir, '.harness-managed'), 'meta');
-    const after = hashDirectory(dir, { ignore: ['.harness-managed'] });
+    fs.writeFileSync(path.join(dir, '.ignore-me'), 'meta');
+    const after = hashDirectory(dir, { ignore: ['.ignore-me'] });
     assert.equal(before, after);
 });
 

@@ -18,7 +18,7 @@ test('install plugin: installs shared plugin files and merges both marketplaces'
                     name: 'soft-harness',
                     source: './plugins/soft-harness',
                     description: 'Analyze and organize live host state with LLM-guided workflows.',
-                    version: '0.4.23'
+                    version: '0.4.26'
                 }]
             }, null, 2)
         },

@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { exists, readUtf8, writeUtf8 } = require('../src/fs-util');
 const {
+    buildManagedAssetState,
     detectSkillsAndAgentsDrift,
     discoverHarnessAssets,
     discoverSkillsAndAgents,
@@ -23,8 +24,9 @@ test('skills: identical project skills import into common bucket and export back
     assert.ok(imported.imported.length >= 1);
 
     const exported = exportSkillsAndAgents(root, {});
-    assert.ok(exported.exported.length >= 2);
-    assert.equal(exists(path.join(root, '.claude', 'skills', 'foo', '.harness-managed')), true);
+    assert.deepEqual(exported.exported.map((entry) => entry.to), ['.gemini/skills/foo']);
+    assert.equal(exists(path.join(root, '.claude', 'skills', 'foo', '.harness-managed')), false);
+    assert.equal(exists(path.join(root, '.gemini', 'skills', 'foo', '.harness-managed')), false);
     assert.equal(fs.lstatSync(path.join(root, '.claude', 'skills', 'foo')).isSymbolicLink(), false);
 });
 
@@ -32,29 +34,43 @@ test('skills: copy-mode drift is detected for managed skills', () => {
     const root = makeTempDir('soft-harness-skills-drift-');
     writeUtf8(path.join(root, '.harness', 'skills', 'claude', 'bar', 'SKILL.md'), '# Bar');
     exportSkillsAndAgents(root, {});
+    const state = {
+        assets: buildManagedAssetState(root)
+    };
 
     const targetSkill = path.join(root, '.claude', 'skills', 'bar');
-    if (exists(path.join(targetSkill, '.harness-managed'))) {
-        writeUtf8(path.join(targetSkill, 'SKILL.md'), '# Bar changed');
-        const drift = detectSkillsAndAgentsDrift(root);
-        assert.ok(drift.some((entry) => entry.target === '.claude/skills/bar'));
-    } else {
-        assert.equal(exists(path.join(targetSkill, 'SKILL.md')), true);
-    }
+    writeUtf8(path.join(targetSkill, 'SKILL.md'), '# Bar changed');
+    const drift = detectSkillsAndAgentsDrift(root, { state });
+    assert.ok(drift.some((entry) => entry.target === '.claude/skills/bar'));
 });
 
-test('skills: pull-back from copy mode does not copy managed marker into .harness source', () => {
+test('skills: pull-back from copy mode updates .harness source without sidecar markers', () => {
     const root = makeTempDir('soft-harness-skills-pullback-');
     writeUtf8(path.join(root, '.harness', 'skills', 'claude', 'keep', 'SKILL.md'), '# Keep');
     exportSkillsAndAgents(root, {});
+    const state = {
+        assets: buildManagedAssetState(root)
+    };
 
     const targetDir = path.join(root, '.claude', 'skills', 'keep');
     writeUtf8(path.join(targetDir, 'SKILL.md'), '# Keep changed');
-    const drift = detectSkillsAndAgentsDrift(root);
+    const drift = detectSkillsAndAgentsDrift(root, { state });
     pullBackSkillsAndAgents(root, drift, {});
 
     assert.equal(exists(path.join(root, '.harness', 'skills', 'claude', 'keep', '.harness-managed')), false);
+    assert.equal(exists(path.join(targetDir, '.harness-managed')), false);
     assert.match(readUtf8(path.join(root, '.harness', 'skills', 'claude', 'keep', 'SKILL.md')), /changed/);
+});
+
+test('skills: export removes legacy agent sidecar markers outside .harness', () => {
+    const root = makeTempDir('soft-harness-skills-agent-legacy-marker-');
+    writeUtf8(path.join(root, '.harness', 'agents', 'claude', 'helper.md'), '# Helper');
+    writeUtf8(path.join(root, '.claude', 'agents', 'helper.md'), '# Helper');
+    writeUtf8(path.join(root, '.claude', 'agents', 'helper.md.harness-managed'), 'legacy');
+
+    exportSkillsAndAgents(root, {});
+
+    assert.equal(exists(path.join(root, '.claude', 'agents', 'helper.md.harness-managed')), false);
 });
 
 test('skills: discovery skips invalid entries and imports agents during dry-run', () => {
