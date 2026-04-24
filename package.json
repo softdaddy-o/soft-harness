@@ -1,6 +1,6 @@
 {
   "name": "soft-harness",
-  "version": "0.4.28",
+  "version": "0.4.29",
   "description": "Shared plugin core with Claude Code and Codex wrappers for analyzing and organizing live host configs",
   "repository": {
     "type": "git",
