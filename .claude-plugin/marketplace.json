@@ -9,7 +9,7 @@
       "name": "soft-harness",
       "source": "./plugins/soft-harness",
       "description": "Analyze and organize live host state with LLM-guided workflows.",
-      "version": "0.4.27",
+      "version": "0.4.28",
       "author": {
         "name": "softdaddy-o"
       }
