@@ -161,9 +161,9 @@ function importClaudeAgentsForCodex(rootDir, discovered, options) {
 
     const sources = collectClaudeAgentPortSources(rootDir, discovered);
     for (const source of sources) {
-        const relativeTarget = `.harness/agents/codex/${source.name}.yaml`;
+        const relativeTarget = `.harness/agents/codex/${source.name}.toml`;
         const absoluteTarget = path.join(rootDir, relativeTarget);
-        const desiredYaml = buildCodexAgentYamlStub(readUtf8(source.absolutePath), source.name);
+        const desiredToml = buildCodexAgentToml(readUtf8(source.absolutePath), source.name);
         const nextOrigin = buildCodexAgentOrigin(source);
         const existingOrigin = findManagedCodexAgentOrigin(assetOrigins, source.name);
         const currentTarget = exists(absoluteTarget) ? readUtf8(absoluteTarget) : null;
@@ -172,7 +172,10 @@ function importClaudeAgentsForCodex(rootDir, discovered, options) {
         if (exists(absoluteTarget) && !canRefreshManagedCodexAgent(existingOrigin, source)) {
             continue;
         }
-        if (currentTarget === desiredYaml && !originNeedsUpdate) {
+        if (currentTarget === desiredToml && !originNeedsUpdate) {
+            if (!options || !options.dryRun) {
+                removeLegacyCodexHarnessAgent(rootDir, source.name);
+            }
             continue;
         }
 
@@ -191,14 +194,15 @@ function importClaudeAgentsForCodex(rootDir, discovered, options) {
             bucket: 'codex',
             from: source.relativePath,
             to: relativeTarget,
-            reason: source.plugin ? 'plugin-agent-port' : 'format-conversion-lossy'
+            reason: source.plugin ? 'plugin-agent-port' : 'format-conversion-toml'
         });
 
         if (options && options.dryRun) {
             continue;
         }
 
-        writeUtf8(absoluteTarget, desiredYaml);
+        writeUtf8(absoluteTarget, desiredToml);
+        removeLegacyCodexHarnessAgent(rootDir, source.name);
         upsertAssetOrigin(assetOrigins, nextOrigin);
         originsChanged = true;
     }
@@ -321,6 +325,7 @@ function ensureManagedTarget(rootDir, entry, options) {
     if (targetMatches(rootDir, entry, desiredMode)) {
         if (!options || !options.dryRun) {
             removeLegacyManagedMarker(absoluteTarget, entry.type);
+            removeLegacyCodexExportAgent(rootDir, entry);
         }
         return null;
     }
@@ -345,6 +350,7 @@ function ensureManagedTarget(rootDir, entry, options) {
     removePath(absoluteTarget);
     copyPath(absoluteSource, absoluteTarget);
     removeLegacyManagedMarker(absoluteTarget, entry.type);
+    removeLegacyCodexExportAgent(rootDir, entry);
     return {
         mode: 'copy',
         reason: desired.reason || null
@@ -643,11 +649,38 @@ function removeLegacyManagedMarker(absoluteTarget, type) {
 }
 
 function getSupportedAgentExtensions(llm) {
-    return llm === 'codex' ? ['.yaml', '.yml'] : ['.md'];
+    return llm === 'codex' ? ['.toml'] : ['.md'];
 }
 
 function getPreferredAgentExtension(llm) {
-    return llm === 'codex' ? '.yaml' : '.md';
+    return llm === 'codex' ? '.toml' : '.md';
+}
+
+function removeLegacyCodexHarnessAgent(rootDir, agentName) {
+    removePath(path.join(rootDir, '.harness', 'agents', 'codex', `${agentName}.yaml`));
+    removePath(path.join(rootDir, '.harness', 'agents', 'codex', `${agentName}.yml`));
+}
+
+function removeLegacyCodexExportAgent(rootDir, entry) {
+    if (entry.type !== 'agent' || entry.llm !== 'codex' || path.extname(entry.target).toLowerCase() !== '.toml') {
+        return;
+    }
+
+    const targetDir = path.dirname(path.join(rootDir, entry.target));
+    const targetName = path.basename(entry.target, '.toml');
+    for (const extension of ['.yaml', '.yml']) {
+        const legacyPath = path.join(targetDir, `${targetName}${extension}`);
+        if (!exists(legacyPath)) {
+            continue;
+        }
+        if (isLegacyCodexYamlStub(readUtf8(legacyPath))) {
+            removePath(legacyPath);
+        }
+    }
+}
+
+function isLegacyCodexYamlStub(content) {
+    return /^\s*interface:\s*$/mu.test(String(content || ''));
 }
 
 function matchInstalledClaudePlugin(desiredPlugin, installedEntries) {
@@ -691,15 +724,14 @@ function dedupePluginAgents(items) {
     return selected;
 }
 
-function buildCodexAgentYamlStub(content, fallbackName) {
+function buildCodexAgentToml(content, fallbackName) {
     const parsed = parseClaudeAgentMarkdown(content, fallbackName);
-    return YAML.stringify({
-        interface: {
-            display_name: parsed.displayName,
-            short_description: parsed.shortDescription,
-            default_prompt: parsed.defaultPrompt
-        }
-    });
+    return [
+        `name = ${toTomlBasicString(parsed.displayName)}`,
+        `description = ${toTomlBasicString(parsed.shortDescription)}`,
+        `developer_instructions = ${toTomlMultilineString(parsed.developerInstructions)}`,
+        ''
+    ].join('\n');
 }
 
 function parseClaudeAgentMarkdown(content, fallbackName) {
@@ -708,11 +740,10 @@ function parseClaudeAgentMarkdown(content, fallbackName) {
     const body = parsed.body || '';
     const displayName = cleanText(frontmatter.name) || extractTitle(body) || titleizeSlug(fallbackName);
     const shortDescription = truncateText(cleanText(frontmatter.description) || extractFirstMeaningfulParagraph(body) || `Claude agent for ${displayName}.`, 220);
-    const mission = truncateText(extractMission(body, displayName, shortDescription), 420);
     return {
         displayName,
         shortDescription,
-        defaultPrompt: mission || `Act as ${displayName}. ${shortDescription}`
+        developerInstructions: normalizeDeveloperInstructions(body, displayName, shortDescription)
     };
 }
 
@@ -743,23 +774,6 @@ function extractFrontmatter(content) {
 function extractTitle(content) {
     const match = String(content || '').match(/^#\s+(.+?)\s*$/mu);
     return match ? cleanText(match[1]) : null;
-}
-
-function extractMission(content, displayName, shortDescription) {
-    const paragraphs = splitParagraphs(content)
-        .map((paragraph) => cleanText(stripMarkdown(paragraph)))
-        .filter(Boolean)
-        .filter((paragraph) => paragraph !== displayName && paragraph !== shortDescription);
-
-    const mission = paragraphs.find((paragraph) => paragraph.length >= 40) || paragraphs[0] || null;
-    if (!mission) {
-        return `Act as ${displayName}. ${shortDescription}`;
-    }
-
-    if (mission.toLowerCase().startsWith('you are')) {
-        return mission;
-    }
-    return `Act as ${displayName}. ${mission}`;
 }
 
 function extractFirstMeaningfulParagraph(content) {
@@ -829,6 +843,32 @@ function titleizeSlug(value) {
     return words.join(' ') || 'Agent';
 }
 
+function normalizeDeveloperInstructions(body, displayName, shortDescription) {
+    const normalized = String(body || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+    if (normalized) {
+        return normalized;
+    }
+    return `# ${displayName}\n\n${shortDescription}`;
+}
+
+function toTomlBasicString(value) {
+    const text = String(value || '')
+        .replace(/\\/g, '\\\\')
+        .replace(/\r/g, '')
+        .replace(/\n/g, '\\n')
+        .replace(/"/g, '\\"');
+    return `"${text}"`;
+}
+
+function toTomlMultilineString(value) {
+    const text = String(value || '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .replace(/\\/g, '\\\\')
+        .replace(/"""/g, '\\"""');
+    return `"""\n${text}\n"""`;
+}
+
 function buildCodexAgentOrigin(source) {
     const plugin = source.plugin || null;
     return {
@@ -845,8 +885,8 @@ function buildCodexAgentOrigin(source) {
         gitCommitSha: plugin ? (plugin.gitCommitSha || null) : null,
         confidence: plugin && (plugin.repo || plugin.url) ? 'confirmed' : null,
         notes: plugin
-            ? `Generated as a lossy Codex stub from Claude plugin agent ${plugin.displayName || plugin.name}.`
-            : 'Generated as a lossy Codex stub from a Claude markdown agent.'
+            ? `Generated as a Codex TOML agent from Claude plugin agent ${plugin.displayName || plugin.name}.`
+            : 'Generated as a Codex TOML agent from a Claude markdown agent.'
     };
 }
 
@@ -917,7 +957,7 @@ function toPosixRelative(rootDir, absolutePath) {
     return path.relative(rootDir, absolutePath).split(path.sep).join('/');
 }
 
-const SUPPORTED_AGENT_EXTENSIONS = new Set(['.md', '.yaml', '.yml']);
+const SUPPORTED_AGENT_EXTENSIONS = new Set(['.md', '.toml']);
 
 module.exports = {
     buildManagedAssetState,

@@ -120,7 +120,7 @@ test('sync: backup targets include existing harness assets and discovered projec
     assert.ok(manifest.entries.some((entry) => entry.path === '.claude/skills/local'));
 });
 
-test('sync: organize ports Claude markdown agents into codex yaml outputs', async () => {
+test('sync: organize ports Claude markdown agents into codex toml outputs', async () => {
     const root = makeTempDir('soft-harness-sync-agent-port-');
     writeUtf8(path.join(root, '.claude', 'agents', 'backend-architect.md'), [
         '---',
@@ -139,9 +139,43 @@ test('sync: organize ports Claude markdown agents into codex yaml outputs', asyn
     const result = await runSync(root, {}, {});
 
     assert.equal(result.phase, 'completed');
-    assert.ok(result.imported.some((entry) => entry.to === '.harness/agents/codex/backend-architect.yaml'));
-    assert.ok(result.exported.some((entry) => entry.to === '.codex/agents/backend-architect.yaml'));
-    assert.match(readUtf8(path.join(root, '.harness', 'agents', 'codex', 'backend-architect.yaml')), /display_name: Backend Architect/);
-    assert.match(readUtf8(path.join(root, '.codex', 'agents', 'backend-architect.yaml')), /default_prompt:/);
-    assert.match(readUtf8(path.join(root, '.harness', 'asset-origins.yaml')), /lossy Codex stub/);
+    assert.ok(result.imported.some((entry) => entry.to === '.harness/agents/codex/backend-architect.toml'));
+    assert.ok(result.exported.some((entry) => entry.to === '.codex/agents/backend-architect.toml'));
+    assert.match(readUtf8(path.join(root, '.harness', 'agents', 'codex', 'backend-architect.toml')), /name = "Backend Architect"/);
+    assert.match(readUtf8(path.join(root, '.codex', 'agents', 'backend-architect.toml')), /developer_instructions = """/);
+    assert.match(readUtf8(path.join(root, '.harness', 'asset-origins.yaml')), /Codex TOML agent/);
+});
+
+test('sync: organize replaces managed legacy codex yaml agent export with toml', async () => {
+    const root = makeTempDir('soft-harness-sync-agent-port-legacy-');
+    writeUtf8(path.join(root, '.claude', 'agents', 'reviewer.md'), [
+        '---',
+        'name: Reviewer',
+        'description: Reviews code.',
+        '---',
+        '',
+        'Review code carefully.',
+        ''
+    ].join('\n'));
+    writeUtf8(path.join(root, '.harness', 'agents', 'codex', 'reviewer.yaml'), [
+        'interface:',
+        '  display_name: Reviewer',
+        '  short_description: Reviews code.',
+        '  default_prompt: Review code carefully.',
+        ''
+    ].join('\n'));
+    writeUtf8(path.join(root, '.codex', 'agents', 'reviewer.yaml'), [
+        'interface:',
+        '  display_name: Reviewer',
+        ''
+    ].join('\n'));
+
+    const result = await runSync(root, {}, {});
+
+    assert.equal(result.phase, 'completed');
+    assert.ok(result.imported.some((entry) => entry.to === '.harness/agents/codex/reviewer.toml'));
+    assert.ok(result.exported.some((entry) => entry.to === '.codex/agents/reviewer.toml'));
+    assert.equal(fs.existsSync(path.join(root, '.harness', 'agents', 'codex', 'reviewer.yaml')), false);
+    assert.equal(fs.existsSync(path.join(root, '.codex', 'agents', 'reviewer.yaml')), false);
+    assert.match(readUtf8(path.join(root, '.codex', 'agents', 'reviewer.toml')), /name = "Reviewer"/);
 });

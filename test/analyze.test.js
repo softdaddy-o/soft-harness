@@ -250,11 +250,12 @@ test('analyze: same-named agents use agent file content for comparison', async (
         },
         '.codex': {
             agents: {
-                'reviewer.yaml': [
-                    'interface:',
-                    '  display_name: "Reviewer"',
-                    '  short_description: "Codex reviewer"',
-                    '  default_prompt: "Review code carefully and explain the highest-risk issues first."',
+                'reviewer.toml': [
+                    'name = "Reviewer"',
+                    'description = "Codex reviewer"',
+                    'developer_instructions = """',
+                    'Review code carefully and explain the highest-risk issues first.',
+                    '"""',
                     ''
                 ].join('\n')
             }

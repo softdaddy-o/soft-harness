@@ -335,7 +335,7 @@ function evaluateOrganizeHelperFlow() {
         expect(exists(path.join(root, '.claude', 'skills', 'reviewer-kit', 'SKILL.md')), 'Common skill snapshot should export to Claude');
         expect(exists(path.join(root, '.codex', 'skills', 'reviewer-kit', 'SKILL.md')), 'Common skill snapshot should export to Codex');
         expect(exists(path.join(root, '.claude', 'agents', 'reviewer.md')), 'Markdown agent snapshot should export to Claude');
-        expect(exists(path.join(root, '.codex', 'agents', 'reviewer.yaml')), 'Codex YAML agent snapshot should export to Codex');
+        expect(exists(path.join(root, '.codex', 'agents', 'reviewer.toml')), 'Codex TOML agent snapshot should export to Codex');
         expect(backupManifest.entries.length >= 5, 'Organize helper flow should create a backup manifest for displaced host files');
 
         return {
@@ -434,11 +434,12 @@ function seedOrganizeEvalFixture(root) {
         ''
     ].join('\n'));
     writeUtf8(path.join(root, '.harness', 'agents', 'common', 'reviewer.md'), '# Reviewer\n\nSummarize issues and next actions.\n');
-    writeUtf8(path.join(root, '.harness', 'agents', 'codex', 'reviewer.yaml'), [
-        'interface:',
-        '  display_name: "Reviewer"',
-        '  short_description: "Summarize issues and next actions."',
-        '  default_prompt: "Review the work, summarize the issues, and explain the next actions clearly."',
+    writeUtf8(path.join(root, '.harness', 'agents', 'codex', 'reviewer.toml'), [
+        'name = "Reviewer"',
+        'description = "Summarize issues and next actions."',
+        'developer_instructions = """',
+        'Review the work, summarize the issues, and explain the next actions clearly.',
+        '"""',
         ''
     ].join('\n'));
 

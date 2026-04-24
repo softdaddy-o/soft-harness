@@ -92,11 +92,12 @@ test('skills: discovery skips invalid entries and imports agents during dry-run'
         },
         '.codex': {
             agents: {
-                'reviewer.yaml': [
-                    'interface:',
-                    '  display_name: "Reviewer"',
-                    '  short_description: "Reviews code"',
-                    '  default_prompt: "Review the code carefully."',
+                'reviewer.toml': [
+                    'name = "Reviewer"',
+                    'description = "Reviews code"',
+                    'developer_instructions = """',
+                    'Review the code carefully.',
+                    '"""',
                     ''
                 ].join('\n')
             }
@@ -160,7 +161,7 @@ test('skills: pull-back skips unsupported entries and dry-run avoids re-export',
     assert.equal(exists(path.join(root, '.harness', 'agents', 'claude', 'worker.md')), true);
 });
 
-test('skills: import ports Claude markdown agents into codex yaml stubs', () => {
+test('skills: import ports Claude markdown agents into codex toml agents', () => {
     const root = makeProjectTree('soft-harness-skills-agent-port-', {
         '.claude': {
             agents: {
@@ -182,13 +183,13 @@ test('skills: import ports Claude markdown agents into codex yaml stubs', () => 
     });
 
     const imported = importSkillsAndAgents(root, {});
-    assert.ok(imported.imported.some((entry) => entry.to === '.harness/agents/codex/backend-architect.yaml'));
+    assert.ok(imported.imported.some((entry) => entry.to === '.harness/agents/codex/backend-architect.toml'));
     assert.equal(exists(path.join(root, '.harness', 'agents', 'claude', 'backend-architect.md')), true);
 
-    const codexAgent = readUtf8(path.join(root, '.harness', 'agents', 'codex', 'backend-architect.yaml'));
-    assert.match(codexAgent, /display_name: Backend Architect/);
-    assert.match(codexAgent, /short_description: Senior backend architect specializing in scalable system design\./);
-    assert.match(codexAgent, /default_prompt:/);
+    const codexAgent = readUtf8(path.join(root, '.harness', 'agents', 'codex', 'backend-architect.toml'));
+    assert.match(codexAgent, /name = "Backend Architect"/);
+    assert.match(codexAgent, /description = "Senior backend architect specializing in scalable system design\."/);
+    assert.match(codexAgent, /developer_instructions = """[\s\S]*# Backend Architect/);
     assert.match(codexAgent, /You are a Backend Architect focused on distributed systems/);
 
     const origin = loadAssetOrigins(root).find((entry) => entry.kind === 'agent' && entry.asset === 'backend-architect');
@@ -197,10 +198,10 @@ test('skills: import ports Claude markdown agents into codex yaml stubs', () => 
     assert.equal(origin.plugin, null);
     assert.equal(origin.sourceType, 'local');
     assert.equal(origin.sourcePath, '.claude/agents/backend-architect.md');
-    assert.match(origin.notes, /lossy Codex stub/);
+    assert.match(origin.notes, /Codex TOML agent/);
 });
 
-test('skills: plugin Claude agents assigned to codex are ported into codex yaml stubs', () => {
+test('skills: plugin Claude agents assigned to codex are ported into codex toml agents', () => {
     const root = makeProjectTree('soft-harness-skills-plugin-agent-port-', {
         '.harness': {
             'plugins.yaml': [
@@ -258,11 +259,12 @@ test('skills: plugin Claude agents assigned to codex are ported into codex yaml 
     });
 
     const imported = importSkillsAndAgents(root, {});
-    assert.ok(imported.imported.some((entry) => entry.to === '.harness/agents/codex/code-reviewer.yaml'));
+    assert.ok(imported.imported.some((entry) => entry.to === '.harness/agents/codex/code-reviewer.toml'));
 
-    const codexAgent = readUtf8(path.join(root, '.harness', 'agents', 'codex', 'code-reviewer.yaml'));
-    assert.match(codexAgent, /display_name: Code Reviewer/);
-    assert.match(codexAgent, /short_description: Expert reviewer for code quality, bugs, and maintainability\./);
+    const codexAgent = readUtf8(path.join(root, '.harness', 'agents', 'codex', 'code-reviewer.toml'));
+    assert.match(codexAgent, /name = "Code Reviewer"/);
+    assert.match(codexAgent, /description = "Expert reviewer for code quality, bugs, and maintainability\."/);
+    assert.match(codexAgent, /developer_instructions = """[\s\S]*Review code critically/);
 
     const origin = loadAssetOrigins(root).find((entry) => entry.kind === 'agent' && entry.asset === 'code-reviewer');
     assert.ok(origin);
