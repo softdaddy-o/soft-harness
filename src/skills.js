@@ -6,7 +6,7 @@ const { getFsBackend } = require('./fs-backend');
 const { hashDirectory, hashFile } = require('./hash');
 const { loadPlugins, readInstalledPluginEntries } = require('./plugins');
 const { createLink, isSymlink, readLink } = require('./symlink');
-const { copyPath, exists, readUtf8, removePath, writeUtf8 } = require('./fs-util');
+const { copyPath, exists, readUtf8, removePath, walkFiles, writeUtf8 } = require('./fs-util');
 const { getProfile, listProfiles } = require('./profiles');
 
 function discoverSkillsAndAgents(rootDir) {
@@ -143,6 +143,10 @@ function importSkillsAndAgents(rootDir, options) {
         }
     }
 
+    const codexSkillPorts = importClaudePluginSkillsForCodex(rootDir, options);
+    imported.push(...codexSkillPorts.imported);
+    routes.push(...codexSkillPorts.routes);
+
     const codexPorts = importClaudeAgentsForCodex(rootDir, discovered, options);
     imported.push(...codexPorts.imported);
     routes.push(...codexPorts.routes);
@@ -205,6 +209,66 @@ function importClaudeAgentsForCodex(rootDir, discovered, options) {
         removeLegacyCodexHarnessAgent(rootDir, source.name);
         upsertAssetOrigin(assetOrigins, nextOrigin);
         originsChanged = true;
+    }
+
+    if (originsChanged && (!options || !options.dryRun)) {
+        saveAssetOrigins(rootDir, assetOrigins);
+    }
+
+    return {
+        imported,
+        routes
+    };
+}
+
+function importClaudePluginSkillsForCodex(rootDir, options) {
+    const imported = [];
+    const routes = [];
+    const assetOrigins = loadAssetOrigins(rootDir);
+    let originsChanged = false;
+
+    for (const source of discoverClaudePluginSkillsForCodex(rootDir)) {
+        const relativeTarget = `.harness/skills/codex/${source.relativePath}`;
+        const absoluteTarget = path.join(rootDir, relativeTarget);
+        const nextOrigin = buildCodexSkillOrigin(source);
+        const existingOrigin = findManagedCodexSkillOrigin(assetOrigins, source.name);
+        const originNeedsUpdate = !assetOriginsEqual(existingOrigin, nextOrigin);
+
+        if (exists(absoluteTarget) && !canRefreshManagedCodexSkill(existingOrigin, source)) {
+            continue;
+        }
+        if (exists(absoluteTarget) && managedSkillTreesEqual(source.absolutePath, absoluteTarget) && !originNeedsUpdate) {
+            continue;
+        }
+
+        imported.push({
+            type: 'skill',
+            llm: 'codex',
+            bucket: 'codex',
+            from: source.relativeSourcePath,
+            to: relativeTarget
+        });
+        routes.push({
+            action: 'bucket',
+            type: 'skill',
+            name: source.name,
+            llm: 'codex',
+            bucket: 'codex',
+            from: source.relativeSourcePath,
+            to: relativeTarget,
+            reason: 'plugin-skill-port'
+        });
+
+        if (options && options.dryRun) {
+            continue;
+        }
+
+        removePath(absoluteTarget);
+        copyManagedAsset(source.absolutePath, absoluteTarget, { type: 'skill', validate: false });
+        if (source.hasSkill) {
+            upsertAssetOrigin(assetOrigins, nextOrigin);
+            originsChanged = true;
+        }
     }
 
     if (originsChanged && (!options || !options.dryRun)) {
@@ -281,10 +345,95 @@ function discoverClaudePluginAgentsForCodex(rootDir) {
     return dedupePluginAgents(agents);
 }
 
+function discoverClaudePluginSkillsForCodex(rootDir) {
+    const desired = loadPlugins(rootDir).filter((plugin) => Array.isArray(plugin.llms) && plugin.llms.includes('codex'));
+    if (desired.length === 0) {
+        return [];
+    }
+
+    const installed = readInstalledPluginEntries(rootDir, 'claude');
+    const skills = [];
+
+    for (const plugin of desired) {
+        const installedEntry = matchInstalledClaudePlugin(plugin, installed);
+        if (!installedEntry || !installedEntry.installPath) {
+            continue;
+        }
+
+        const installRoot = resolveInstallRoot(rootDir, installedEntry.installPath);
+        const skillsRoot = path.join(installRoot, 'skills');
+        if (!exists(skillsRoot)) {
+            continue;
+        }
+
+        for (const member of collectPluginSkillTreeMembers(rootDir, skillsRoot)) {
+            skills.push({
+                ...member,
+                plugin: installedEntry
+            });
+        }
+    }
+
+    return dedupePluginSkillMembers(skills);
+}
+
+function collectPluginSkillTreeMembers(rootDir, skillsRoot) {
+    const members = [];
+    for (const entry of getFsBackend().readdirSync(skillsRoot, { withFileTypes: true })) {
+        if (!entry.isDirectory()) {
+            continue;
+        }
+
+        const absolutePath = path.join(skillsRoot, entry.name);
+        const relativePath = toPosixRelative(skillsRoot, absolutePath);
+        const hasSkill = exists(path.join(absolutePath, 'SKILL.md'));
+        const isSharedSupport = entry.name === 'references';
+        if (!hasSkill && !isSharedSupport && !directoryContainsSkillMarkdown(absolutePath)) {
+            continue;
+        }
+
+        members.push({
+            name: entry.name,
+            type: 'skill',
+            llm: 'claude',
+            absolutePath,
+            relativePath,
+            relativeSourcePath: toPosixRelative(rootDir, absolutePath),
+            hash: hashDirectory(absolutePath),
+            hasSkill
+        });
+    }
+    return members;
+}
+
+function directoryContainsSkillMarkdown(rootDir) {
+    return walkFiles(rootDir, (relativePath) => path.posix.basename(relativePath) === 'SKILL.md').length > 0;
+}
+
+function dedupePluginSkillMembers(items) {
+    const grouped = new Map();
+    for (const item of items) {
+        if (!grouped.has(item.relativePath)) {
+            grouped.set(item.relativePath, []);
+        }
+        grouped.get(item.relativePath).push(item);
+    }
+
+    const selected = [];
+    for (const candidates of grouped.values()) {
+        if (candidates.length === 1) {
+            selected.push(candidates[0]);
+        }
+    }
+
+    return selected.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+}
+
 function exportSkillsAndAgents(rootDir, options) {
     const plan = discoverHarnessAssets(rootDir);
     const exported = [];
     const routes = [];
+    const skillTargetsToValidate = [];
 
     for (const entry of plan) {
         const outcome = ensureManagedTarget(rootDir, entry, options);
@@ -299,6 +448,9 @@ function exportSkillsAndAgents(rootDir, options) {
             to: entry.target,
             mode
         });
+        if ((!options || !options.dryRun) && entry.type === 'skill' && !isSharedSupportDirectory(entry.target)) {
+            skillTargetsToValidate.push(path.join(rootDir, entry.target));
+        }
         routes.push({
             action: 'export',
             type: entry.type,
@@ -308,6 +460,12 @@ function exportSkillsAndAgents(rootDir, options) {
             mode,
             reason: outcome.reason || null
         });
+    }
+
+    if (!options || !options.dryRun) {
+        for (const targetPath of skillTargetsToValidate) {
+            validateManagedSkillTree(targetPath);
+        }
     }
 
     return {
@@ -348,7 +506,7 @@ function ensureManagedTarget(rootDir, entry, options) {
     }
 
     removePath(absoluteTarget);
-    copyPath(absoluteSource, absoluteTarget);
+    copyManagedAsset(absoluteSource, absoluteTarget, { ...entry, validate: true });
     removeLegacyManagedMarker(absoluteTarget, entry.type);
     removeLegacyCodexExportAgent(rootDir, entry);
     return {
@@ -378,7 +536,7 @@ function targetMatches(rootDir, entry, desiredMode) {
     }
 
     if (entry.type === 'skill') {
-        return hashDirectory(absoluteSource) === hashDirectory(absoluteTarget);
+        return managedSkillTreesEqual(absoluteSource, absoluteTarget);
     }
 
     return hashFile(absoluteSource) === hashFile(absoluteTarget);
@@ -765,10 +923,22 @@ function extractFrontmatter(content) {
         };
     } catch (error) {
         return {
-            frontmatter: null,
-            body: text
+            frontmatter: parseSimpleFrontmatter(match[1]),
+            body: match[2]
         };
     }
+}
+
+function parseSimpleFrontmatter(content) {
+    const frontmatter = {};
+    for (const line of String(content || '').replace(/\r\n/g, '\n').split('\n')) {
+        const match = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/u);
+        if (!match) {
+            continue;
+        }
+        frontmatter[match[1]] = match[2];
+    }
+    return frontmatter;
 }
 
 function extractTitle(content) {
@@ -826,6 +996,129 @@ function cleanText(value) {
     return text || null;
 }
 
+function copyManagedAsset(sourcePath, targetPath, entry) {
+    copyPath(sourcePath, targetPath);
+    if (!entry || entry.type !== 'skill') {
+        return;
+    }
+    normalizeSkillMarkdownTree(targetPath);
+}
+
+function normalizeSkillMarkdownTree(rootDir) {
+    for (const file of walkFiles(rootDir, (relativePath) => path.posix.basename(relativePath) === 'SKILL.md')) {
+        const relativeDir = path.posix.dirname(file.relativePath);
+        const fallbackName = relativeDir === '.'
+            ? path.basename(rootDir)
+            : path.posix.basename(relativeDir);
+        writeUtf8(file.absolutePath, normalizeSkillMarkdown(readUtf8(file.absolutePath), fallbackName));
+    }
+}
+
+function normalizeSkillMarkdown(content, fallbackName) {
+    const parsed = extractFrontmatter(content);
+    const frontmatter = parsed.frontmatter && typeof parsed.frontmatter === 'object'
+        ? { ...parsed.frontmatter }
+        : {};
+    const body = String(parsed.body || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/^\n/u, '');
+    const name = cleanText(frontmatter.name) || extractTitle(body) || titleizeSlug(fallbackName);
+    const description = cleanText(frontmatter.description)
+        || extractFirstMeaningfulParagraph(body)
+        || `Skill for ${name}.`;
+    const nextFrontmatter = {
+        ...frontmatter,
+        name,
+        description
+    };
+    const serializedFrontmatter = Object.entries(nextFrontmatter)
+        .map(([key, value]) => serializeSkillFrontmatterEntry(key, value))
+        .join('\n');
+    return `---\n${serializedFrontmatter}\n---\n\n${body}`;
+}
+
+function validateManagedSkillTree(rootDir) {
+    for (const file of walkFiles(rootDir, (relativePath) => path.posix.basename(relativePath) === 'SKILL.md')) {
+        const skillDir = path.dirname(file.absolutePath);
+        const content = readUtf8(file.absolutePath);
+        for (const relativeRef of collectLocalMarkdownReferences(content)) {
+            const absoluteRef = path.resolve(skillDir, relativeRef);
+            if (!exists(absoluteRef)) {
+                throw new Error(`managed skill export is missing referenced file: ${relativeRef}`);
+            }
+        }
+    }
+}
+
+function collectLocalMarkdownReferences(content) {
+    const references = new Set();
+    const text = String(content || '');
+    const patterns = [
+        /`((?:\.\.?\/)[^`\r\n]+)`/gu,
+        /\[[^\]]+\]\(((?:\.\.?\/)[^)]+)\)/gu
+    ];
+
+    for (const pattern of patterns) {
+        for (const match of text.matchAll(pattern)) {
+            const value = cleanText(match[1]);
+            if (!value) {
+                continue;
+            }
+            references.add(value.split('#')[0]);
+        }
+    }
+
+    return Array.from(references).filter(Boolean);
+}
+
+function isSharedSupportDirectory(relativeTarget) {
+    return path.posix.basename(relativeTarget) === 'references';
+}
+
+function serializeSkillFrontmatterEntry(key, value) {
+    if (key === 'description') {
+        return `${key}: ${toQuotedYamlString(value)}`;
+    }
+    return YAML.stringify({ [key]: value }).trimEnd();
+}
+
+function toQuotedYamlString(value) {
+    return `"${String(value || '')
+        .replace(/\\/gu, '\\\\')
+        .replace(/"/gu, '\\"')}"`;
+}
+
+function managedSkillTreesEqual(sourceDir, targetDir) {
+    const sourceFiles = walkFiles(sourceDir);
+    const targetFiles = walkFiles(targetDir);
+    if (sourceFiles.length !== targetFiles.length) {
+        return false;
+    }
+
+    const targetByRelativePath = new Map(targetFiles.map((file) => [file.relativePath, file.absolutePath]));
+    for (const sourceFile of sourceFiles) {
+        const targetFile = targetByRelativePath.get(sourceFile.relativePath);
+        if (!targetFile) {
+            return false;
+        }
+        if (path.posix.basename(sourceFile.relativePath) === 'SKILL.md') {
+            const relativeDir = path.posix.dirname(sourceFile.relativePath);
+            const fallbackName = relativeDir === '.'
+                ? path.basename(sourceDir)
+                : path.posix.basename(relativeDir);
+            const normalizedSource = normalizeSkillMarkdown(readUtf8(sourceFile.absolutePath), fallbackName);
+            const normalizedTarget = normalizeSkillMarkdown(readUtf8(targetFile), fallbackName);
+            if (normalizedSource !== normalizedTarget) {
+                return false;
+            }
+            continue;
+        }
+        if (hashFile(sourceFile.absolutePath) !== hashFile(targetFile)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 function truncateText(value, maxLength) {
     const text = cleanText(value);
     if (!text || text.length <= maxLength) {
@@ -852,7 +1145,7 @@ function normalizeDeveloperInstructions(body, displayName, shortDescription) {
 }
 
 function toTomlBasicString(value) {
-    const text = String(value || '')
+    const text = escapeTomlControlCharacters(String(value || ''))
         .replace(/\\/g, '\\\\')
         .replace(/\r/g, '')
         .replace(/\n/g, '\\n')
@@ -861,12 +1154,18 @@ function toTomlBasicString(value) {
 }
 
 function toTomlMultilineString(value) {
-    const text = String(value || '')
+    const text = escapeTomlControlCharacters(String(value || ''))
         .replace(/\r\n/g, '\n')
         .replace(/\r/g, '\n')
         .replace(/\\/g, '\\\\')
         .replace(/"""/g, '\\"""');
     return `"""\n${text}\n"""`;
+}
+
+function escapeTomlControlCharacters(value) {
+    return String(value || '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/gu, (character) => {
+        return `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`;
+    });
 }
 
 function buildCodexAgentOrigin(source) {
@@ -898,6 +1197,35 @@ function buildPluginAgentUrl(plugin, agentName) {
     return plugin.url || (plugin.repo ? `https://github.com/${plugin.repo}` : null);
 }
 
+function buildCodexSkillOrigin(source) {
+    const plugin = source.plugin || null;
+    return {
+        kind: 'skill',
+        asset: source.name,
+        hosts: ['codex'],
+        plugin: plugin ? (plugin.displayName || plugin.name || null) : null,
+        sourceType: plugin ? (plugin.sourceType || 'marketplace') : 'local',
+        repo: plugin ? (plugin.repo || null) : null,
+        url: plugin ? buildPluginSkillUrl(plugin, source.relativePath) : null,
+        sourcePath: plugin ? joinSourcePath(plugin.sourcePath, `skills/${source.relativePath}`) : source.relativeSourcePath,
+        installedVersion: plugin ? (plugin.version || null) : null,
+        latestVersion: null,
+        gitCommitSha: plugin ? (plugin.gitCommitSha || null) : null,
+        confidence: plugin && (plugin.repo || plugin.url) ? 'confirmed' : null,
+        notes: plugin
+            ? `Generated as a Codex skill from Claude plugin skill ${plugin.displayName || plugin.name}.`
+            : 'Generated as a Codex skill from a Claude skill.'
+    };
+}
+
+function buildPluginSkillUrl(plugin, relativePath) {
+    const sourcePath = joinSourcePath(plugin.sourcePath, `skills/${relativePath}`);
+    if (plugin.repo && sourcePath) {
+        return `https://github.com/${plugin.repo}/tree/main/${sourcePath}`;
+    }
+    return plugin.url || (plugin.repo ? `https://github.com/${plugin.repo}` : null);
+}
+
 function joinSourcePath(basePath, suffix) {
     const parts = [basePath, suffix]
         .map((value) => String(value || '').replace(/\\/g, '/').replace(/^\/+/u, '').replace(/\/+$/u, ''))
@@ -913,6 +1241,14 @@ function findManagedCodexAgentOrigin(origins, agentName) {
         && origin.hosts[0] === 'codex') || null;
 }
 
+function findManagedCodexSkillOrigin(origins, skillName) {
+    return (origins || []).find((origin) => origin.kind === 'skill'
+        && origin.asset === skillName
+        && Array.isArray(origin.hosts)
+        && origin.hosts.length === 1
+        && origin.hosts[0] === 'codex') || null;
+}
+
 function canRefreshManagedCodexAgent(origin, source) {
     if (!origin) {
         return false;
@@ -921,6 +1257,17 @@ function canRefreshManagedCodexAgent(origin, source) {
         return origin.plugin === (source.plugin.displayName || source.plugin.name || null);
     }
     return !origin.plugin && origin.sourcePath === source.relativePath;
+}
+
+function canRefreshManagedCodexSkill(origin, source) {
+    if (!origin) {
+        return false;
+    }
+    if (source.plugin) {
+        return origin.plugin === (source.plugin.displayName || source.plugin.name || null)
+            && origin.sourcePath === joinSourcePath(source.plugin.sourcePath, `skills/${source.relativePath}`);
+    }
+    return !origin.plugin && origin.sourcePath === source.relativeSourcePath;
 }
 
 function assetOriginsEqual(left, right) {

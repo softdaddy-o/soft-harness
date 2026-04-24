@@ -273,3 +273,147 @@ test('skills: plugin Claude agents assigned to codex are ported into codex toml 
     assert.equal(origin.repo, 'obra/superpowers');
     assert.equal(origin.sourcePath, 'agents/code-reviewer.md');
 });
+
+test('skills: exported codex skills quote colon descriptions and backfill missing descriptions', () => {
+    const root = makeProjectTree('soft-harness-skill-description-normalize-', {
+        '.harness': {
+            skills: {
+                codex: {
+                    analyze: {
+                        'SKILL.md': [
+                            '---',
+                            'name: Analyze',
+                            'description: Review state: compare prompts safely.',
+                            '---',
+                            '',
+                            'Inspect the current setup carefully.',
+                            ''
+                        ].join('\n')
+                    },
+                    organize: {
+                        'SKILL.md': [
+                            '# Organize',
+                            '',
+                            'Apply host changes and refresh harness state carefully for users.',
+                            ''
+                        ].join('\n')
+                    }
+                }
+            }
+        }
+    });
+
+    exportSkillsAndAgents(root, {});
+
+    const analyzeSkill = readUtf8(path.join(root, '.codex', 'skills', 'analyze', 'SKILL.md'));
+    const organizeSkill = readUtf8(path.join(root, '.codex', 'skills', 'organize', 'SKILL.md'));
+    assert.match(analyzeSkill, /^description: "Review state: compare prompts safely\."$/m);
+    assert.match(organizeSkill, /^description: ".+"$/m);
+});
+
+test('skills: codex agent toml escapes control characters in generated instructions', () => {
+    const root = makeProjectTree('soft-harness-agent-toml-safety-', {
+        '.claude': {
+            agents: {
+                'unsafe.md': [
+                    '---',
+                    'name: Unsafe',
+                    'description: Expert reviewer',
+                    '---',
+                    '',
+                    '# Unsafe',
+                    '',
+                    `First paragraph with control ${String.fromCharCode(1)} character.`,
+                    ''
+                ].join('\n')
+            }
+        }
+    });
+
+    importSkillsAndAgents(root, {});
+
+    const toml = readUtf8(path.join(root, '.harness', 'agents', 'codex', 'unsafe.toml'));
+    assert.match(toml, /description = "Expert reviewer"/);
+    assert.match(toml, /\\u0001/);
+});
+
+test('skills: plugin codex skill migration preserves original subtree structure', () => {
+    const pluginRoot = path.join('.claude', 'plugins', 'cache', 'claude-plugins-official', 'superpowers', '5.0.7');
+    const root = makeProjectTree('soft-harness-plugin-skill-structure-', {
+        '.harness': {
+            'plugins.yaml': [
+                'plugins:',
+                '  - name: superpowers@claude-plugins-official',
+                '    llms: [claude, codex]',
+                ''
+            ].join('\n')
+        },
+        '.claude': {
+            'settings.json': JSON.stringify({
+                enabledPlugins: {
+                    'superpowers@claude-plugins-official': true
+                }
+            }, null, 2),
+            plugins: {
+                'installed_plugins.json': JSON.stringify({
+                    version: 2,
+                    plugins: {
+                        'superpowers@claude-plugins-official': [{
+                            version: '5.0.7',
+                            installPath: pluginRoot,
+                            gitCommitSha: 'def456'
+                        }]
+                    }
+                }, null, 2),
+                cache: {
+                    'claude-plugins-official': {
+                        superpowers: {
+                            '5.0.7': {
+                                skills: {
+                                    references: {
+                                        'helper-surface.md': '# Helper'
+                                    },
+                                    analyze: {
+                                        'SKILL.md': [
+                                            '---',
+                                            'name: Analyze',
+                                            'description: Review state: compare prompts safely.',
+                                            '---',
+                                            '',
+                                            'See `../references/helper-surface.md`.',
+                                            ''
+                                        ].join('\n'),
+                                        'visual-companion.md': '# Visual',
+                                        scripts: {
+                                            'collect.js': 'console.log("collect");'
+                                        }
+                                    }
+                                },
+                                'package.json': JSON.stringify({
+                                    name: 'superpowers',
+                                    version: '5.0.7',
+                                    repository: 'https://github.com/obra/superpowers'
+                                }, null, 2)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    const imported = importSkillsAndAgents(root, {});
+    exportSkillsAndAgents(root, {});
+
+    assert.ok(imported.imported.some((entry) => entry.to === '.harness/skills/codex/analyze'));
+    assert.equal(exists(path.join(root, '.harness', 'skills', 'codex', 'references', 'helper-surface.md')), true);
+    assert.equal(exists(path.join(root, '.harness', 'skills', 'codex', 'analyze', 'visual-companion.md')), true);
+    assert.equal(exists(path.join(root, '.codex', 'skills', 'references', 'helper-surface.md')), true);
+    assert.equal(exists(path.join(root, '.codex', 'skills', 'analyze', 'scripts', 'collect.js')), true);
+
+    const origin = loadAssetOrigins(root).find((entry) => entry.kind === 'skill' && entry.asset === 'analyze');
+    assert.ok(origin);
+    assert.equal(origin.plugin, 'superpowers@claude-plugins-official');
+    assert.equal(origin.installedVersion, '5.0.7');
+    assert.equal(origin.sourcePath, 'skills/analyze');
+});

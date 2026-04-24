@@ -179,3 +179,56 @@ test('sync: organize replaces managed legacy codex yaml agent export with toml',
     assert.equal(fs.existsSync(path.join(root, '.codex', 'agents', 'reviewer.yaml')), false);
     assert.match(readUtf8(path.join(root, '.codex', 'agents', 'reviewer.toml')), /name = "Reviewer"/);
 });
+
+test('sync: organize preserves plugin codex skill companion files and shared references', async () => {
+    const pluginRoot = path.join('.claude', 'plugins', 'cache', 'claude-plugins-official', 'superpowers', '5.0.7');
+    const root = makeTempDir('soft-harness-sync-plugin-skill-port-');
+    writeUtf8(path.join(root, '.harness', 'plugins.yaml'), [
+        'plugins:',
+        '  - name: superpowers@claude-plugins-official',
+        '    llms: [claude, codex]',
+        ''
+    ].join('\n'));
+    writeUtf8(path.join(root, '.claude', 'settings.json'), JSON.stringify({
+        enabledPlugins: {
+            'superpowers@claude-plugins-official': true
+        }
+    }, null, 2));
+    writeUtf8(path.join(root, '.claude', 'plugins', 'installed_plugins.json'), JSON.stringify({
+        version: 2,
+        plugins: {
+            'superpowers@claude-plugins-official': [{
+                version: '5.0.7',
+                installPath: pluginRoot,
+                gitCommitSha: 'def456'
+            }]
+        }
+    }, null, 2));
+    writeUtf8(path.join(root, pluginRoot, 'skills', 'references', 'helper-surface.md'), '# Helper');
+    writeUtf8(path.join(root, pluginRoot, 'skills', 'organize', 'SKILL.md'), [
+        '---',
+        'name: Organize',
+        'description: Apply host changes: preserve plugin skill trees safely.',
+        '---',
+        '',
+        'See `../references/helper-surface.md`.',
+        ''
+    ].join('\n'));
+    writeUtf8(path.join(root, pluginRoot, 'skills', 'organize', 'visual-companion.md'), '# Visual');
+    writeUtf8(path.join(root, pluginRoot, 'skills', 'organize', 'scripts', 'collect.js'), 'console.log("collect");');
+    writeUtf8(path.join(root, pluginRoot, 'package.json'), JSON.stringify({
+        name: 'superpowers',
+        version: '5.0.7',
+        repository: 'https://github.com/obra/superpowers'
+    }, null, 2));
+
+    const result = await runSync(root, {}, {});
+
+    assert.equal(result.phase, 'completed');
+    assert.ok(result.imported.some((entry) => entry.to === '.harness/skills/codex/organize'));
+    assert.ok(result.exported.some((entry) => entry.to === '.codex/skills/organize'));
+    assert.equal(fs.existsSync(path.join(root, '.codex', 'skills', 'references', 'helper-surface.md')), true);
+    assert.equal(fs.existsSync(path.join(root, '.codex', 'skills', 'organize', 'visual-companion.md')), true);
+    assert.equal(fs.existsSync(path.join(root, '.codex', 'skills', 'organize', 'scripts', 'collect.js')), true);
+    assert.match(readUtf8(path.join(root, '.codex', 'skills', 'organize', 'SKILL.md')), /^description: "Apply host changes: preserve plugin skill trees safely\."$/m);
+});
