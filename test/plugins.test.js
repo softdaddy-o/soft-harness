@@ -548,3 +548,46 @@ test('plugins: virtual fs enriches claude plugin entries from known marketplace 
         assert.equal(uiUx.gitCommitSha, 'ghi789');
     });
 });
+
+test('plugins: readInstalledPluginEntries keeps install paths from installed_plugins metadata', () => {
+    const root = makeProjectTree('soft-harness-plugins-install-path-', {
+        '.claude': {
+            'settings.json': JSON.stringify({
+                enabledPlugins: {
+                    'superpowers@claude-plugins-official': true
+                }
+            }, null, 2),
+            plugins: {
+                'installed_plugins.json': JSON.stringify({
+                    version: 2,
+                    plugins: {
+                        'superpowers@claude-plugins-official': [{
+                            version: '5.0.7',
+                            installPath: '.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7',
+                            gitCommitSha: 'def456'
+                        }]
+                    }
+                }, null, 2),
+                cache: {
+                    'claude-plugins-official': {
+                        superpowers: {
+                            '5.0.7': {
+                                '.claude-plugin': {
+                                    'plugin.json': JSON.stringify({
+                                        name: 'superpowers',
+                                        version: '5.0.7'
+                                    }, null, 2)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    const entries = readInstalledPluginEntries(root, 'claude');
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].displayName, 'superpowers@claude-plugins-official');
+    assert.equal(entries[0].installPath, '.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7');
+});

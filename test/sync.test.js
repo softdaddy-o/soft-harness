@@ -119,3 +119,29 @@ test('sync: backup targets include existing harness assets and discovered projec
     assert.ok(manifest.entries.some((entry) => entry.path === '.claude/skills/built-in'));
     assert.ok(manifest.entries.some((entry) => entry.path === '.claude/skills/local'));
 });
+
+test('sync: organize ports Claude markdown agents into codex yaml outputs', async () => {
+    const root = makeTempDir('soft-harness-sync-agent-port-');
+    writeUtf8(path.join(root, '.claude', 'agents', 'backend-architect.md'), [
+        '---',
+        'name: Backend Architect',
+        'description: Senior backend architect specializing in scalable system design.',
+        '---',
+        '',
+        '# Backend Architect',
+        '',
+        'You are a Backend Architect focused on distributed systems, reliability, and service boundaries.',
+        '',
+        'Help design resilient APIs, review architecture decisions, and guide backend implementation tradeoffs.',
+        ''
+    ].join('\n'));
+
+    const result = await runSync(root, {}, {});
+
+    assert.equal(result.phase, 'completed');
+    assert.ok(result.imported.some((entry) => entry.to === '.harness/agents/codex/backend-architect.yaml'));
+    assert.ok(result.exported.some((entry) => entry.to === '.codex/agents/backend-architect.yaml'));
+    assert.match(readUtf8(path.join(root, '.harness', 'agents', 'codex', 'backend-architect.yaml')), /display_name: Backend Architect/);
+    assert.match(readUtf8(path.join(root, '.codex', 'agents', 'backend-architect.yaml')), /default_prompt:/);
+    assert.match(readUtf8(path.join(root, '.harness', 'asset-origins.yaml')), /lossy Codex stub/);
+});

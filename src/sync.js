@@ -219,6 +219,7 @@ function collectInitialBackupTargets(rootDir, discovered, state) {
         '.harness/settings',
         '.harness/skills',
         '.harness/agents',
+        '.harness/asset-origins.yaml',
         '.harness/plugins.yaml',
         '.harness/.sync-state.json',
         '.harness/.gitignore'

@@ -1,9 +1,12 @@
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
+const YAML = require('yaml');
+const { loadAssetOrigins, saveAssetOrigins } = require('./asset-origins');
 const { getFsBackend } = require('./fs-backend');
 const { hashDirectory, hashFile } = require('./hash');
+const { loadPlugins, readInstalledPluginEntries } = require('./plugins');
 const { createLink, isSymlink, readLink } = require('./symlink');
-const { copyPath, ensureDir, exists, readUtf8, removePath, writeUtf8 } = require('./fs-util');
+const { copyPath, exists, readUtf8, removePath, writeUtf8 } = require('./fs-util');
 const { getProfile, listProfiles } = require('./profiles');
 
 function discoverSkillsAndAgents(rootDir) {
@@ -35,14 +38,21 @@ function discoverSkillsAndAgents(rootDir) {
         const agentsDir = path.join(rootDir, profile.agents_dir);
         if (exists(agentsDir)) {
             for (const item of getFsBackend().readdirSync(agentsDir, { withFileTypes: true })) {
-                if (!item.isFile() || !item.name.endsWith('.md')) {
+                if (!item.isFile()) {
                     continue;
                 }
+
+                const extension = path.extname(item.name).toLowerCase();
+                if (!getSupportedAgentExtensions(llm).includes(extension)) {
+                    continue;
+                }
+
                 const agentPath = path.join(agentsDir, item.name);
                 items.push({
-                    name: item.name.replace(/\.md$/, ''),
+                    name: item.name.slice(0, -extension.length),
                     type: 'agent',
                     llm,
+                    extension,
                     relativePath: path.posix.join(profile.agents_dir, item.name),
                     absolutePath: agentPath,
                     hash: hashFile(agentPath)
@@ -54,7 +64,7 @@ function discoverSkillsAndAgents(rootDir) {
     return items;
 }
 
-function planBuckets(items, options) {
+function planBuckets(items) {
     const grouped = new Map();
     for (const item of items) {
         const key = `${item.type}:${item.name}`;
@@ -67,7 +77,8 @@ function planBuckets(items, options) {
     const plan = [];
     for (const members of grouped.values()) {
         const sameHash = new Set(members.map((member) => member.hash)).size === 1;
-        if (members.length > 1 && sameHash) {
+        const sameAgentExtension = members.every((member) => member.type !== 'agent' || member.extension === members[0].extension);
+        if (members.length > 1 && sameHash && sameAgentExtension) {
             for (const member of members) {
                 plan.push({
                     ...member,
@@ -90,14 +101,14 @@ function planBuckets(items, options) {
 
 function importSkillsAndAgents(rootDir, options) {
     const discovered = discoverSkillsAndAgents(rootDir);
-    const plan = planBuckets(discovered, options);
+    const plan = planBuckets(discovered);
     const imported = [];
     const routes = [];
 
     for (const item of plan) {
         const relativeTarget = item.type === 'skill'
             ? `.harness/skills/${item.bucket}/${item.name}`
-            : `.harness/agents/${item.bucket}/${item.name}.md`;
+            : `.harness/agents/${item.bucket}/${item.name}${item.extension || '.md'}`;
         const absoluteTarget = path.join(rootDir, relativeTarget);
         if (exists(absoluteTarget)) {
             continue;
@@ -132,10 +143,138 @@ function importSkillsAndAgents(rootDir, options) {
         }
     }
 
+    const codexPorts = importClaudeAgentsForCodex(rootDir, discovered, options);
+    imported.push(...codexPorts.imported);
+    routes.push(...codexPorts.routes);
+
     return {
         imported,
         routes
     };
+}
+
+function importClaudeAgentsForCodex(rootDir, discovered, options) {
+    const imported = [];
+    const routes = [];
+    const assetOrigins = loadAssetOrigins(rootDir);
+    let originsChanged = false;
+
+    const sources = collectClaudeAgentPortSources(rootDir, discovered);
+    for (const source of sources) {
+        const relativeTarget = `.harness/agents/codex/${source.name}.yaml`;
+        const absoluteTarget = path.join(rootDir, relativeTarget);
+        const desiredYaml = buildCodexAgentYamlStub(readUtf8(source.absolutePath), source.name);
+        const nextOrigin = buildCodexAgentOrigin(source);
+        const existingOrigin = findManagedCodexAgentOrigin(assetOrigins, source.name);
+        const currentTarget = exists(absoluteTarget) ? readUtf8(absoluteTarget) : null;
+        const originNeedsUpdate = !assetOriginsEqual(existingOrigin, nextOrigin);
+
+        if (exists(absoluteTarget) && !canRefreshManagedCodexAgent(existingOrigin, source)) {
+            continue;
+        }
+        if (currentTarget === desiredYaml && !originNeedsUpdate) {
+            continue;
+        }
+
+        imported.push({
+            type: 'agent',
+            llm: 'codex',
+            bucket: 'codex',
+            from: source.relativePath,
+            to: relativeTarget
+        });
+        routes.push({
+            action: 'bucket',
+            type: 'agent',
+            name: source.name,
+            llm: 'codex',
+            bucket: 'codex',
+            from: source.relativePath,
+            to: relativeTarget,
+            reason: source.plugin ? 'plugin-agent-port' : 'format-conversion-lossy'
+        });
+
+        if (options && options.dryRun) {
+            continue;
+        }
+
+        writeUtf8(absoluteTarget, desiredYaml);
+        upsertAssetOrigin(assetOrigins, nextOrigin);
+        originsChanged = true;
+    }
+
+    if (originsChanged && (!options || !options.dryRun)) {
+        saveAssetOrigins(rootDir, assetOrigins);
+    }
+
+    return {
+        imported,
+        routes
+    };
+}
+
+function collectClaudeAgentPortSources(rootDir, discovered) {
+    const selected = new Map();
+
+    for (const item of discovered) {
+        if (item.type !== 'agent' || item.llm !== 'claude' || item.extension !== '.md') {
+            continue;
+        }
+        if (!selected.has(item.name)) {
+            selected.set(item.name, item);
+        }
+    }
+
+    for (const item of discoverClaudePluginAgentsForCodex(rootDir)) {
+        if (!selected.has(item.name)) {
+            selected.set(item.name, item);
+        }
+    }
+
+    return Array.from(selected.values()).sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function discoverClaudePluginAgentsForCodex(rootDir) {
+    const desired = loadPlugins(rootDir).filter((plugin) => Array.isArray(plugin.llms) && plugin.llms.includes('codex'));
+    if (desired.length === 0) {
+        return [];
+    }
+
+    const installed = readInstalledPluginEntries(rootDir, 'claude');
+    const agents = [];
+
+    for (const plugin of desired) {
+        const installedEntry = matchInstalledClaudePlugin(plugin, installed);
+        if (!installedEntry || !installedEntry.installPath) {
+            continue;
+        }
+
+        const installRoot = resolveInstallRoot(rootDir, installedEntry.installPath);
+        const agentsDir = path.join(installRoot, 'agents');
+        if (!exists(agentsDir)) {
+            continue;
+        }
+
+        for (const item of getFsBackend().readdirSync(agentsDir, { withFileTypes: true })) {
+            if (!item.isFile() || path.extname(item.name).toLowerCase() !== '.md') {
+                continue;
+            }
+
+            const agentPath = path.join(agentsDir, item.name);
+            agents.push({
+                name: item.name.replace(/\.md$/u, ''),
+                type: 'agent',
+                llm: 'claude',
+                extension: '.md',
+                relativePath: toPosixRelative(rootDir, agentPath),
+                absolutePath: agentPath,
+                hash: hashFile(agentPath),
+                plugin: installedEntry
+            });
+        }
+    }
+
+    return dedupePluginAgents(agents);
 }
 
 function exportSkillsAndAgents(rootDir, options) {
@@ -404,21 +543,34 @@ function discoverHarnessAssets(rootDir) {
         }
 
         const agentsDir = path.join(rootDir, '.harness', 'agents', bucket);
-        if (exists(agentsDir)) {
-            for (const item of getFsBackend().readdirSync(agentsDir, { withFileTypes: true })) {
-                if (!item.isFile() || !item.name.endsWith('.md')) {
+        if (!exists(agentsDir)) {
+            continue;
+        }
+
+        for (const item of getFsBackend().readdirSync(agentsDir, { withFileTypes: true })) {
+            if (!item.isFile()) {
+                continue;
+            }
+
+            const extension = path.extname(item.name).toLowerCase();
+            if (!SUPPORTED_AGENT_EXTENSIONS.has(extension)) {
+                continue;
+            }
+
+            const name = item.name.slice(0, -extension.length);
+            const targets = bucket === 'common' ? listProfiles() : [bucket];
+            for (const llm of targets) {
+                if (!getSupportedAgentExtensions(llm).includes(extension)) {
                     continue;
                 }
 
-                const targets = bucket === 'common' ? listProfiles() : [bucket];
-                for (const llm of targets) {
-                    plan.push({
-                        type: 'agent',
-                        llm,
-                        source: path.posix.join('.harness', 'agents', bucket, item.name),
-                        target: path.posix.join(getProfile(llm).agents_dir, item.name)
-                    });
-                }
+                plan.push({
+                    type: 'agent',
+                    llm,
+                    source: path.posix.join('.harness', 'agents', bucket, item.name),
+                    target: path.posix.join(getProfile(llm).agents_dir, `${name}${getPreferredAgentExtension(llm)}`),
+                    extension
+                });
             }
         }
     }
@@ -479,7 +631,7 @@ function getManagedAssetKey(entry) {
     return `${entry.type}:${entry.target}`;
 }
 
-function detectLinkMode(absoluteTarget) {
+function detectLinkMode() {
     return process.platform === 'win32' ? 'junction' : 'symlink';
 }
 
@@ -489,6 +641,283 @@ function removeLegacyManagedMarker(absoluteTarget, type) {
         : `${absoluteTarget}.harness-managed`;
     removePath(markerPath);
 }
+
+function getSupportedAgentExtensions(llm) {
+    return llm === 'codex' ? ['.yaml', '.yml'] : ['.md'];
+}
+
+function getPreferredAgentExtension(llm) {
+    return llm === 'codex' ? '.yaml' : '.md';
+}
+
+function matchInstalledClaudePlugin(desiredPlugin, installedEntries) {
+    if (!desiredPlugin || !desiredPlugin.name) {
+        return null;
+    }
+
+    const exact = installedEntries.find((entry) => entry.displayName === desiredPlugin.name);
+    if (exact) {
+        return exact;
+    }
+
+    const bareNameMatches = installedEntries.filter((entry) => entry.name === desiredPlugin.name);
+    if (bareNameMatches.length === 1) {
+        return bareNameMatches[0];
+    }
+
+    return null;
+}
+
+function resolveInstallRoot(rootDir, installPath) {
+    return path.isAbsolute(installPath) ? installPath : path.join(rootDir, installPath);
+}
+
+function dedupePluginAgents(items) {
+    const grouped = new Map();
+    for (const item of items) {
+        if (!grouped.has(item.name)) {
+            grouped.set(item.name, []);
+        }
+        grouped.get(item.name).push(item);
+    }
+
+    const selected = [];
+    for (const candidates of grouped.values()) {
+        if (candidates.length === 1) {
+            selected.push(candidates[0]);
+        }
+    }
+
+    return selected;
+}
+
+function buildCodexAgentYamlStub(content, fallbackName) {
+    const parsed = parseClaudeAgentMarkdown(content, fallbackName);
+    return YAML.stringify({
+        interface: {
+            display_name: parsed.displayName,
+            short_description: parsed.shortDescription,
+            default_prompt: parsed.defaultPrompt
+        }
+    });
+}
+
+function parseClaudeAgentMarkdown(content, fallbackName) {
+    const parsed = extractFrontmatter(content);
+    const frontmatter = parsed.frontmatter || {};
+    const body = parsed.body || '';
+    const displayName = cleanText(frontmatter.name) || extractTitle(body) || titleizeSlug(fallbackName);
+    const shortDescription = truncateText(cleanText(frontmatter.description) || extractFirstMeaningfulParagraph(body) || `Claude agent for ${displayName}.`, 220);
+    const mission = truncateText(extractMission(body, displayName, shortDescription), 420);
+    return {
+        displayName,
+        shortDescription,
+        defaultPrompt: mission || `Act as ${displayName}. ${shortDescription}`
+    };
+}
+
+function extractFrontmatter(content) {
+    const text = String(content || '');
+    if (!text.startsWith('---')) {
+        return { frontmatter: null, body: text };
+    }
+
+    const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/u);
+    if (!match) {
+        return { frontmatter: null, body: text };
+    }
+
+    try {
+        return {
+            frontmatter: YAML.parse(match[1]) || {},
+            body: match[2]
+        };
+    } catch (error) {
+        return {
+            frontmatter: null,
+            body: text
+        };
+    }
+}
+
+function extractTitle(content) {
+    const match = String(content || '').match(/^#\s+(.+?)\s*$/mu);
+    return match ? cleanText(match[1]) : null;
+}
+
+function extractMission(content, displayName, shortDescription) {
+    const paragraphs = splitParagraphs(content)
+        .map((paragraph) => cleanText(stripMarkdown(paragraph)))
+        .filter(Boolean)
+        .filter((paragraph) => paragraph !== displayName && paragraph !== shortDescription);
+
+    const mission = paragraphs.find((paragraph) => paragraph.length >= 40) || paragraphs[0] || null;
+    if (!mission) {
+        return `Act as ${displayName}. ${shortDescription}`;
+    }
+
+    if (mission.toLowerCase().startsWith('you are')) {
+        return mission;
+    }
+    return `Act as ${displayName}. ${mission}`;
+}
+
+function extractFirstMeaningfulParagraph(content) {
+    const paragraph = splitParagraphs(content)
+        .map((value) => cleanText(stripMarkdown(value)))
+        .find((value) => value && value.length >= 20);
+    return paragraph || null;
+}
+
+function splitParagraphs(content) {
+    const lines = String(content || '')
+        .replace(/\r\n/g, '\n')
+        .split('\n')
+        .filter((line) => !/^---\s*$/u.test(line.trim()))
+        .filter((line) => !/^#\s+/u.test(line.trim()));
+
+    const paragraphs = [];
+    let current = [];
+    for (const line of lines) {
+        if (!line.trim()) {
+            if (current.length > 0) {
+                paragraphs.push(current.join(' '));
+                current = [];
+            }
+            continue;
+        }
+        current.push(line.trim());
+    }
+    if (current.length > 0) {
+        paragraphs.push(current.join(' '));
+    }
+
+    return paragraphs;
+}
+
+function stripMarkdown(content) {
+    return String(content || '')
+        .replace(/`([^`]+)`/gu, '$1')
+        .replace(/\*\*([^*]+)\*\*/gu, '$1')
+        .replace(/\*([^*]+)\*/gu, '$1')
+        .replace(/_([^_]+)_/gu, '$1')
+        .replace(/\[([^\]]+)\]\([^)]+\)/gu, '$1')
+        .replace(/^[-*]\s+/gmu, '')
+        .replace(/\s+/gu, ' ')
+        .trim();
+}
+
+function cleanText(value) {
+    const text = String(value || '').replace(/\s+/gu, ' ').trim();
+    return text || null;
+}
+
+function truncateText(value, maxLength) {
+    const text = cleanText(value);
+    if (!text || text.length <= maxLength) {
+        return text;
+    }
+    return `${text.slice(0, maxLength - 3).trimEnd()}...`;
+}
+
+function titleizeSlug(value) {
+    const words = String(value || '')
+        .split(/[-_]+/u)
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`);
+    return words.join(' ') || 'Agent';
+}
+
+function buildCodexAgentOrigin(source) {
+    const plugin = source.plugin || null;
+    return {
+        kind: 'agent',
+        asset: source.name,
+        hosts: ['codex'],
+        plugin: plugin ? (plugin.displayName || plugin.name || null) : null,
+        sourceType: plugin ? (plugin.sourceType || 'marketplace') : 'local',
+        repo: plugin ? (plugin.repo || null) : null,
+        url: plugin ? buildPluginAgentUrl(plugin, source.name) : null,
+        sourcePath: plugin ? joinSourcePath(plugin.sourcePath, `agents/${source.name}.md`) : source.relativePath,
+        installedVersion: plugin ? (plugin.version || null) : null,
+        latestVersion: null,
+        gitCommitSha: plugin ? (plugin.gitCommitSha || null) : null,
+        confidence: plugin && (plugin.repo || plugin.url) ? 'confirmed' : null,
+        notes: plugin
+            ? `Generated as a lossy Codex stub from Claude plugin agent ${plugin.displayName || plugin.name}.`
+            : 'Generated as a lossy Codex stub from a Claude markdown agent.'
+    };
+}
+
+function buildPluginAgentUrl(plugin, agentName) {
+    const sourcePath = joinSourcePath(plugin.sourcePath, `agents/${agentName}.md`);
+    if (plugin.repo && sourcePath) {
+        return `https://github.com/${plugin.repo}/tree/main/${sourcePath}`;
+    }
+    return plugin.url || (plugin.repo ? `https://github.com/${plugin.repo}` : null);
+}
+
+function joinSourcePath(basePath, suffix) {
+    const parts = [basePath, suffix]
+        .map((value) => String(value || '').replace(/\\/g, '/').replace(/^\/+/u, '').replace(/\/+$/u, ''))
+        .filter(Boolean);
+    return parts.length > 0 ? parts.join('/') : null;
+}
+
+function findManagedCodexAgentOrigin(origins, agentName) {
+    return (origins || []).find((origin) => origin.kind === 'agent'
+        && origin.asset === agentName
+        && Array.isArray(origin.hosts)
+        && origin.hosts.length === 1
+        && origin.hosts[0] === 'codex') || null;
+}
+
+function canRefreshManagedCodexAgent(origin, source) {
+    if (!origin) {
+        return false;
+    }
+    if (source.plugin) {
+        return origin.plugin === (source.plugin.displayName || source.plugin.name || null);
+    }
+    return !origin.plugin && origin.sourcePath === source.relativePath;
+}
+
+function assetOriginsEqual(left, right) {
+    if (!left || !right) {
+        return false;
+    }
+    return left.kind === right.kind
+        && left.asset === right.asset
+        && JSON.stringify(left.hosts || []) === JSON.stringify(right.hosts || [])
+        && left.plugin === right.plugin
+        && left.sourceType === right.sourceType
+        && left.repo === right.repo
+        && left.url === right.url
+        && left.sourcePath === right.sourcePath
+        && left.installedVersion === right.installedVersion
+        && left.latestVersion === right.latestVersion
+        && left.gitCommitSha === right.gitCommitSha
+        && left.confidence === right.confidence
+        && left.notes === right.notes;
+}
+
+function upsertAssetOrigin(origins, nextOrigin) {
+    const index = (origins || []).findIndex((origin) => origin.kind === nextOrigin.kind
+        && origin.asset === nextOrigin.asset
+        && JSON.stringify(origin.hosts || []) === JSON.stringify(nextOrigin.hosts || []));
+    if (index === -1) {
+        origins.push(nextOrigin);
+        return;
+    }
+    origins[index] = nextOrigin;
+}
+
+function toPosixRelative(rootDir, absolutePath) {
+    return path.relative(rootDir, absolutePath).split(path.sep).join('/');
+}
+
+const SUPPORTED_AGENT_EXTENSIONS = new Set(['.md', '.yaml', '.yml']);
 
 module.exports = {
     buildManagedAssetState,

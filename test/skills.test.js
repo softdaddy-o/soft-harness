@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { loadAssetOrigins } = require('../src/asset-origins');
 const { exists, readUtf8, writeUtf8 } = require('../src/fs-util');
 const {
     buildManagedAssetState,
@@ -88,11 +89,22 @@ test('skills: discovery skips invalid entries and imports agents during dry-run'
                 'helper.md': '# Helper',
                 'ignore.txt': 'ignored'
             }
+        },
+        '.codex': {
+            agents: {
+                'reviewer.yaml': [
+                    'interface:',
+                    '  display_name: "Reviewer"',
+                    '  short_description: "Reviews code"',
+                    '  default_prompt: "Review the code carefully."',
+                    ''
+                ].join('\n')
+            }
         }
     });
 
     const discovered = discoverSkillsAndAgents(root);
-    assert.deepEqual(discovered.map((item) => `${item.type}:${item.name}`).sort(), ['agent:helper', 'skill:valid']);
+    assert.deepEqual(discovered.map((item) => `${item.type}:${item.name}`).sort(), ['agent:helper', 'agent:reviewer', 'skill:valid']);
 
     const imported = importSkillsAndAgents(root, { dryRun: true });
     assert.ok(imported.imported.some((item) => item.type === 'agent'));
@@ -119,7 +131,7 @@ test('skills: discoverHarnessAssets expands common buckets across all llms', () 
 
     const assets = discoverHarnessAssets(root);
     assert.equal(assets.filter((item) => item.type === 'skill').length, 3);
-    assert.equal(assets.filter((item) => item.type === 'agent').length, 3);
+    assert.equal(assets.filter((item) => item.type === 'agent').length, 2);
 });
 
 test('skills: pull-back skips unsupported entries and dry-run avoids re-export', () => {
@@ -146,4 +158,116 @@ test('skills: pull-back skips unsupported entries and dry-run avoids re-export',
 
     assert.deepEqual(pulledBack, [{ from: '.claude/agents/worker.md', to: '.harness/agents/claude/worker.md' }]);
     assert.equal(exists(path.join(root, '.harness', 'agents', 'claude', 'worker.md')), true);
+});
+
+test('skills: import ports Claude markdown agents into codex yaml stubs', () => {
+    const root = makeProjectTree('soft-harness-skills-agent-port-', {
+        '.claude': {
+            agents: {
+                'backend-architect.md': [
+                    '---',
+                    'name: Backend Architect',
+                    'description: Senior backend architect specializing in scalable system design.',
+                    '---',
+                    '',
+                    '# Backend Architect',
+                    '',
+                    'You are a Backend Architect focused on distributed systems, reliability, and service boundaries.',
+                    '',
+                    'Help design resilient APIs, review architecture decisions, and guide backend implementation tradeoffs.',
+                    ''
+                ].join('\n')
+            }
+        }
+    });
+
+    const imported = importSkillsAndAgents(root, {});
+    assert.ok(imported.imported.some((entry) => entry.to === '.harness/agents/codex/backend-architect.yaml'));
+    assert.equal(exists(path.join(root, '.harness', 'agents', 'claude', 'backend-architect.md')), true);
+
+    const codexAgent = readUtf8(path.join(root, '.harness', 'agents', 'codex', 'backend-architect.yaml'));
+    assert.match(codexAgent, /display_name: Backend Architect/);
+    assert.match(codexAgent, /short_description: Senior backend architect specializing in scalable system design\./);
+    assert.match(codexAgent, /default_prompt:/);
+    assert.match(codexAgent, /You are a Backend Architect focused on distributed systems/);
+
+    const origin = loadAssetOrigins(root).find((entry) => entry.kind === 'agent' && entry.asset === 'backend-architect');
+    assert.ok(origin);
+    assert.equal(origin.hosts.join(','), 'codex');
+    assert.equal(origin.plugin, null);
+    assert.equal(origin.sourceType, 'local');
+    assert.equal(origin.sourcePath, '.claude/agents/backend-architect.md');
+    assert.match(origin.notes, /lossy Codex stub/);
+});
+
+test('skills: plugin Claude agents assigned to codex are ported into codex yaml stubs', () => {
+    const root = makeProjectTree('soft-harness-skills-plugin-agent-port-', {
+        '.harness': {
+            'plugins.yaml': [
+                'plugins:',
+                '  - name: superpowers@claude-plugins-official',
+                '    llms: [claude, codex]',
+                ''
+            ].join('\n')
+        },
+        '.claude': {
+            'settings.json': JSON.stringify({
+                enabledPlugins: {
+                    'superpowers@claude-plugins-official': true
+                }
+            }, null, 2),
+            plugins: {
+                'installed_plugins.json': JSON.stringify({
+                    version: 2,
+                    plugins: {
+                        'superpowers@claude-plugins-official': [{
+                            version: '5.0.7',
+                            installPath: path.join('.claude', 'plugins', 'cache', 'claude-plugins-official', 'superpowers', '5.0.7'),
+                            gitCommitSha: 'def456'
+                        }]
+                    }
+                }, null, 2),
+                cache: {
+                    'claude-plugins-official': {
+                        superpowers: {
+                            '5.0.7': {
+                                agents: {
+                                    'code-reviewer.md': [
+                                        '---',
+                                        'name: Code Reviewer',
+                                        'description: Expert reviewer for code quality, bugs, and maintainability.',
+                                        '---',
+                                        '',
+                                        '# Code Reviewer',
+                                        '',
+                                        'Review code critically, surface regressions, and explain the highest-risk issues first.',
+                                        ''
+                                    ].join('\n')
+                                },
+                                'package.json': JSON.stringify({
+                                    name: 'superpowers',
+                                    version: '5.0.7',
+                                    repository: 'https://github.com/obra/superpowers'
+                                }, null, 2)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    const imported = importSkillsAndAgents(root, {});
+    assert.ok(imported.imported.some((entry) => entry.to === '.harness/agents/codex/code-reviewer.yaml'));
+
+    const codexAgent = readUtf8(path.join(root, '.harness', 'agents', 'codex', 'code-reviewer.yaml'));
+    assert.match(codexAgent, /display_name: Code Reviewer/);
+    assert.match(codexAgent, /short_description: Expert reviewer for code quality, bugs, and maintainability\./);
+
+    const origin = loadAssetOrigins(root).find((entry) => entry.kind === 'agent' && entry.asset === 'code-reviewer');
+    assert.ok(origin);
+    assert.equal(origin.plugin, 'superpowers@claude-plugins-official');
+    assert.equal(origin.installedVersion, '5.0.7');
+    assert.equal(origin.repo, 'obra/superpowers');
+    assert.equal(origin.sourcePath, 'agents/code-reviewer.md');
 });
