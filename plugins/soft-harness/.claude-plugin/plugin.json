@@ -1,7 +1,7 @@
 {
   "name": "soft-harness",
   "description": "Analyze and organize live Claude Code and Codex state with LLM-guided workflows.",
-  "version": "0.4.31",
+  "version": "0.4.32",
   "author": {
     "name": "softdaddy-o",
     "url": "https://github.com/softdaddy-o"
