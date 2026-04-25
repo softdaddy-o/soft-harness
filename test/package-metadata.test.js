@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const YAML = require('yaml');
 
 test('package metadata includes plugin wrappers and shared plugin content in published files', () => {
     const pkg = require(path.join('..', 'package.json'));
@@ -47,3 +48,30 @@ test('package version bump automation keeps release-facing plugin metadata in sy
 
     assert.equal(packageJson.scripts.version, 'node scripts/sync-version.js');
 });
+
+test('plugin skill frontmatter is valid YAML for strict Codex loaders', () => {
+    for (const skillPath of listPluginSkillFiles()) {
+        const content = fs.readFileSync(skillPath, 'utf8');
+        const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/u);
+
+        assert.ok(match, `${path.relative(path.join(__dirname, '..'), skillPath)} is missing YAML frontmatter`);
+        assert.doesNotThrow(() => YAML.parse(match[1]), path.relative(path.join(__dirname, '..'), skillPath));
+    }
+});
+
+test('codex plugin skills stay usable when installer copies only SKILL.md files', () => {
+    for (const skillPath of listPluginSkillFiles()) {
+        const relativePath = path.relative(path.join(__dirname, '..'), skillPath);
+        const content = fs.readFileSync(skillPath, 'utf8');
+
+        assert.doesNotMatch(content, /\.\.\/references\//u, `${relativePath} depends on a sibling references directory`);
+    }
+});
+
+function listPluginSkillFiles() {
+    const skillsRoot = path.join(__dirname, '..', 'plugins', 'soft-harness', 'skills');
+    return fs.readdirSync(skillsRoot, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => path.join(skillsRoot, entry.name, 'SKILL.md'))
+        .filter((skillPath) => fs.existsSync(skillPath));
+}

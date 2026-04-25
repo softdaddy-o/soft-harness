@@ -1,11 +1,29 @@
 ---
 name: organize
-description: Organize current host settings and prompts using natural-language requests such as remembering a rule, showing the current state, sharing an MCP with another host, splitting host-specific settings, or cleaning up stale prompt, memory, skill, agent, or plugin entries. Use when the user wants to change real Claude Code or Codex state and decide the best way to organize it. By default, organize should work in small chat-based steps: show validation findings first, explain that displaced files will be backed up under `.harness/backups/`, and ask whether to review changes one by one or see the full organize plan first. Respect `--dry-run` by planning only and not writing files.
+description: "Organize current host settings and prompts using natural-language requests such as remembering a rule, showing the current state, sharing an MCP with another host, splitting host-specific settings, or cleaning up stale prompt, memory, skill, agent, or plugin entries. Use when the user wants to change real Claude Code or Codex state and decide the best way to organize it. By default, organize should work in small chat-based steps: show validation findings first, explain that displaced files will be backed up under `.harness/backups/`, and ask whether to review changes one by one or see the full organize plan first. Respect `--dry-run` by planning only and not writing files."
 ---
 
 # Organize
 
-Read `../references/harness-folder-rules.md` first. Read `../references/helper-surface.md` when you need deterministic inspection, validation, apply, or backup behavior.
+Use this embedded reference directly. Codex plugin installs may provide only this `SKILL.md`, so do not depend on sibling reference files being present.
+
+## Harness Reference
+
+- Real host files are authoritative. `.harness/` is a reusable snapshot plus decision memory from the latest `analyze` or `organize` run.
+- Use `.harness/` to remember prior decisions, evidence, and shared-vs-host-local reasoning so the same questions do not need to be asked twice.
+- Snapshot layout:
+  - `.harness/HARNESS.md` for guidance that appears shared across hosts
+  - `.harness/llm/{claude,codex,gemini}.md` for host-specific prompt additions
+  - `.harness/settings/portable.yaml` for settings that appear safe to share
+  - `.harness/settings/llm/{claude,codex,gemini}.yaml` for host-specific settings or overrides
+  - `.harness/skills/` and `.harness/agents/` buckets for common and host-specific assets
+  - `.harness/memory/` for durable user memory and prior decision notes
+  - `.harness/plugins.yaml`, `.harness/plugin-origins.yaml`, and `.harness/asset-origins.yaml` for plugin targeting and origin evidence
+  - `.harness/.sync-state.json` and `.harness/backups/` as support state, not user-authored truth
+- `analyze` may refresh `.harness` without mutating host files. `organize` should update real host files first, then refresh `.harness` to match the new state.
+- Direct edits to `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, and host settings are allowed because those files are authoritative.
+- Use deterministic helpers only for exact parsing, hashing, validation, apply or backup steps, and local evidence collection. Relevant helper areas are `src/profiles.js`, `src/discover.js`, `src/md-parse.js`, `src/section-match.js`, `src/analyze/settings.js`, `src/settings.js`, `src/plugins.js`, `src/skills.js`, `src/export.js`, `src/backup.js`, `src/revert.js`, `src/state.js`, `src/origins.js`, `src/asset-origins.js`, `src/plugin-origins.js`, `src/fs-util.js`, `src/hash.js`, and `src/fs-backend.js`.
+- Helpers should not decide whether similar content should be merged, whether host-specific behavior should remain split, how to phrase user questions, final origin confidence when local evidence is incomplete, or memory placement when user intent is ambiguous.
 
 ## Workflow
 
