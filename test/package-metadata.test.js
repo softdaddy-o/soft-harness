@@ -41,3 +41,9 @@ test('plugin wrapper versions stay aligned with the published package version', 
     assert.equal(claudePlugin.version, publishedVersion);
     assert.equal(codexPlugin.version, publishedVersion);
 });
+
+test('package version bump automation keeps release-facing plugin metadata in sync', () => {
+    const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+
+    assert.equal(packageJson.scripts.version, 'node scripts/sync-version.js');
+});

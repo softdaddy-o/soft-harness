@@ -35,6 +35,7 @@
     "eval:llm": "node scripts/run-llm-eval.js list",
     "eval:llm:codex": "node scripts/run-llm-eval.js codex analyze-clean-start-dry-run",
     "eval:skills": "node scripts/run-skill-evals.js",
+    "version": "node scripts/sync-version.js",
     "test": "node --test",
     "test:coverage": "node --test --experimental-test-coverage"
   },
