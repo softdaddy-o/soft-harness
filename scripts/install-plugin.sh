@@ -2,6 +2,8 @@
 set -euo pipefail
 
 HOST="both"
+SOURCE="release"
+CLAUDE_HOME=""
 TARGET="."
 REPO="https://github.com/softdaddy-o/soft-harness.git"
 REF="main"
@@ -10,6 +12,18 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --host=*)
             HOST="${1#*=}"
+            shift
+            ;;
+        --source=*)
+            SOURCE="${1#*=}"
+            shift
+            ;;
+        --from-claude)
+            SOURCE="claude"
+            shift
+            ;;
+        --claude-home=*)
+            CLAUDE_HOME="${1#*=}"
             shift
             ;;
         --target=*)
@@ -48,4 +62,14 @@ cleanup() {
 trap cleanup EXIT
 
 git clone --depth 1 --branch "$REF" "$REPO" "$TMP_DIR" >/dev/null 2>&1
-node "$TMP_DIR/scripts/install-plugin.js" "--target=$TARGET" "--host=$HOST" "--source-root=$TMP_DIR"
+NODE_ARGS=(
+    "$TMP_DIR/scripts/install-plugin.js"
+    "--target=$TARGET"
+    "--host=$HOST"
+    "--source=$SOURCE"
+    "--source-root=$TMP_DIR"
+)
+if [[ -n "$CLAUDE_HOME" ]]; then
+    NODE_ARGS+=("--claude-home=$CLAUDE_HOME")
+fi
+node "${NODE_ARGS[@]}"

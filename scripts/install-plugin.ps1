@@ -2,6 +2,9 @@
 param(
     [ValidateSet('codex', 'claude', 'both')]
     [string]$Host = 'both',
+    [ValidateSet('release', 'claude')]
+    [string]$Source = 'release',
+    [string]$ClaudeHome = '',
     [string]$Target = '.',
     [string]$Repo = 'https://github.com/softdaddy-o/soft-harness.git',
     [string]$Ref = 'main'
@@ -21,7 +24,17 @@ $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("soft-harness-install-"
 
 try {
     git clone --depth 1 --branch $Ref $Repo $tempRoot | Out-Null
-    & node (Join-Path $tempRoot 'scripts\install-plugin.js') "--target=$Target" "--host=$Host" "--source-root=$tempRoot"
+    $nodeArgs = @(
+        (Join-Path $tempRoot 'scripts\install-plugin.js'),
+        "--target=$Target",
+        "--host=$Host",
+        "--source=$Source",
+        "--source-root=$tempRoot"
+    )
+    if ($ClaudeHome) {
+        $nodeArgs += "--claude-home=$ClaudeHome"
+    }
+    & node @nodeArgs
 }
 finally {
     if (Test-Path $tempRoot) {

@@ -116,6 +116,30 @@ macOS / Linux:
 curl -fsSL https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.sh | bash -s -- --host=codex
 ```
 
+If Claude Code already installed or updated Soft Harness through its plugin system on this machine, you can mirror that Claude-installed plugin into Codex instead of downloading the release copy again. The installer checks the target project first, then the user-level Claude plugin cache under your Claude home.
+
+Windows PowerShell:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.ps1))) -Host codex -Source claude
+```
+
+macOS / Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.sh | bash -s -- --host=codex --source=claude
+```
+
+The reverse direction is intentionally different: update Claude through Claude Code's plugin system, then reload plugins.
+
+```text
+/plugin marketplace update soft-harness
+/reload-plugins
+```
+
+The Codex mirror path never writes directly into Claude's plugin cache.
+If Claude uses a non-default home, pass `-ClaudeHome <path>` or `--claude-home=<path>`.
+
 ### Use It
 
 After installation, open your repo in Codex or Claude Code and ask:
