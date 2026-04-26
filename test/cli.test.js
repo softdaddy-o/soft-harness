@@ -52,6 +52,8 @@ test('cli: parseAnalyzeArgs supports category, llms, json, and thresholds', () =
         '--llms=claude,codex',
         '--explain',
         '--json',
+        '--include-account',
+        '--account-root=D:/Users/tester',
         '--heading-threshold=0.7',
         '--body-threshold=0.5'
     ]);
@@ -60,10 +62,13 @@ test('cli: parseAnalyzeArgs supports category, llms, json, and thresholds', () =
     assert.equal(parsed.verbose, false);
     assert.equal(parsed.explain, true);
     assert.equal(parsed.json, true);
+    assert.equal(parsed.includeAccount, true);
+    assert.equal(parsed.accountRoot, path.resolve('D:/Users/tester'));
     assert.equal(parsed.headingThreshold, 0.7);
     assert.equal(parsed.bodyThreshold, 0.5);
     assert.throws(() => parseAnalyzeArgs(['--category=bogus']), /invalid --category/i);
     assert.throws(() => parseAnalyzeArgs(['--heading-threshold=2']), /between 0 and 1/i);
+    assert.throws(() => parseAnalyzeArgs(['--account-root=']), /--account-root requires a path/i);
 });
 
 test('cli: parse args support root selection and reject ambiguous root flags', () => {
@@ -960,6 +965,67 @@ test('cli: main honors --root for sync and --account for analyze', async () => {
         const analyzed = JSON.parse(stdout.join(''));
         assert.deepEqual(analyzed.inventory.settings.map((entry) => entry.file), ['.claude/settings.json']);
         assert.ok(analyzed.host_only.some((entry) => entry.key === 'settings.claude.mcpServers.accountOnly' || entry.key === 'settings.mcp.accountOnly'));
+    } finally {
+        process.chdir(originalCwd);
+        process.env.HOME = originalHome;
+        process.env.USERPROFILE = originalUserProfile;
+        process.stdout.write = originalStdoutWrite;
+    }
+});
+
+test('cli: analyze --include-account compares Codex account MCP definitions with project overrides', async () => {
+    const cwdRoot = makeTempDir('soft-harness-cli-cwd-include-account-');
+    const homeRoot = makeProjectTree('soft-harness-cli-home-include-account-', {
+        '.codex': {
+            'config.toml': [
+                '[mcp_servers.notionApi]',
+                'command = "npx"',
+                'args = ["-y", "@notionhq/notion-mcp-server"]',
+                ''
+            ].join('\n')
+        }
+    });
+    const projectRoot = makeProjectTree('soft-harness-cli-project-include-account-', {
+        '.codex': {
+            'config.toml': [
+                '[mcp_servers.notionApi]',
+                'enabled = false',
+                ''
+            ].join('\n')
+        }
+    });
+
+    const originalCwd = process.cwd();
+    const originalHome = process.env.HOME;
+    const originalUserProfile = process.env.USERPROFILE;
+    const originalStdoutWrite = process.stdout.write;
+    const stdout = [];
+    process.stdout.write = (chunk) => {
+        stdout.push(String(chunk));
+        return true;
+    };
+
+    try {
+        process.chdir(cwdRoot);
+        process.env.HOME = homeRoot;
+        process.env.USERPROFILE = homeRoot;
+
+        assert.equal(await main([
+            'node',
+            'cli.js',
+            'analyze',
+            `--root=${projectRoot}`,
+            '--include-account',
+            '--category=settings',
+            '--llms=codex',
+            '--json'
+        ], {}), 0);
+
+        const analyzed = JSON.parse(stdout.join(''));
+        const accountEntry = analyzed.inventory.settings.find((entry) => entry.scope === 'account');
+        const projectEntry = analyzed.inventory.settings.find((entry) => entry.scope === 'project');
+        assert.deepEqual(accountEntry.mcpServers, ['notionApi']);
+        assert.deepEqual(projectEntry.mcpOverrides, ['notionApi']);
     } finally {
         process.chdir(originalCwd);
         process.env.HOME = originalHome;

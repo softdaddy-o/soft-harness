@@ -40,6 +40,8 @@ Sync options:
 Analyze options:
   --root=<path>                      Analyze an explicit root instead of the current directory
   --account                          Analyze the current account home directory
+  --include-account                  Include account-level Codex settings while analyzing a project
+  --account-root=<path>              Account home to use with --include-account
   --category=<name>                  Analyze prompts, settings, skills, plugins, or all
   --llms=<names>                     Limit analysis to a comma-separated llm list
   --verbose                          Show file-level analysis details
@@ -113,6 +115,7 @@ function parseAnalyzeArgs(args) {
     const flags = new Set(args);
     const categoryArg = args.find((arg) => arg.startsWith('--category='));
     const llmsArg = args.find((arg) => arg.startsWith('--llms='));
+    const accountRootArg = args.find((arg) => arg.startsWith('--account-root='));
     const root = parseCommandRootArgs(args);
     const thresholds = parseThresholdArgs(args);
     const category = categoryArg ? categoryArg.split('=')[1] : 'all';
@@ -123,13 +126,16 @@ function parseAnalyzeArgs(args) {
     const llms = llmsArg
         ? llmsArg.split('=')[1].split(',').map((value) => value.trim()).filter(Boolean)
         : [];
+    const accountRoot = parseAccountRootArg(accountRootArg);
 
     return {
         account: flags.has('--account'),
+        accountRoot,
         bodyThreshold: thresholds.bodyThreshold,
         category,
         explain: flags.has('--explain'),
         headingThreshold: thresholds.headingThreshold,
+        includeAccount: flags.has('--include-account') || Boolean(accountRoot),
         json: flags.has('--json'),
         llms,
         root,
@@ -166,6 +172,9 @@ async function runAnalyze(args) {
     }
 
     try {
+        if (analyzeOptions.includeAccount && !analyzeOptions.accountRoot) {
+            analyzeOptions.accountRoot = resolveCommandRoot(process.cwd(), { account: true });
+        }
         const rootDir = resolveCommandRoot(process.cwd(), analyzeOptions);
         const result = await runAnalyzeImpl(rootDir, analyzeOptions);
         const report = analyzeOptions.json
@@ -384,6 +393,17 @@ function parseCommandRootArgs(args) {
     return root || null;
 }
 
+function parseAccountRootArg(arg) {
+    if (!arg) {
+        return null;
+    }
+    const root = arg.slice('--account-root='.length).trim();
+    if (!root) {
+        throw new Error('--account-root requires a path');
+    }
+    return path.resolve(root);
+}
+
 function parseThresholdArgs(args) {
     const headingArg = args.find((arg) => arg.startsWith('--heading-threshold='));
     const bodyArg = args.find((arg) => arg.startsWith('--body-threshold='));
@@ -588,20 +608,33 @@ function formatAnalyzeDocuments(result, options) {
 
 function formatAnalyzeSettings(entries) {
     return (entries || []).map((entry) => {
+        const mcpServers = entry.mcpServers || [];
+        const mcpOverrides = entry.mcpOverrides || [];
+        const hostOnlyKeys = entry.hostOnlyKeys || [];
         const children = [
-            { text: `mcp servers: ${entry.mcpServers.length}` },
-            { text: `host-only keys: ${entry.hostOnlyKeys.length}` }
+            { text: `mcp servers: ${mcpServers.length}` },
+            { text: `mcp overrides: ${mcpOverrides.length}` },
+            { text: `host-only keys: ${hostOnlyKeys.length}` }
         ];
-        if (entry.mcpServers.length > 0) {
+        if (entry.scope) {
+            children.unshift({ text: `scope: ${entry.scope}` });
+        }
+        if (mcpServers.length > 0) {
             children.push({
                 text: 'servers',
-                children: entry.mcpServers.map((server) => ({ text: `server: ${server}` }))
+                children: mcpServers.map((server) => ({ text: `server: ${server}` }))
             });
         }
-        if (entry.hostOnlyKeys.length > 0) {
+        if (mcpOverrides.length > 0) {
+            children.push({
+                text: 'overrides',
+                children: mcpOverrides.map((server) => ({ text: `override: ${server}` }))
+            });
+        }
+        if (hostOnlyKeys.length > 0) {
             children.push({
                 text: 'keys',
-                children: entry.hostOnlyKeys.map((key) => ({ text: `key: ${key}` }))
+                children: hostOnlyKeys.map((key) => ({ text: `key: ${key}` }))
             });
         }
         if (entry.error) {

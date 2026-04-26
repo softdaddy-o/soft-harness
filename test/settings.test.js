@@ -98,3 +98,38 @@ test('settings: exportSettings preserves unrelated TOML content and replaces man
     assert.match(config, /\[mcp_servers\.shared\]/);
     assert.doesNotMatch(config, /\[mcp_servers\.stale\]/);
 });
+
+test('settings: exportSettings can write Codex project MCP disable overrides without full definitions', () => {
+    const root = makeTempDir('soft-harness-settings-codex-override-');
+    writeUtf8(path.join(root, '.harness', 'settings', 'llm', 'codex.yaml'), [
+        'version: 1',
+        'mcp_server_overrides:',
+        '  notionApi:',
+        '    scope: project',
+        '    enabled: false',
+        '    enabled_for: [codex]',
+        ''
+    ].join('\n'));
+    writeUtf8(path.join(root, '.codex', 'config.toml'), [
+        'approval_policy = "never"',
+        '',
+        '[mcp_servers.notionApi]',
+        'command = "npx"',
+        'args = ["-y", "@notionhq/notion-mcp-server"]',
+        '',
+        '[ui]',
+        'theme = "dark"',
+        ''
+    ].join('\n'));
+
+    const result = exportSettings(root, {});
+    const config = readUtf8(path.join(root, '.codex', 'config.toml'));
+
+    assert.deepEqual(result.exported, [{ llm: 'codex', path: '.codex/config.toml' }]);
+    assert.match(config, /approval_policy = "never"/);
+    assert.match(config, /\[ui\]/);
+    assert.match(config, /\[mcp_servers\.notionApi\]/);
+    assert.match(config, /enabled = false/);
+    assert.doesNotMatch(config, /@notionhq\/notion-mcp-server/);
+    assert.doesNotMatch(config, /command = "npx"/);
+});

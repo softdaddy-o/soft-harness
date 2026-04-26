@@ -9,14 +9,16 @@ function loadHarnessSettings(rootDir, relativePath) {
     if (!exists(absolutePath)) {
         return {
             version: 1,
-            mcp_servers: {}
+            mcp_servers: {},
+            mcp_server_overrides: {}
         };
     }
 
     const parsed = YAML.parse(readUtf8(absolutePath)) || {};
     return {
         version: parsed.version || 1,
-        mcp_servers: normalizeHarnessServers(parsed.mcp_servers || {})
+        mcp_servers: normalizeHarnessServers(parsed.mcp_servers || {}),
+        mcp_server_overrides: normalizeHarnessOverrides(parsed.mcp_server_overrides || {})
     };
 }
 
@@ -24,6 +26,7 @@ function mergeHarnessSettings(rootDir, llm) {
     const portable = loadHarnessSettings(rootDir, path.join('.harness', 'settings', 'portable.yaml'));
     const specific = loadHarnessSettings(rootDir, path.join('.harness', 'settings', 'llm', `${llm}.yaml`));
     const merged = {};
+    const overrides = {};
 
     for (const source of [portable.mcp_servers, specific.mcp_servers]) {
         for (const [name, value] of Object.entries(source)) {
@@ -35,9 +38,20 @@ function mergeHarnessSettings(rootDir, llm) {
         }
     }
 
+    for (const source of [portable.mcp_server_overrides, specific.mcp_server_overrides]) {
+        for (const [name, value] of Object.entries(source)) {
+            const normalized = normalizeHarnessOverride(value, llm);
+            if (!normalized) {
+                continue;
+            }
+            overrides[name] = normalized;
+        }
+    }
+
     return {
         version: 1,
-        mcp_servers: merged
+        mcp_servers: merged,
+        mcp_server_overrides: overrides
     };
 }
 
@@ -55,7 +69,9 @@ function exportSettings(rootDir, options) {
         }
 
         const merged = mergeHarnessSettings(rootDir, llm);
-        if (Object.keys(merged.mcp_servers).length === 0 && !exists(path.join(rootDir, profile.settings_file))) {
+        if (Object.keys(merged.mcp_servers).length === 0
+            && Object.keys(merged.mcp_server_overrides).length === 0
+            && !exists(path.join(rootDir, profile.settings_file))) {
             continue;
         }
 
@@ -150,7 +166,11 @@ function renderJsonSettings(currentContent, merged) {
 function renderTomlSettings(currentContent, merged) {
     const preserved = stripManagedTomlSubtree(currentContent);
     const blocks = [];
+    const overrides = { ...(merged.mcp_server_overrides || {}) };
     for (const [name, value] of Object.entries(merged.mcp_servers)) {
+        const override = overrides[name];
+        const enabled = override && override.scope === 'project' ? override.enabled : value.enabled;
+        delete overrides[name];
         blocks.push(`[mcp_servers.${name}]`);
         blocks.push(`transport = ${renderTomlScalar(value.transport)}`);
         blocks.push(`command = ${renderTomlScalar(value.command)}`);
@@ -161,9 +181,17 @@ function renderTomlSettings(currentContent, merged) {
         if (value.env_passthrough.length > 0) {
             blocks.push(`env_passthrough = ${renderTomlArray(value.env_passthrough)}`);
         }
-        if (value.enabled !== true) {
-            blocks.push(`enabled = ${value.enabled ? 'true' : 'false'}`);
+        if (enabled !== true) {
+            blocks.push(`enabled = ${enabled ? 'true' : 'false'}`);
         }
+        blocks.push('');
+    }
+    for (const [name, value] of Object.entries(overrides)) {
+        if (value.scope !== 'project') {
+            continue;
+        }
+        blocks.push(`[mcp_servers.${name}]`);
+        blocks.push(`enabled = ${value.enabled ? 'true' : 'false'}`);
         blocks.push('');
     }
 
@@ -209,6 +237,18 @@ function normalizeHarnessServers(servers) {
     return normalized;
 }
 
+function normalizeHarnessOverrides(overrides) {
+    const normalized = {};
+    for (const [name, value] of Object.entries(overrides || {})) {
+        const override = normalizeHarnessOverride(value, null);
+        if (!override) {
+            continue;
+        }
+        normalized[name] = override;
+    }
+    return normalized;
+}
+
 function normalizeHarnessServer(value, llm) {
     const enabledFor = Array.isArray(value && value.enabled_for) ? value.enabled_for.slice() : [];
     if (llm && enabledFor.length > 0 && !enabledFor.includes(llm)) {
@@ -224,6 +264,25 @@ function normalizeHarnessServer(value, llm) {
             ? value.env_passthrough.map(String)
             : [],
         enabled: typeof (value && value.enabled) === 'boolean' ? value.enabled : true,
+        enabled_for: enabledFor
+    };
+}
+
+function normalizeHarnessOverride(value, llm) {
+    if (llm && llm !== 'codex') {
+        return null;
+    }
+    const enabledFor = Array.isArray(value && value.enabled_for) ? value.enabled_for.slice() : [];
+    if (llm && enabledFor.length > 0 && !enabledFor.includes(llm)) {
+        return null;
+    }
+    if (typeof (value && value.enabled) !== 'boolean') {
+        return null;
+    }
+
+    return {
+        scope: value && value.scope ? String(value.scope) : 'project',
+        enabled: value.enabled,
         enabled_for: enabledFor
     };
 }

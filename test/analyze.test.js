@@ -109,6 +109,52 @@ test('analyze: settings classify common, similar, conflict, host-only, and unkno
     assert.ok(result.score_reasons.some((entry) => /LLM-specific settings item.*out of sync across hosts/.test(entry)));
 });
 
+test('analyze: settings separate Codex account MCP definitions from project disable overrides', async () => {
+    const accountRoot = makeProjectTree('soft-harness-analyze-settings-account-', {
+        '.codex': {
+            'config.toml': [
+                '[mcp_servers.notionApi]',
+                'command = "npx"',
+                'args = ["-y", "@notionhq/notion-mcp-server"]',
+                'env_passthrough = ["NOTION_TOKEN"]',
+                ''
+            ].join('\n')
+        }
+    });
+    const projectRoot = makeProjectTree('soft-harness-analyze-settings-project-', {
+        '.codex': {
+            'config.toml': [
+                '[mcp_servers.notionApi]',
+                'enabled = false',
+                ''
+            ].join('\n')
+        }
+    });
+
+    const result = await runAnalyze(projectRoot, {
+        accountRoot,
+        category: 'settings',
+        llms: ['codex']
+    });
+
+    const accountEntry = result.inventory.settings.find((entry) => entry.scope === 'account');
+    const projectEntry = result.inventory.settings.find((entry) => entry.scope === 'project');
+
+    assert.ok(accountEntry);
+    assert.equal(accountEntry.file, '~/.codex/config.toml');
+    assert.deepEqual(accountEntry.mcpServers, ['notionApi']);
+    assert.deepEqual(accountEntry.mcpOverrides, []);
+
+    assert.ok(projectEntry);
+    assert.equal(projectEntry.file, '.codex/config.toml');
+    assert.deepEqual(projectEntry.mcpServers, []);
+    assert.deepEqual(projectEntry.mcpOverrides, ['notionApi']);
+
+    assert.ok(result.host_only.some((entry) => entry.key === 'settings.mcp.notionApi'));
+    assert.ok(result.host_only.some((entry) => entry.key === 'settings.mcp_override.notionApi'));
+    assert.equal(result.conflicts.some((entry) => entry.key === 'settings.mcp.notionApi'), false);
+});
+
 test('analyze: skills classify common, similar, conflict, and host-only content', async () => {
     const root = makeProjectTree('soft-harness-analyze-skills-', {
         '.claude': {

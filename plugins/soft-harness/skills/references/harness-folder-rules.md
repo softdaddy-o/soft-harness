@@ -51,8 +51,8 @@ Use this document as the structure reference for both `analyze` and `organize`.
 
 - `HARNESS.md`: snapshot of rules or guidance that appear shared across hosts.
 - `llm/*.md`: snapshot of host-specific prompt additions.
-- `settings/portable.yaml`: snapshot of settings that appear safe to share across hosts.
-- `settings/llm/*.yaml`: snapshot of host-specific settings or overrides.
+- `settings/portable.yaml`: snapshot of settings that appear safe to share across hosts. Full MCP definitions live under `mcp_servers`.
+- `settings/llm/*.yaml`: snapshot of host-specific settings or overrides. Codex project-local MCP enable/disable policy can live under `mcp_server_overrides` so project files do not copy account-level commands, args, or secret-adjacent config.
 - `skills/` and `agents/`: snapshot buckets recording whether an asset looks common or host-specific.
 - `memory/`: durable user memory and prior decision notes.
 - `plugins.yaml`: snapshot of plugin targeting and user decisions.

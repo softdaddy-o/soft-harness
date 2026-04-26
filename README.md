@@ -263,6 +263,8 @@ plugins/
 
 This folder is not the source of truth. It records the most recent analyzed or organized view of the host state plus the user's decisions.
 
+Settings snapshots use `mcp_servers` for full portable MCP definitions. Codex project-level enable/disable policy can be represented separately with `mcp_server_overrides`, which lets a project write a local block such as `enabled = false` without copying an account-level command, args, or secret-adjacent configuration into the repo.
+
 ## Thin Helper Surface
 
 Keep deterministic code only where it materially helps the skills.

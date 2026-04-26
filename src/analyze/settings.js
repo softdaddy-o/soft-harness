@@ -14,70 +14,86 @@ function analyzeSettings(rootDir, options) {
     const settings = [];
     const llms = selectLlms(options);
     const mcpEntries = [];
+    const mcpOverrideEntries = [];
 
     for (const llm of llms) {
-        const profile = getProfile(llm);
-        const settingsPath = profile.settings_file || profile.plugins_manifest;
-        if (!settingsPath) {
-            continue;
-        }
+        for (const target of getSettingsTargets(rootDir, llm, options)) {
+            const absolutePath = path.join(target.rootDir, target.settingsPath);
+            if (!exists(absolutePath)) {
+                continue;
+            }
 
-        const absolutePath = path.join(rootDir, settingsPath);
-        if (!exists(absolutePath)) {
-            continue;
-        }
+            try {
+                const parsed = parseSettingsFile(target.settingsPath, readUtf8(absolutePath));
+                settings.push({
+                    llm,
+                    file: target.displayFile,
+                    scope: target.scope,
+                    format: parsed.format,
+                    status: 'parsed',
+                    mcpServers: parsed.mcpServers.map((server) => server.name),
+                    mcpOverrides: parsed.mcpOverrides.map((override) => override.name),
+                    hostOnlyKeys: parsed.hostOnlyKeys
+                });
+                mcpEntries.push(...parsed.mcpServers.map((server) => ({
+                    ...server,
+                    llm,
+                    sourceFile: target.displayFile
+                })));
+                mcpOverrideEntries.push(...parsed.mcpOverrides.map((override) => ({
+                    ...override,
+                    llm,
+                    sourceFile: target.displayFile
+                })));
 
-        try {
-            const parsed = parseSettingsFile(settingsPath, readUtf8(absolutePath));
-            settings.push({
-                llm,
-                file: settingsPath,
-                format: parsed.format,
-                status: 'parsed',
-                mcpServers: parsed.mcpServers.map((server) => server.name),
-                hostOnlyKeys: parsed.hostOnlyKeys
-            });
-            mcpEntries.push(...parsed.mcpServers.map((server) => ({
-                ...server,
-                llm,
-                sourceFile: settingsPath
-            })));
-
-            for (const key of parsed.hostOnlyKeys) {
-                findings.hostOnly.push(createFinding('hostOnly', {
+                for (const key of parsed.hostOnlyKeys) {
+                    findings.hostOnly.push(createFinding('hostOnly', {
+                        category: 'settings',
+                        kind: 'key',
+                        key: `settings.${llm}.${key}`,
+                        sources: [{
+                            llm,
+                            file: target.displayFile,
+                            path: `${target.displayFile}#${key}`
+                        }],
+                        reason: 'no portable cross-host mapping is defined'
+                    }));
+                }
+            } catch (error) {
+                settings.push({
+                    llm,
+                    file: target.displayFile,
+                    scope: target.scope,
+                    format: detectSettingsFormat(target.settingsPath),
+                    status: 'parse-error',
+                    mcpServers: [],
+                    mcpOverrides: [],
+                    hostOnlyKeys: [],
+                    error: error.message
+                });
+                findings.unknown.push(createFinding('unknown', {
                     category: 'settings',
-                    kind: 'key',
-                    key: `settings.${llm}.${key}`,
+                    kind: 'file',
+                    key: `settings.${llm}`,
                     sources: [{
                         llm,
-                        file: settingsPath,
-                        path: `${settingsPath}#${key}`
+                        file: target.displayFile,
+                        path: target.displayFile
                     }],
-                    reason: 'no portable cross-host mapping is defined'
+                    reason: `settings adapter could not parse file: ${error.message}`
                 }));
             }
-        } catch (error) {
-            settings.push({
-                llm,
-                file: settingsPath,
-                format: detectSettingsFormat(settingsPath),
-                status: 'parse-error',
-                mcpServers: [],
-                hostOnlyKeys: [],
-                error: error.message
-            });
-            findings.unknown.push(createFinding('unknown', {
-                category: 'settings',
-                kind: 'file',
-                key: `settings.${llm}`,
-                sources: [{
-                    llm,
-                    file: settingsPath,
-                    path: settingsPath
-                }],
-                reason: `settings adapter could not parse file: ${error.message}`
-            }));
         }
+    }
+
+    for (const entry of mcpOverrideEntries) {
+        findings.hostOnly.push(createFinding('hostOnly', {
+            category: 'settings',
+            kind: 'mcp_override',
+            key: `settings.mcp_override.${entry.name}`,
+            sources: [createSettingsSource(entry)],
+            reason: 'project-scoped Codex MCP override is intentionally host-local'
+        }));
     }
 
     const byName = new Map();
@@ -147,6 +163,7 @@ function parseJsonSettings(content) {
     return {
         format: 'json',
         mcpServers,
+        mcpOverrides: [],
         hostOnlyKeys
     };
 }
@@ -192,7 +209,12 @@ function parseTomlSettings(content) {
 
     return {
         format: 'toml',
-        mcpServers: Object.entries(mcpServers).map(([name, value]) => buildMcpServer(name, value)),
+        mcpServers: Object.entries(mcpServers)
+            .filter(([, value]) => !isMcpOverride(value))
+            .map(([name, value]) => buildMcpServer(name, value)),
+        mcpOverrides: Object.entries(mcpServers)
+            .filter(([, value]) => isMcpOverride(value))
+            .map(([name, value]) => buildMcpOverride(name, value)),
         hostOnlyKeys: Object.keys(root)
     };
 }
@@ -246,6 +268,31 @@ function buildMcpServer(name, value) {
     };
 }
 
+function buildMcpOverride(name, value) {
+    const normalized = {
+        enabled: value.enabled
+    };
+
+    return {
+        name,
+        normalized,
+        hash: normalizeText(JSON.stringify(normalized))
+    };
+}
+
+function isMcpOverride(value) {
+    return typeof value.enabled === 'boolean' && !hasFullMcpDefinition(value);
+}
+
+function hasFullMcpDefinition(value) {
+    return Boolean(value.command
+        || value.transport
+        || value.cwd
+        || (Array.isArray(value.args) && value.args.length > 0)
+        || (Array.isArray(value.env_passthrough) && value.env_passthrough.length > 0)
+        || (value.env && typeof value.env === 'object' && Object.keys(value.env).length > 0));
+}
+
 function calculateSettingsSimilarity(members) {
     let best = 0;
     for (let index = 0; index < members.length; index += 1) {
@@ -297,6 +344,40 @@ function selectLlms(options) {
         return listProfiles();
     }
     return requested;
+}
+
+function getSettingsTargets(rootDir, llm, options) {
+    const profile = getProfile(llm);
+    const settingsPath = profile.settings_file || profile.plugins_manifest;
+    if (!settingsPath) {
+        return [];
+    }
+
+    const targets = [];
+    const accountRoot = llm === 'codex' && options && options.accountRoot
+        ? path.resolve(options.accountRoot)
+        : null;
+    const root = path.resolve(rootDir);
+    const projectSettingsPath = path.resolve(root, settingsPath);
+    if (accountRoot) {
+        const accountSettingsPath = path.resolve(accountRoot, settingsPath);
+        if (accountSettingsPath !== projectSettingsPath) {
+            targets.push({
+                rootDir: accountRoot,
+                settingsPath,
+                displayFile: `~/${settingsPath}`,
+                scope: 'account'
+            });
+        }
+    }
+
+    targets.push({
+        rootDir: root,
+        settingsPath,
+        displayFile: settingsPath,
+        scope: options && options.account ? 'account' : 'project'
+    });
+    return targets;
 }
 
 module.exports = {
