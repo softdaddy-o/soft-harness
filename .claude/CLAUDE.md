@@ -2,6 +2,17 @@
 <!-- Source: .harness/HARNESS.md + .harness/memory/shared.md + .harness/llm/claude.md + .harness/memory/llm/claude.md -->
 <!-- Regenerate: soft-harness organize -->
 
+<!-- soft-harness prompt:start -->
+## Soft Harness
+
+Soft Harness provides two skills:
+
+- `analyze`: inspect Claude Code, Codex, and other host state without changing host files.
+- `organize`: update host instruction/config files and refresh `.harness` after the user chooses a shared or LLM-specific change.
+
+Use `organize` whenever you modify `AGENTS.md` or `CLAUDE.md`; first ask the user whether the change should be shared with other LLM instruction files or kept LLM-specific. Only sync to other LLM files when the user chooses a shared change.
+<!-- soft-harness prompt:end -->
+
 @.harness/HARNESS.md
 @.harness/memory/shared.md
 @.harness/llm/claude.md

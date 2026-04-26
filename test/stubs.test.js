@@ -9,6 +9,11 @@ test('stubs: import stub references harness files', () => {
         '.harness/llm/claude.md',
         '.harness/memory/llm/claude.md'
     ]);
+    assert.match(stub, /## Soft Harness/);
+    assert.match(stub, /`analyze`/);
+    assert.match(stub, /`organize`/);
+    assert.match(stub, /ask the user whether the change should be shared/);
+    assert.match(stub, /LLM-specific/);
     assert.match(stub, /@\.harness\/HARNESS\.md/);
     assert.match(stub, /@\.harness\/memory\/shared\.md/);
     assert.match(stub, /@\.harness\/llm\/claude\.md/);
@@ -22,10 +27,16 @@ test('stubs: concat stub parses block contents and outside edits', () => {
         { path: 'memory/shared.md', content: '## Memory' },
         { path: 'llm/codex.md', content: '# Specific' }
     ]);
+    assert.match(stub, /## Soft Harness/);
+    assert.match(stub, /`analyze`/);
+    assert.match(stub, /`organize`/);
+    assert.match(stub, /ask the user whether the change should be shared/);
+    assert.match(stub, /LLM-specific/);
+
     const mutated = `${stub}\nmanual tail\n`;
     const parsed = parseConcatStub(mutated);
     assert.equal(parsed.blocks.length, 3);
-    assert.match(parsed.outside, /manual tail/);
+    assert.equal(parsed.outside, 'manual tail');
 });
 
 test('stubs: import stub delta strips managed lines', () => {
