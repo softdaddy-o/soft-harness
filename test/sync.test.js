@@ -232,3 +232,109 @@ test('sync: organize preserves plugin codex skill companion files and shared ref
     assert.equal(fs.existsSync(path.join(root, '.codex', 'skills', 'organize', 'scripts', 'collect.js')), true);
     assert.match(readUtf8(path.join(root, '.codex', 'skills', 'organize', 'SKILL.md')), /^description: "Apply host changes: preserve plugin skill trees safely\."$/m);
 });
+
+test('sync: Codex plugin enablement re-sync converges from Claude plugin fallback ports', async () => {
+    const root = makeClaudePluginMirrorFixture('soft-harness-sync-codex-plugin-resync-');
+
+    const fallback = await runSync(root, {}, {});
+
+    assert.ok(fallback.pluginActions.some((entry) => entry.type === 'enable-codex-plugin-feature'
+        && entry.name === 'superpowers@claude-plugins-official'));
+    assert.equal(fs.existsSync(path.join(root, '.codex', 'skills', 'organize', 'SKILL.md')), true);
+    assert.equal(fs.existsSync(path.join(root, '.codex', 'agents', 'code-reviewer.toml')), true);
+    assert.equal(fs.existsSync(path.join(root, 'plugins', 'superpowers@claude-plugins-official', '.codex-plugin', 'plugin.json')), false);
+
+    const resynced = await runSync(root, { codexPluginsEnabled: true }, {});
+
+    assert.ok(resynced.pluginActions.some((entry) => entry.type === 'sync-codex-plugin'
+        && entry.name === 'superpowers@claude-plugins-official'));
+    assert.equal(fs.existsSync(path.join(root, 'plugins', 'superpowers@claude-plugins-official', '.codex-plugin', 'plugin.json')), false);
+    assert.equal(fs.existsSync(path.join(root, '.codex', 'skills', 'organize')), false);
+    assert.equal(fs.existsSync(path.join(root, '.codex', 'skills', 'references')), false);
+    assert.equal(fs.existsSync(path.join(root, '.codex', 'agents', 'code-reviewer.toml')), false);
+    assert.equal(fs.existsSync(path.join(root, '.harness', 'skills', 'codex', 'organize')), false);
+    assert.equal(fs.existsSync(path.join(root, '.harness', 'agents', 'codex', 'code-reviewer.toml')), false);
+
+    const directRoot = makeClaudePluginMirrorFixture('soft-harness-sync-codex-plugin-direct-');
+    await runSync(directRoot, { codexPluginsEnabled: true }, {});
+
+    const resyncedMarketplace = JSON.parse(readUtf8(path.join(root, '.agents', 'plugins', 'marketplace.json')));
+    const directMarketplace = JSON.parse(readUtf8(path.join(directRoot, '.agents', 'plugins', 'marketplace.json')));
+    assert.deepEqual(resyncedMarketplace, directMarketplace);
+    assert.deepEqual(resyncedMarketplace.plugins[0].source, {
+        source: 'git-subdir',
+        url: 'https://github.com/obra/superpowers.git',
+        path: './plugins/superpowers',
+        ref: 'main'
+    });
+});
+
+function makeClaudePluginMirrorFixture(prefix) {
+    const pluginRoot = path.join('.claude', 'plugins', 'cache', 'claude-plugins-official', 'superpowers', '5.0.7');
+    const root = makeTempDir(prefix);
+    writeUtf8(path.join(root, '.harness', 'plugins.yaml'), [
+        'plugins:',
+        '  - name: superpowers@claude-plugins-official',
+        '    llms: [claude, codex]',
+        ''
+    ].join('\n'));
+    writeUtf8(path.join(root, '.claude', 'settings.json'), JSON.stringify({
+        enabledPlugins: {
+            'superpowers@claude-plugins-official': true
+        }
+    }, null, 2));
+    writeUtf8(path.join(root, '.claude', 'plugins', 'installed_plugins.json'), JSON.stringify({
+        version: 2,
+        plugins: {
+            'superpowers@claude-plugins-official': [{
+                version: '5.0.7',
+                installPath: pluginRoot,
+                gitCommitSha: 'def456'
+            }]
+        }
+    }, null, 2));
+    writeUtf8(path.join(root, pluginRoot, '.codex-plugin', 'plugin.json'), JSON.stringify({
+        name: 'superpowers',
+        version: '5.0.7',
+        skills: './skills/'
+    }, null, 2));
+    writeUtf8(path.join(root, pluginRoot, '.claude-plugin', 'plugin.json'), JSON.stringify({
+        name: 'superpowers',
+        version: '5.0.7'
+    }, null, 2));
+    writeUtf8(path.join(root, pluginRoot, '.claude-plugin', 'marketplace.json'), JSON.stringify({
+        name: 'superpowers-marketplace',
+        plugins: [{
+            name: 'superpowers',
+            source: './plugins/superpowers',
+            version: '5.0.7'
+        }]
+    }, null, 2));
+    writeUtf8(path.join(root, pluginRoot, 'skills', 'references', 'helper-surface.md'), '# Helper');
+    writeUtf8(path.join(root, pluginRoot, 'skills', 'organize', 'SKILL.md'), [
+        '---',
+        'name: Organize',
+        'description: Apply host changes: preserve plugin skill trees safely.',
+        '---',
+        '',
+        'See `../references/helper-surface.md`.',
+        ''
+    ].join('\n'));
+    writeUtf8(path.join(root, pluginRoot, 'agents', 'code-reviewer.md'), [
+        '---',
+        'name: Code Reviewer',
+        'description: Expert reviewer for code quality, bugs, and maintainability.',
+        '---',
+        '',
+        '# Code Reviewer',
+        '',
+        'Review code critically, surface regressions, and explain the highest-risk issues first.',
+        ''
+    ].join('\n'));
+    writeUtf8(path.join(root, pluginRoot, 'package.json'), JSON.stringify({
+        name: 'superpowers',
+        version: '5.0.7',
+        repository: 'https://github.com/obra/superpowers'
+    }, null, 2));
+    return root;
+}

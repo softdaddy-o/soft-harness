@@ -683,6 +683,60 @@ function pullBackSkillsAndAgents(rootDir, driftEntries, options) {
     return pulledBack;
 }
 
+function removeCodexPluginFallbackAssets(rootDir, pluginMirrors, options) {
+    const pluginNames = new Set((pluginMirrors || []).flatMap((plugin) => {
+        return [plugin && plugin.name, plugin && plugin.displayName, plugin && plugin.installedName].filter(Boolean);
+    }));
+    if (pluginNames.size === 0) {
+        return [];
+    }
+
+    const removed = [];
+    const assetOrigins = loadAssetOrigins(rootDir);
+    let originsChanged = false;
+
+    for (const source of discoverClaudePluginSkillsForCodex(rootDir)) {
+        if (!pluginNames.has(getPluginSourceName(source.plugin))) {
+            continue;
+        }
+
+        const harnessTarget = path.posix.join('.harness', 'skills', 'codex', source.relativePath);
+        const exportTarget = path.posix.join(getProfile('codex').skills_dir, source.relativePath);
+        if (!canRemoveCodexPluginSkillFallback(rootDir, source, harnessTarget, assetOrigins)) {
+            continue;
+        }
+
+        removeFallbackPath(rootDir, harnessTarget, removed, options);
+        removeFallbackPath(rootDir, exportTarget, removed, options);
+        if (removeAssetOrigin(assetOrigins, 'skill', source.name)) {
+            originsChanged = true;
+        }
+    }
+
+    for (const source of discoverClaudePluginAgentsForCodex(rootDir)) {
+        if (!pluginNames.has(getPluginSourceName(source.plugin))) {
+            continue;
+        }
+
+        const existingOrigin = findManagedCodexAgentOrigin(assetOrigins, source.name);
+        if (!canRefreshManagedCodexAgent(existingOrigin, source)) {
+            continue;
+        }
+
+        removeFallbackPath(rootDir, path.posix.join('.harness', 'agents', 'codex', `${source.name}.toml`), removed, options);
+        removeFallbackPath(rootDir, path.posix.join(getProfile('codex').agents_dir, `${source.name}.toml`), removed, options);
+        if (removeAssetOrigin(assetOrigins, 'agent', source.name)) {
+            originsChanged = true;
+        }
+    }
+
+    if (originsChanged && (!options || !options.dryRun)) {
+        saveAssetOrigins(rootDir, assetOrigins);
+    }
+
+    return removed;
+}
+
 function discoverHarnessAssets(rootDir) {
     const plan = [];
 
@@ -1300,6 +1354,54 @@ function upsertAssetOrigin(origins, nextOrigin) {
     origins[index] = nextOrigin;
 }
 
+function removeAssetOrigin(origins, kind, asset) {
+    const index = (origins || []).findIndex((origin) => origin.kind === kind
+        && origin.asset === asset
+        && Array.isArray(origin.hosts)
+        && origin.hosts.length === 1
+        && origin.hosts[0] === 'codex');
+    if (index === -1) {
+        return false;
+    }
+    origins.splice(index, 1);
+    return true;
+}
+
+function getPluginSourceName(plugin) {
+    return plugin ? (plugin.displayName || plugin.name || null) : null;
+}
+
+function canRemoveCodexPluginSkillFallback(rootDir, source, harnessTarget, assetOrigins) {
+    const absoluteHarnessTarget = path.join(rootDir, harnessTarget);
+    if (!exists(absoluteHarnessTarget)) {
+        return false;
+    }
+
+    if (source.hasSkill) {
+        const existingOrigin = findManagedCodexSkillOrigin(assetOrigins, source.name);
+        return canRefreshManagedCodexSkill(existingOrigin, source);
+    }
+
+    return managedSkillTreesEqual(source.absolutePath, absoluteHarnessTarget);
+}
+
+function removeFallbackPath(rootDir, relativePath, removed, options) {
+    const absolutePath = path.join(rootDir, relativePath);
+    if (!exists(absolutePath)) {
+        return;
+    }
+
+    removed.push({
+        type: 'codex-plugin-fallback',
+        path: relativePath
+    });
+
+    if (options && options.dryRun) {
+        return;
+    }
+    removePath(absolutePath);
+}
+
 function toPosixRelative(rootDir, absolutePath) {
     return path.relative(rootDir, absolutePath).split(path.sep).join('/');
 }
@@ -1313,5 +1415,6 @@ module.exports = {
     discoverSkillsAndAgents,
     exportSkillsAndAgents,
     importSkillsAndAgents,
+    removeCodexPluginFallbackAssets,
     pullBackSkillsAndAgents
 };

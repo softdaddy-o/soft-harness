@@ -36,6 +36,7 @@ Sync options:
   --no-export                        Skip .harness -> project export
   --link-mode=<mode>                 Export skill/agent links using copy, symlink, or junction
   --force-export-untracked-hosts     Allow repo-internal link exports even when target paths are not gitignored
+  --codex-plugins-enabled            Confirm Codex plugins are enabled and mirror Claude plugin bundles into Codex
 
 Analyze options:
   --root=<path>                      Analyze an explicit root instead of the current directory
@@ -95,6 +96,7 @@ function parseSyncArgs(args) {
     return {
         account: flags.has('--account'),
         bodyThreshold: thresholds.bodyThreshold,
+        codexPluginsEnabled: flags.has('--codex-plugins-enabled'),
         dryRun: flags.has('--dry-run') || flags.has('-n'),
         explain: flags.has('--explain'),
         forceExportUntrackedHosts: flags.has('--force-export-untracked-hosts'),
@@ -458,11 +460,23 @@ function formatSyncReport(result, options) {
         lines.push('');
         lines.push('plugins');
         appendTreeItems(lines, result.pluginActions.map((action) => ({
-            text: `${action.status}: ${action.name}${action.version ? `@${action.version}` : ''}`
+            text: formatPluginAction(action)
         })));
     }
 
     return `${lines.join('\n')}\n`;
+}
+
+function formatPluginAction(action) {
+    if (action.type === 'codex-plugin-fallback') {
+        return `removed fallback: ${action.path}`;
+    }
+
+    const status = action.status || action.type || 'plugin';
+    const name = action.name || action.path || '(unknown)';
+    const version = action.version ? `@${action.version}` : '';
+    const message = action.message ? ` - ${action.message}` : '';
+    return `${status}: ${name}${version}${message}`;
 }
 
 function appendSection(lines, label, entries) {

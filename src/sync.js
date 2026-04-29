@@ -6,11 +6,12 @@ const { buildInstructionState, exportInstructions, getCurrentSourceHash } = requ
 const { exists, formatOffsetDate, readUtf8, writeUtf8 } = require('./fs-util');
 const { hashString } = require('./hash');
 const { importInstructions } = require('./import');
-const { syncPlugins } = require('./plugins');
+const { collectCodexPluginMirrorCandidates, syncPlugins } = require('./plugins');
 const { getProfile } = require('./profiles');
+const { confirm } = require('./prompt');
 const { pullBackInstructionDrift } = require('./pullback');
 const { buildSettingsState, exportSettings } = require('./settings');
-const { buildManagedAssetState, discoverHarnessAssets, discoverSkillsAndAgents, exportSkillsAndAgents, importSkillsAndAgents, pullBackSkillsAndAgents } = require('./skills');
+const { buildManagedAssetState, discoverHarnessAssets, discoverSkillsAndAgents, exportSkillsAndAgents, importSkillsAndAgents, pullBackSkillsAndAgents, removeCodexPluginFallbackAssets } = require('./skills');
 const { loadState, saveState } = require('./state');
 
 async function runSync(rootDir, options, io) {
@@ -31,6 +32,7 @@ async function runSync(rootDir, options, io) {
         ? null
         : createBackup(rootDir, backupTargets, { reason: 'sync' });
     ensureHarnessFiles(rootDir, options);
+    await resolveCodexPluginEnablement(rootDir, effectiveOptions);
 
     const plan = {
         import: [],
@@ -56,7 +58,7 @@ async function runSync(rootDir, options, io) {
         plan.import.push(...importResult.imported);
         details.imports.push(...(importResult.routes || []));
 
-        const skillImportResult = importSkillsAndAgents(rootDir, options);
+        const skillImportResult = importSkillsAndAgents(rootDir, effectiveOptions);
         imported.push(...skillImportResult.imported);
         plan.import.push(...skillImportResult.imported);
         details.imports.push(...(skillImportResult.routes || []));
@@ -98,7 +100,7 @@ async function runSync(rootDir, options, io) {
     plan.drift.push(...otherDrift);
     details.drift.push(...otherDrift);
     if ((!options || !options.noImport) && otherDrift.length > 0) {
-        pulledBack.push(...pullBackSkillsAndAgents(rootDir, otherDrift, options));
+        pulledBack.push(...pullBackSkillsAndAgents(rootDir, otherDrift, effectiveOptions));
     }
 
     if (!options || !options.noExport) {
@@ -112,15 +114,20 @@ async function runSync(rootDir, options, io) {
         plan.export.push(...settingsExportResult.exported);
         details.exports.push(...(settingsExportResult.routes || []));
 
-        const assetExportResult = exportSkillsAndAgents(rootDir, options);
+        const assetExportResult = exportSkillsAndAgents(rootDir, effectiveOptions);
         exported.push(...assetExportResult.exported);
         plan.export.push(...assetExportResult.exported);
         details.exports.push(...(assetExportResult.routes || []));
     }
 
-    const pluginResult = syncPlugins(rootDir, state, options || {});
+    const pluginResult = syncPlugins(rootDir, state, effectiveOptions);
     pluginActions = pluginResult.actions;
     plan.plugins.push(...pluginActions);
+    if (pluginResult.codexPluginMirrors && pluginResult.codexPluginMirrors.length > 0) {
+        const cleanupActions = removeCodexPluginFallbackAssets(rootDir, pluginResult.codexPluginMirrors, effectiveOptions);
+        pluginActions.push(...cleanupActions);
+        plan.plugins.push(...cleanupActions);
+    }
 
     if (options && options.dryRun) {
         return {
@@ -148,6 +155,23 @@ async function runSync(rootDir, options, io) {
         details,
         backupTs: backup ? backup.timestamp : null
     };
+}
+
+async function resolveCodexPluginEnablement(rootDir, options) {
+    if (!options || options.codexPluginsEnabled || options.dryRun || !options.interactive) {
+        return;
+    }
+
+    const candidates = collectCodexPluginMirrorCandidates(rootDir);
+    if (candidates.length === 0) {
+        return;
+    }
+
+    const names = candidates.map((candidate) => candidate.installed.displayName || candidate.desired.name).join(', ');
+    const enabled = await confirm(`Codex can mirror Claude plugin bundles for ${names}. Enable Codex plugins in Codex first, then sync these plugins now?`, options);
+    if (enabled) {
+        options.codexPluginsEnabled = true;
+    }
 }
 
 function ensureHarnessFiles(rootDir, options) {
@@ -222,7 +246,9 @@ function collectInitialBackupTargets(rootDir, discovered, state) {
         '.harness/asset-origins.yaml',
         '.harness/plugins.yaml',
         '.harness/.sync-state.json',
-        '.harness/.gitignore'
+        '.harness/.gitignore',
+        '.agents/plugins/marketplace.json',
+        'plugins'
     ]);
 
     for (const item of discovered) {

@@ -47,7 +47,15 @@ GitHub repository:
 
 ### Codex
 
-Codex currently documents repo-local and personal marketplaces rather than a public GitHub marketplace add command, so the simplest path here is the installer script.
+Codex can track the Git marketplace directly:
+
+```bash
+codex plugin marketplace add softdaddy-o/soft-harness
+```
+
+Then open `/plugins` in Codex and install or enable `soft-harness`.
+
+If you want a local copy instead, use the installer script.
 
 macOS / Linux:
 
@@ -61,7 +69,7 @@ Windows PowerShell:
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.ps1))) -Host codex
 ```
 
-After install, open Codex in the repo and use `/plugins` if you want to confirm the local marketplace entry.
+After install, enable the Codex plugin feature in Codex, then open the repo and use `/plugins` if you want to confirm the marketplace entry.
 
 ### Want both Claude Code and Codex in the same repo?
 
@@ -102,6 +110,12 @@ If Claude Code marketplace auto-update is enabled for `soft-harness`, Claude Cod
 
 Marketplace installs pick up new plugin releases when the published plugin version changes.
 
+If you installed for Codex as a Git marketplace, use the standard Codex marketplace upgrade command:
+
+```bash
+codex plugin marketplace upgrade
+```
+
 If you installed for Codex with the installer script, run the installer again in the repo you want to update.
 
 Windows PowerShell:
@@ -116,7 +130,9 @@ macOS / Linux:
 curl -fsSL https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scripts/install-plugin.sh | bash -s -- --host=codex
 ```
 
-If Claude Code already installed or updated Soft Harness through its plugin system on this machine, you can mirror that Claude-installed plugin into Codex instead of downloading the release copy again. The installer checks the target project first, then the user-level Claude plugin cache under your Claude home.
+If Claude Code already installed or updated Soft Harness through its plugin system on this machine, you can mirror that Claude-installed plugin into Codex after enabling Codex plugins instead of downloading the release copy again. The installer checks the target project first, then the user-level Claude plugin cache under your Claude home.
+
+When `organize` can prove the Claude plugin came from a GitHub marketplace, it writes a Git-backed Codex marketplace entry. If Git origin metadata is missing, it falls back to a local Codex marketplace copy.
 
 Windows PowerShell:
 

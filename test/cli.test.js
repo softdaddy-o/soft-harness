@@ -34,12 +34,14 @@ test('cli: parseSyncArgs supports explicit link and threshold flags', () => {
         '--dry-run',
         '--link-mode=symlink',
         '--force-export-untracked-hosts',
+        '--codex-plugins-enabled',
         '--heading-threshold=0.7',
         '--body-threshold=0.5'
     ]);
     assert.equal(parsed.dryRun, true);
     assert.equal(parsed.linkMode, 'symlink');
     assert.equal(parsed.forceExportUntrackedHosts, true);
+    assert.equal(parsed.codexPluginsEnabled, true);
     assert.equal(parsed.headingThreshold, 0.7);
     assert.equal(parsed.bodyThreshold, 0.5);
     assert.equal(parsed.root, null);
@@ -450,7 +452,9 @@ test('cli: formatSyncReport includes plugins, drift targets, bucket reasons, and
             ]
         },
         pluginActions: [
-            { status: 'planned', name: 'superpowers', version: '1.0.0' }
+            { status: 'planned', name: 'superpowers', version: '1.0.0' },
+            { type: 'enable-codex-plugin-feature', status: 'needs-user', name: 'frontend-design', message: 'Enable Codex plugins, then re-run sync.' },
+            { type: 'codex-plugin-fallback', path: '.codex/skills/frontend-design' }
         ]
     }, { explain: true });
 
@@ -461,6 +465,8 @@ test('cli: formatSyncReport includes plugins, drift targets, bucket reasons, and
     assert.match(output, /skill: \.claude\/skills\/foo/);
     assert.match(output, /instruction: CLAUDE\.md/);
     assert.match(output, /planned: superpowers@1\.0\.0/);
+    assert.match(output, /needs-user: frontend-design - Enable Codex plugins/);
+    assert.match(output, /removed fallback: \.codex\/skills\/frontend-design/);
 });
 
 test('cli: formatSyncReport explain covers maybe-common legacy imports and grouped skill buckets', () => {

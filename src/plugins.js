@@ -1,6 +1,6 @@
 const path = require('node:path');
 const YAML = require('yaml');
-const { exists, readUtf8, walkFiles } = require('./fs-util');
+const { copyPath, ensureDir, exists, readJson, readUtf8, removePath, walkFiles, writeJson } = require('./fs-util');
 const { listProfiles, getProfile } = require('./profiles');
 
 function loadPlugins(rootDir) {
@@ -67,6 +67,7 @@ function syncPlugins(rootDir, state, options) {
     const previous = new Map((state.plugins || []).map((plugin) => [plugin.name, plugin]));
     const desiredMap = new Map(desired.map((plugin) => [plugin.name, normalizeDesiredPlugin(plugin)]));
     const actions = [];
+    const codexPluginMirrors = [];
 
     for (const plugin of desiredMap.values()) {
         const prior = previous.get(plugin.name);
@@ -82,8 +83,19 @@ function syncPlugins(rootDir, state, options) {
         actions.push(buildPluginAction('remove', plugin, options));
     }
 
+    for (const candidate of collectCodexPluginMirrorCandidates(rootDir)) {
+        if (options && options.codexPluginsEnabled) {
+            const mirror = mirrorClaudePluginForCodex(rootDir, candidate, options);
+            actions.push(mirror.action);
+            codexPluginMirrors.push(mirror.plugin);
+            continue;
+        }
+        actions.push(buildCodexPluginEnablementAction(candidate, options));
+    }
+
     return {
         actions,
+        codexPluginMirrors,
         state: Array.from(desiredMap.values()).sort((left, right) => left.name.localeCompare(right.name))
     };
 }
@@ -109,6 +121,239 @@ function normalizeDesiredPlugin(plugin) {
         author: normalizePluginAuthor(plugin.author || null),
         description: plugin.description || null
     };
+}
+
+function collectCodexPluginMirrorCandidates(rootDir) {
+    const desired = loadPlugins(rootDir).filter((plugin) => Array.isArray(plugin.llms)
+        && plugin.llms.includes('claude')
+        && plugin.llms.includes('codex'));
+    if (desired.length === 0) {
+        return [];
+    }
+
+    const installed = readInstalledPluginEntries(rootDir, 'claude');
+    const candidates = [];
+    for (const plugin of desired) {
+        const installedEntry = matchInstalledClaudePlugin(plugin, installed);
+        if (!installedEntry || !installedEntry.installPath) {
+            continue;
+        }
+
+        const installRoot = resolveInstallRoot(rootDir, installedEntry.installPath);
+        const codexManifestPath = path.join(installRoot, '.codex-plugin', 'plugin.json');
+        if (!exists(codexManifestPath)) {
+            continue;
+        }
+
+        candidates.push({
+            desired: plugin,
+            installed: installedEntry,
+            installRoot,
+            codexManifest: readJsonSafely(codexManifestPath) || {}
+        });
+    }
+
+    return candidates.sort((left, right) => getPluginDisplayName(left).localeCompare(getPluginDisplayName(right)));
+}
+
+function mirrorClaudePluginForCodex(rootDir, candidate, options) {
+    const displayName = getPluginDisplayName(candidate);
+    const localName = sanitizePluginDirName(displayName);
+    const pluginTargetDir = path.join(rootDir, 'plugins', localName);
+    const marketplacePath = path.join(rootDir, '.agents', 'plugins', 'marketplace.json');
+    const marketplaceEntry = buildCodexMarketplacePluginEntry(candidate, localName);
+    const localMirror = isLocalCodexMarketplaceSource(marketplaceEntry.source);
+
+    if (!options || !options.dryRun) {
+        removePath(pluginTargetDir);
+        if (localMirror) {
+            ensureDir(path.join(rootDir, 'plugins'));
+            copyPath(candidate.installRoot, pluginTargetDir);
+        }
+        upsertCodexMarketplaceEntry(marketplacePath, marketplaceEntry);
+    }
+
+    return {
+        action: {
+            type: 'sync-codex-plugin',
+            name: displayName,
+            version: candidate.installed.version || candidate.desired.version || null,
+            llms: ['codex'],
+            status: options && options.dryRun ? 'planned' : 'synced',
+            from: toPosixRelative(rootDir, candidate.installRoot),
+            to: describeCodexMarketplaceSource(marketplaceEntry.source, localName)
+        },
+        plugin: {
+            name: displayName,
+            displayName,
+            installedName: candidate.installed.name,
+            localName,
+            sourcePath: toPosixRelative(rootDir, candidate.installRoot),
+            targetPath: localMirror ? path.posix.join('plugins', localName) : null
+        }
+    };
+}
+
+function buildCodexPluginEnablementAction(candidate, options) {
+    const displayName = getPluginDisplayName(candidate);
+    return {
+        type: 'enable-codex-plugin-feature',
+        name: displayName,
+        version: candidate.installed.version || candidate.desired.version || null,
+        llms: ['codex'],
+        status: options && options.dryRun ? 'planned' : 'needs-user',
+        message: `Enable Codex plugins, then re-run sync with Codex plugins enabled to mirror ${displayName} from Claude.`
+    };
+}
+
+function buildCodexMarketplacePluginEntry(candidate, localName) {
+    const manifest = candidate.codexManifest || {};
+    return {
+        name: manifest.name || candidate.installed.name || parsePluginIdentity(candidate.desired.name).name,
+        source: buildCodexMarketplaceSource(candidate, localName),
+        policy: {
+            installation: 'AVAILABLE',
+            authentication: 'ON_INSTALL'
+        },
+        category: manifest.category || (manifest.interface && manifest.interface.category) || 'Productivity'
+    };
+}
+
+function buildCodexMarketplaceSource(candidate, localName) {
+    const gitSource = buildCodexGitMarketplaceSource(candidate);
+    if (gitSource) {
+        return gitSource;
+    }
+
+    return {
+        source: 'local',
+        path: `./plugins/${localName}`
+    };
+}
+
+function buildCodexGitMarketplaceSource(candidate) {
+    const gitInfo = getCandidateGithubInfo(candidate);
+    if (!gitInfo.repo) {
+        return null;
+    }
+
+    const source = {
+        source: gitInfo.sourcePath ? 'git-subdir' : 'url',
+        url: githubGitUrl(gitInfo.repo),
+        ref: gitInfo.ref || 'main'
+    };
+    if (gitInfo.sourcePath) {
+        source.path = formatCodexSourcePath(gitInfo.sourcePath);
+    }
+    return source;
+}
+
+function getCandidateGithubInfo(candidate) {
+    const entries = [
+        candidate && candidate.installed,
+        candidate && candidate.desired,
+        candidate && candidate.codexManifest
+    ].filter(Boolean);
+    const treeInfo = entries.map((entry) => extractGithubTreeInfo(entry.url || entry.repository || entry.homepage || null))
+        .find((entry) => entry.repo);
+    const repo = entries.map((entry) => normalizeGithubRepo(entry.repo || null)
+            || extractGithubRepo(entry.url || entry.repository || entry.homepage || null))
+        .find(Boolean)
+        || (treeInfo && treeInfo.repo)
+        || null;
+    const sourcePath = entries.map((entry) => normalizeSourcePath(entry.sourcePath || entry.source_path || entry.path || entry.subdir || null)
+            || (entry.url || entry.repository || entry.homepage ? extractGithubTreePath(entry.url || entry.repository || entry.homepage, repo) : null))
+        .find(Boolean)
+        || (treeInfo && treeInfo.sourcePath)
+        || null;
+    const ref = entries.map((entry) => normalizeGitRef(entry.ref || entry.branch || null))
+        .find(Boolean)
+        || (treeInfo && treeInfo.ref)
+        || null;
+
+    return {
+        repo,
+        sourcePath,
+        ref
+    };
+}
+
+function isLocalCodexMarketplaceSource(source) {
+    return !source || source.source === 'local' || Boolean(source.path && !source.url);
+}
+
+function describeCodexMarketplaceSource(source, localName) {
+    if (!source || isLocalCodexMarketplaceSource(source)) {
+        return path.posix.join('plugins', localName);
+    }
+    if (source.path) {
+        return `${source.url}#${source.ref || 'main'}:${source.path}`;
+    }
+    return `${source.url}#${source.ref || 'main'}`;
+}
+
+function upsertCodexMarketplaceEntry(marketplacePath, pluginEntry) {
+    const current = readJson(marketplacePath, {});
+    const items = Array.isArray(current.plugins) ? current.plugins.slice() : [];
+    const index = items.findIndex((plugin) => plugin && plugin.name === pluginEntry.name);
+    if (index >= 0) {
+        items[index] = {
+            ...items[index],
+            ...pluginEntry
+        };
+    } else {
+        items.push(pluginEntry);
+    }
+
+    writeJson(marketplacePath, {
+        ...current,
+        name: current.name || 'local-codex-plugins',
+        interface: current.interface || {
+            displayName: 'Local Codex Plugins'
+        },
+        plugins: items
+    });
+}
+
+function matchInstalledClaudePlugin(desiredPlugin, installedEntries) {
+    if (!desiredPlugin || !desiredPlugin.name) {
+        return null;
+    }
+
+    const exact = installedEntries.find((entry) => entry.displayName === desiredPlugin.name);
+    if (exact) {
+        return exact;
+    }
+
+    const desiredIdentity = parsePluginIdentity(desiredPlugin.name);
+    const bareNameMatches = installedEntries.filter((entry) => entry.name === desiredIdentity.name);
+    if (bareNameMatches.length === 1) {
+        return bareNameMatches[0];
+    }
+
+    return null;
+}
+
+function getPluginDisplayName(candidate) {
+    return (candidate && candidate.installed && candidate.installed.displayName)
+        || (candidate && candidate.desired && candidate.desired.name)
+        || (candidate && candidate.installed && candidate.installed.name)
+        || 'plugin';
+}
+
+function resolveInstallRoot(rootDir, installPath) {
+    return path.isAbsolute(installPath) ? installPath : path.join(rootDir, installPath);
+}
+
+function sanitizePluginDirName(value) {
+    const text = String(value || '').trim()
+        .replace(/[<>:"/\\|?*\u0000-\u001F]/gu, '-')
+        .replace(/^-+|-+$/gu, '');
+    return text || 'plugin';
+}
+
+function toPosixRelative(rootDir, absolutePath) {
+    return path.relative(rootDir, absolutePath).split(path.sep).join('/');
 }
 
 function readInstalledPlugins(rootDir, llm) {
@@ -625,6 +870,49 @@ function normalizeSourcePath(value) {
     return normalized || null;
 }
 
+function formatCodexSourcePath(value) {
+    const sourcePath = normalizeSourcePath(value);
+    if (!sourcePath) {
+        return './';
+    }
+    return sourcePath.startsWith('./') ? sourcePath : `./${sourcePath}`;
+}
+
+function normalizeGitRef(value) {
+    if (!value) {
+        return null;
+    }
+    const text = String(value).trim();
+    return text || null;
+}
+
+function extractGithubTreeInfo(value) {
+    if (!value) {
+        return {};
+    }
+    const text = String(value).trim().replace(/^git\+/i, '').replace(/\.git$/i, '');
+    const match = text.match(/github\.com[:/]+([^/\s]+)\/([^/\s#?]+)\/tree\/([^/\s#?]+)\/(.+)$/iu);
+    if (!match) {
+        return {};
+    }
+    return {
+        repo: `${match[1]}/${match[2].replace(/\.git$/i, '')}`,
+        ref: match[3],
+        sourcePath: normalizeSourcePath(match[4])
+    };
+}
+
+function extractGithubTreePath(value, repo) {
+    const treeInfo = extractGithubTreeInfo(value);
+    if (!treeInfo.sourcePath) {
+        return null;
+    }
+    if (repo && treeInfo.repo && repo !== treeInfo.repo) {
+        return null;
+    }
+    return treeInfo.sourcePath;
+}
+
 function readGitRemoteInfo(dirPath) {
     const configPath = path.join(dirPath, '.git', 'config');
     if (!exists(configPath)) {
@@ -754,6 +1042,10 @@ function githubRepoUrl(repo) {
     return repo ? `https://github.com/${repo}` : null;
 }
 
+function githubGitUrl(repo) {
+    return repo ? `${githubRepoUrl(repo)}.git` : null;
+}
+
 function githubTreeUrl(repo, sourcePath) {
     if (!repo || !sourcePath) {
         return githubRepoUrl(repo);
@@ -818,6 +1110,7 @@ function dedupePluginEntries(entries) {
 }
 
 module.exports = {
+    collectCodexPluginMirrorCandidates,
     detectPluginDrift,
     loadPlugins,
     readInstalledPluginEntries,
