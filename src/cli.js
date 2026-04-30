@@ -36,7 +36,7 @@ Sync options:
   --no-export                        Skip .harness -> project export
   --link-mode=<mode>                 Export skill/agent links using copy, symlink, or junction
   --force-export-untracked-hosts     Allow repo-internal link exports even when target paths are not gitignored
-  --codex-plugins-enabled            Confirm Codex plugins are enabled and mirror Claude plugin bundles into Codex
+  --codex-plugins-enabled            Confirm Codex plugins are enabled; install mirrored Claude plugin bundles into Codex
 
 Analyze options:
   --root=<path>                      Analyze an explicit root instead of the current directory
@@ -474,9 +474,16 @@ function formatPluginAction(action) {
 
     const status = action.status || action.type || 'plugin';
     const name = action.name || action.path || '(unknown)';
-    const version = action.version ? `@${action.version}` : '';
+    const version = formatPluginActionVersion(name, action.version);
     const message = action.message ? ` - ${action.message}` : '';
     return `${status}: ${name}${version}${message}`;
+}
+
+function formatPluginActionVersion(name, version) {
+    if (!version) {
+        return '';
+    }
+    return String(name || '').includes('@') ? ` (${version})` : `@${version}`;
 }
 
 function appendSection(lines, label, entries) {
@@ -548,6 +555,9 @@ function formatDriftDetails(entries) {
     return (entries || []).map((entry) => {
         if (entry.relativePath) {
             return `${entry.type}: ${entry.relativePath}`;
+        }
+        if (entry.name) {
+            return `${entry.type}: ${entry.name}`;
         }
         return `${entry.type}: ${entry.target}`;
     });

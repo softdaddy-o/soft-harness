@@ -684,9 +684,7 @@ function pullBackSkillsAndAgents(rootDir, driftEntries, options) {
 }
 
 function removeCodexPluginFallbackAssets(rootDir, pluginMirrors, options) {
-    const pluginNames = new Set((pluginMirrors || []).flatMap((plugin) => {
-        return [plugin && plugin.name, plugin && plugin.displayName, plugin && plugin.installedName].filter(Boolean);
-    }));
+    const pluginNames = new Set((pluginMirrors || []).flatMap((plugin) => getPluginMirrorNames(plugin)));
     if (pluginNames.size === 0) {
         return [];
     }
@@ -696,7 +694,8 @@ function removeCodexPluginFallbackAssets(rootDir, pluginMirrors, options) {
     let originsChanged = false;
 
     for (const source of discoverClaudePluginSkillsForCodex(rootDir)) {
-        if (!pluginNames.has(getPluginSourceName(source.plugin))) {
+        const mirror = findPluginMirror(pluginMirrors, source.plugin);
+        if (!mirror || mirror.removeFallbackSkills === false) {
             continue;
         }
 
@@ -714,7 +713,8 @@ function removeCodexPluginFallbackAssets(rootDir, pluginMirrors, options) {
     }
 
     for (const source of discoverClaudePluginAgentsForCodex(rootDir)) {
-        if (!pluginNames.has(getPluginSourceName(source.plugin))) {
+        const mirror = findPluginMirror(pluginMirrors, source.plugin);
+        if (!mirror || mirror.removeFallbackAgents === false) {
             continue;
         }
 
@@ -735,6 +735,18 @@ function removeCodexPluginFallbackAssets(rootDir, pluginMirrors, options) {
     }
 
     return removed;
+}
+
+function getPluginMirrorNames(plugin) {
+    return [plugin && plugin.name, plugin && plugin.displayName, plugin && plugin.installedName].filter(Boolean);
+}
+
+function findPluginMirror(pluginMirrors, sourcePlugin) {
+    const sourceName = getPluginSourceName(sourcePlugin);
+    if (!sourceName) {
+        return null;
+    }
+    return (pluginMirrors || []).find((plugin) => getPluginMirrorNames(plugin).includes(sourceName)) || null;
 }
 
 function discoverHarnessAssets(rootDir) {
@@ -1379,7 +1391,8 @@ function canRemoveCodexPluginSkillFallback(rootDir, source, harnessTarget, asset
 
     if (source.hasSkill) {
         const existingOrigin = findManagedCodexSkillOrigin(assetOrigins, source.name);
-        return canRefreshManagedCodexSkill(existingOrigin, source);
+        return canRefreshManagedCodexSkill(existingOrigin, source)
+            || (!existingOrigin && managedSkillTreesEqual(source.absolutePath, absoluteHarnessTarget));
     }
 
     return managedSkillTreesEqual(source.absolutePath, absoluteHarnessTarget);

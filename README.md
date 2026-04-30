@@ -132,7 +132,7 @@ curl -fsSL https://raw.githubusercontent.com/softdaddy-o/soft-harness/main/scrip
 
 If Claude Code already installed or updated Soft Harness through its plugin system on this machine, you can mirror that Claude-installed plugin into Codex after enabling Codex plugins instead of downloading the release copy again. The installer checks the target project first, then the user-level Claude plugin cache under your Claude home.
 
-When `organize` can prove the Claude plugin came from a GitHub marketplace, it writes a Git-backed Codex marketplace entry. If Git origin metadata is missing, it falls back to a local Codex marketplace copy.
+When `organize` can prove the Claude plugin came from a GitHub marketplace, it writes a Git-backed Codex marketplace entry. With Codex plugins confirmed enabled, `sync --codex-plugins-enabled` also copies the plugin into Codex's plugin install cache, enables it in `.codex/config.toml`, and removes the fallback Codex skill/agent ports. If Git origin metadata is missing, it falls back to a local Codex marketplace copy.
 
 Windows PowerShell:
 

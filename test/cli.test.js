@@ -445,7 +445,8 @@ test('cli: formatSyncReport includes plugins, drift targets, bucket reasons, and
                 { action: 'export', from: '.harness/skills/common/foo', to: '.claude/skills/foo', mode: 'copy', reason: 'default-copy' }
             ],
             drift: [
-                { type: 'skill', relativePath: '.claude/skills/foo' }
+                { type: 'skill', relativePath: '.claude/skills/foo' },
+                { type: 'plugin', llm: 'codex', name: 'manual-plugin@local' }
             ],
             conflicts: [
                 { type: 'instruction', relativePath: 'CLAUDE.md' }
@@ -453,6 +454,7 @@ test('cli: formatSyncReport includes plugins, drift targets, bucket reasons, and
         },
         pluginActions: [
             { status: 'planned', name: 'superpowers', version: '1.0.0' },
+            { type: 'sync-codex-plugin', status: 'planned', name: 'soft-harness@soft-harness', version: '0.4.36', message: 'will install soft-harness@soft-harness-local' },
             { type: 'enable-codex-plugin-feature', status: 'needs-user', name: 'frontend-design', message: 'Enable Codex plugins, then re-run sync.' },
             { type: 'codex-plugin-fallback', path: '.codex/skills/frontend-design' }
         ]
@@ -463,8 +465,11 @@ test('cli: formatSyncReport includes plugins, drift targets, bucket reasons, and
     assert.match(output, /\nexports\n/u);
     assert.match(output, /\.harness\/skills\/common\/foo -> \.claude\/skills\/foo \[copy\] \(default-copy\)/);
     assert.match(output, /skill: \.claude\/skills\/foo/);
+    assert.match(output, /plugin: manual-plugin@local/);
     assert.match(output, /instruction: CLAUDE\.md/);
     assert.match(output, /planned: superpowers@1\.0\.0/);
+    assert.match(output, /planned: soft-harness@soft-harness \(0\.4\.36\) - will install soft-harness@soft-harness-local/);
+    assert.doesNotMatch(output, /soft-harness@soft-harness@0\.4\.36/);
     assert.match(output, /needs-user: frontend-design - Enable Codex plugins/);
     assert.match(output, /removed fallback: \.codex\/skills\/frontend-design/);
 });

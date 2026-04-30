@@ -160,6 +160,94 @@ test('plugins: detectPluginDrift reads top-level plugin names from JSON and TOML
     assert.deepEqual(names, ['alpha', 'beta', 'object-plugin', 'string-plugin']);
 });
 
+test('plugins: Codex TOML parser reads quoted plugin ids and ignores disabled plugins', () => {
+    const root = makeProjectTree('soft-harness-plugins-codex-quoted-', {
+        '.codex': {
+            'config.toml': [
+                '[plugins."soft-harness@soft-harness-local"]',
+                'enabled = true',
+                '',
+                '[plugins."disabled-plugin@local"]',
+                'enabled = false',
+                '',
+                '[[plugins]]',
+                'name = "array-plugin@local"',
+                'enabled = true',
+                ''
+            ].join('\n')
+        }
+    });
+
+    const entries = readInstalledPluginEntries(root, 'codex');
+    assert.deepEqual(entries.map((entry) => entry.displayName).sort(), [
+        'array-plugin@local',
+        'soft-harness@soft-harness-local'
+    ]);
+});
+
+test('plugins: detectPluginDrift treats Codex plugin mirror ids as desired aliases', () => {
+    const root = makeProjectTree('soft-harness-plugins-codex-mirror-drift-', {
+        '.harness': {
+            'plugins.yaml': [
+                'plugins:',
+                '  - name: superpowers@claude-plugins-official',
+                '    llms: [claude, codex]',
+                ''
+            ].join('\n')
+        },
+        '.claude': {
+            'settings.json': JSON.stringify({
+                enabledPlugins: {
+                    'superpowers@claude-plugins-official': true
+                }
+            }, null, 2),
+            plugins: {
+                'installed_plugins.json': JSON.stringify({
+                    version: 2,
+                    plugins: {
+                        'superpowers@claude-plugins-official': [{
+                            version: '5.0.7',
+                            installPath: '.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7'
+                        }]
+                    }
+                }, null, 2),
+                cache: {
+                    'claude-plugins-official': {
+                        superpowers: {
+                            '5.0.7': {
+                                '.codex-plugin': {
+                                    'plugin.json': JSON.stringify({
+                                        name: 'superpowers',
+                                        version: '5.0.7'
+                                    }, null, 2)
+                                },
+                                'package.json': JSON.stringify({
+                                    name: 'superpowers',
+                                    version: '5.0.7',
+                                    repository: 'https://github.com/obra/superpowers'
+                                }, null, 2)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        '.codex': {
+            'config.toml': [
+                '[marketplaces.superpowers-local]',
+                'source_type = "git"',
+                'source = "https://github.com/obra/superpowers.git"',
+                '',
+                '[plugins."superpowers@superpowers-local"]',
+                'enabled = true',
+                ''
+            ].join('\n')
+        }
+    });
+
+    assert.deepEqual(detectPluginDrift(root), []);
+});
+
 test('plugins: detectPluginDrift respects desired llm assignments and array manifests', () => {
     const root = makeProjectTree('soft-harness-plugins-desired-', {
         '.harness': {

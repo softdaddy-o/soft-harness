@@ -4,7 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { listBackups } = require('../src/backup');
 const { loadState } = require('../src/state');
-const { readUtf8, writeUtf8 } = require('../src/fs-util');
+const { readUtf8, removePath, writeUtf8 } = require('../src/fs-util');
+const { readInstalledPluginEntries } = require('../src/plugins');
 const { runSync } = require('../src/sync');
 const { copyFixture, makeTempDir } = require('./helpers');
 
@@ -248,14 +249,20 @@ test('sync: Codex plugin enablement re-sync converges from Claude plugin fallbac
 
     assert.ok(resynced.pluginActions.some((entry) => entry.type === 'sync-codex-plugin'
         && entry.name === 'superpowers@claude-plugins-official'));
+    assert.ok(resynced.pluginActions.some((entry) => entry.message === 'installed superpowers@local-codex-plugins'));
     assert.equal(fs.existsSync(path.join(root, 'plugins', 'superpowers@claude-plugins-official', '.codex-plugin', 'plugin.json')), false);
     assert.equal(fs.existsSync(path.join(root, '.codex', 'skills', 'organize')), false);
     assert.equal(fs.existsSync(path.join(root, '.codex', 'skills', 'references')), false);
     assert.equal(fs.existsSync(path.join(root, '.codex', 'agents', 'code-reviewer.toml')), false);
     assert.equal(fs.existsSync(path.join(root, '.harness', 'skills', 'codex', 'organize')), false);
     assert.equal(fs.existsSync(path.join(root, '.harness', 'agents', 'codex', 'code-reviewer.toml')), false);
+    assert.equal(fs.existsSync(path.join(root, '.codex', 'plugins', 'cache', 'local-codex-plugins', 'superpowers', '5.0.7', '.codex-plugin', 'plugin.json')), true);
+    assert.match(readUtf8(path.join(root, '.codex', 'config.toml')), /\[plugins\."superpowers@local-codex-plugins"\]\nenabled = true/u);
+    assert.ok(readInstalledPluginEntries(root, 'codex').some((entry) => entry.displayName === 'superpowers@local-codex-plugins'));
 
     const directRoot = makeClaudePluginMirrorFixture('soft-harness-sync-codex-plugin-direct-');
+    const dryRunDirect = await runSync(directRoot, { codexPluginsEnabled: true, dryRun: true }, {});
+    assert.ok(dryRunDirect.pluginActions.some((entry) => entry.message === 'will install superpowers@local-codex-plugins'));
     await runSync(directRoot, { codexPluginsEnabled: true }, {});
 
     const resyncedMarketplace = JSON.parse(readUtf8(path.join(root, '.agents', 'plugins', 'marketplace.json')));
@@ -267,6 +274,105 @@ test('sync: Codex plugin enablement re-sync converges from Claude plugin fallbac
         path: './plugins/superpowers',
         ref: 'main'
     });
+});
+
+test('sync: Codex plugin mirror synthesizes a manifest for Claude plugin bundles', async () => {
+    const root = makeClaudePluginMirrorFixture('soft-harness-sync-codex-plugin-synth-');
+    removePath(path.join(root, '.claude', 'plugins', 'cache', 'claude-plugins-official', 'superpowers', '5.0.7', '.codex-plugin'));
+
+    await runSync(root, {}, {});
+    assert.equal(fs.existsSync(path.join(root, '.codex', 'skills', 'organize', 'SKILL.md')), true);
+    assert.equal(fs.existsSync(path.join(root, '.codex', 'agents', 'code-reviewer.toml')), true);
+
+    const resynced = await runSync(root, { codexPluginsEnabled: true }, {});
+    const pluginAction = resynced.pluginActions.find((entry) => entry.type === 'sync-codex-plugin'
+        && entry.name === 'superpowers@claude-plugins-official');
+
+    assert.equal(pluginAction && pluginAction.message, 'installed superpowers@local-codex-plugins');
+    assert.equal(fs.existsSync(path.join(root, 'plugins', 'superpowers@claude-plugins-official', '.codex-plugin', 'plugin.json')), true);
+    assert.equal(fs.existsSync(path.join(root, '.codex', 'plugins', 'cache', 'local-codex-plugins', 'superpowers', '5.0.7', '.codex-plugin', 'plugin.json')), true);
+    assert.equal(fs.existsSync(path.join(root, '.codex', 'skills', 'organize')), false);
+    assert.equal(fs.existsSync(path.join(root, '.harness', 'skills', 'codex', 'organize')), false);
+    assert.equal(fs.existsSync(path.join(root, '.codex', 'agents', 'code-reviewer.toml')), true);
+    assert.equal(fs.existsSync(path.join(root, '.harness', 'agents', 'codex', 'code-reviewer.toml')), true);
+
+    const manifest = JSON.parse(readUtf8(path.join(root, '.codex', 'plugins', 'cache', 'local-codex-plugins', 'superpowers', '5.0.7', '.codex-plugin', 'plugin.json')));
+    assert.equal(manifest.name, 'superpowers');
+    assert.equal(manifest.skills, './skills/');
+
+    const marketplace = JSON.parse(readUtf8(path.join(root, '.agents', 'plugins', 'marketplace.json')));
+    assert.deepEqual(marketplace.plugins[0].source, {
+        source: 'local',
+        path: './plugins/superpowers@claude-plugins-official'
+    });
+});
+
+test('sync: Codex plugin mirror reuses an existing Codex Git marketplace name', async () => {
+    const root = makeClaudePluginMirrorFixture('soft-harness-sync-codex-plugin-existing-marketplace-');
+    writeUtf8(path.join(root, '.codex', 'config.toml'), [
+        '[marketplaces.superpowers-local]',
+        'last_updated = "2026-04-29T12:46:17Z"',
+        'source_type = "git"',
+        'source = "https://github.com/obra/superpowers.git"',
+        ''
+    ].join('\n'));
+
+    await runSync(root, { codexPluginsEnabled: true }, {});
+
+    assert.equal(fs.existsSync(path.join(root, '.codex', 'plugins', 'cache', 'superpowers-local', 'superpowers', '5.0.7', '.codex-plugin', 'plugin.json')), true);
+    assert.equal(fs.existsSync(path.join(root, '.codex', 'plugins', 'cache', 'local-codex-plugins')), false);
+    assert.match(readUtf8(path.join(root, '.codex', 'config.toml')), /last_updated = "2026-04-29T12:46:17Z"/u);
+    assert.match(readUtf8(path.join(root, '.codex', 'config.toml')), /\[plugins\."superpowers@superpowers-local"\]\nenabled = true/u);
+});
+
+test('sync: Codex plugin mirror preserves a newer existing Codex plugin cache', async () => {
+    const root = makeClaudePluginMirrorFixture('soft-harness-sync-codex-plugin-newer-cache-');
+    writeUtf8(path.join(root, '.codex', 'config.toml'), [
+        '[marketplaces.superpowers-local]',
+        'source_type = "git"',
+        'source = "https://github.com/obra/superpowers.git"',
+        '',
+        '[plugins."superpowers@superpowers-local"]',
+        'enabled = true',
+        ''
+    ].join('\n'));
+    writeUtf8(path.join(root, '.codex', 'plugins', 'cache', 'superpowers-local', 'superpowers', '5.1.0', '.codex-plugin', 'plugin.json'), JSON.stringify({
+        name: 'superpowers',
+        version: '5.1.0'
+    }, null, 2));
+
+    const result = await runSync(root, { codexPluginsEnabled: true }, {});
+
+    assert.equal(fs.existsSync(path.join(root, '.codex', 'plugins', 'cache', 'superpowers-local', 'superpowers', '5.1.0', '.codex-plugin', 'plugin.json')), true);
+    assert.equal(fs.existsSync(path.join(root, '.codex', 'plugins', 'cache', 'superpowers-local', 'superpowers', '5.0.7')), false);
+    assert.ok(result.pluginActions.some((entry) => entry.type === 'sync-codex-plugin'
+        && entry.name === 'superpowers@claude-plugins-official'
+        && entry.version === '5.1.0'));
+});
+
+test('sync: Codex plugin mirror reuses an equal existing Codex plugin cache', async () => {
+    const root = makeClaudePluginMirrorFixture('soft-harness-sync-codex-plugin-equal-cache-');
+    writeUtf8(path.join(root, '.codex', 'config.toml'), [
+        '[marketplaces.superpowers-local]',
+        'source_type = "git"',
+        'source = "https://github.com/obra/superpowers.git"',
+        '',
+        '[plugins."superpowers@superpowers-local"]',
+        'enabled = true',
+        ''
+    ].join('\n'));
+    writeUtf8(path.join(root, '.codex', 'plugins', 'cache', 'superpowers-local', 'superpowers', '5.0.7', '.codex-plugin', 'plugin.json'), JSON.stringify({
+        name: 'superpowers',
+        version: '5.0.7'
+    }, null, 2));
+    writeUtf8(path.join(root, '.codex', 'plugins', 'cache', 'superpowers-local', 'superpowers', '5.0.7', 'LOCAL.txt'), 'keep');
+
+    const dryRun = await runSync(root, { codexPluginsEnabled: true, dryRun: true }, {});
+    const result = await runSync(root, { codexPluginsEnabled: true }, {});
+
+    assert.equal(readUtf8(path.join(root, '.codex', 'plugins', 'cache', 'superpowers-local', 'superpowers', '5.0.7', 'LOCAL.txt')), 'keep');
+    assert.ok(dryRun.pluginActions.some((entry) => entry.message === 'will use existing superpowers@superpowers-local'));
+    assert.ok(result.pluginActions.some((entry) => entry.message === 'using existing superpowers@superpowers-local'));
 });
 
 function makeClaudePluginMirrorFixture(prefix) {

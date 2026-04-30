@@ -61,7 +61,7 @@ Use this embedded reference directly. Codex plugin installs may provide only thi
 
 - When a Claude-installed plugin is targeted to Codex and has a Codex plugin wrapper, ask the user to enable Codex plugins before mirroring the plugin bundle into Codex.
 - If the user has not enabled Codex plugins yet, keep supporting the current fallback: port the Claude plugin's skills and agents into Codex skills and TOML agents.
-- After the user enables Codex plugins, re-run sync with Codex plugins confirmed enabled so the Claude plugin is registered in the Codex marketplace and the fallback skill/agent ports are removed. The final state should match a first sync that used the Codex plugin from the start.
+- After the user enables Codex plugins, re-run sync with Codex plugins confirmed enabled so the Claude plugin is registered in the Codex marketplace, copied into Codex's plugin install cache, enabled in Codex config, and the fallback skill/agent ports are removed. The final state should match a first sync that used the Codex plugin from the start.
 - Prefer a Git-backed Codex marketplace entry (`url` or `git-subdir`) when Claude plugin metadata proves a GitHub origin and plugin subdirectory. Fall back to a local Codex marketplace copy only when that origin cannot be proven.
 
 ## Memory And Rules

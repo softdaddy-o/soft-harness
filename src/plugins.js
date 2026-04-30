@@ -1,7 +1,8 @@
 const path = require('node:path');
 const YAML = require('yaml');
-const { copyPath, ensureDir, exists, readJson, readUtf8, removePath, walkFiles, writeJson } = require('./fs-util');
+const { copyPath, ensureDir, exists, readJson, readUtf8, removePath, walkFiles, writeJson, writeUtf8 } = require('./fs-util');
 const { listProfiles, getProfile } = require('./profiles');
+const { compareVersions } = require('./version');
 
 function loadPlugins(rootDir) {
     const pluginsPath = path.join(rootDir, '.harness', 'plugins.yaml');
@@ -42,11 +43,15 @@ function detectPluginDrift(rootDir, options) {
             desiredByLlm.get(llm).add(plugin.name);
         }
     }
+    const desiredAliasesByLlm = buildDesiredPluginAliasesByLlm(rootDir);
 
     const drift = [];
     for (const llm of listProfiles()) {
         const installed = readInstalledPluginEntries(rootDir, llm).map((entry) => entry.displayName || entry.name);
-        const desiredNames = desiredByLlm.get(llm) || new Set();
+        const desiredNames = new Set(desiredByLlm.get(llm) || []);
+        for (const alias of desiredAliasesByLlm.get(llm) || []) {
+            desiredNames.add(alias);
+        }
         for (const pluginName of installed) {
             if (!desiredNames.has(pluginName)) {
                 drift.push({
@@ -60,6 +65,30 @@ function detectPluginDrift(rootDir, options) {
     }
 
     return drift;
+}
+
+function buildDesiredPluginAliasesByLlm(rootDir) {
+    const aliasesByLlm = new Map();
+    const codexAliases = collectCodexPluginMirrorAliases(rootDir);
+    if (codexAliases.size > 0) {
+        aliasesByLlm.set('codex', codexAliases);
+    }
+    return aliasesByLlm;
+}
+
+function collectCodexPluginMirrorAliases(rootDir) {
+    const aliases = new Set();
+    const marketplacePath = path.join(rootDir, '.agents', 'plugins', 'marketplace.json');
+    for (const candidate of collectCodexPluginMirrorCandidates(rootDir)) {
+        const displayName = getPluginDisplayName(candidate);
+        const localName = sanitizePluginDirName(displayName);
+        const marketplaceEntry = buildCodexMarketplacePluginEntry(candidate, localName);
+        const marketplaceName = resolveCodexMarketplaceName(rootDir, marketplacePath, marketplaceEntry);
+        if (marketplaceEntry.name && marketplaceName) {
+            aliases.add(`${marketplaceEntry.name}@${marketplaceName}`);
+        }
+    }
+    return aliases;
 }
 
 function syncPlugins(rootDir, state, options) {
@@ -141,7 +170,11 @@ function collectCodexPluginMirrorCandidates(rootDir) {
 
         const installRoot = resolveInstallRoot(rootDir, installedEntry.installPath);
         const codexManifestPath = path.join(installRoot, '.codex-plugin', 'plugin.json');
-        if (!exists(codexManifestPath)) {
+        const nativeCodexManifest = exists(codexManifestPath);
+        const codexManifest = nativeCodexManifest
+            ? (readJsonSafely(codexManifestPath) || {})
+            : synthesizeCodexManifestForClaudePlugin(installRoot, plugin, installedEntry);
+        if (!codexManifest) {
             continue;
         }
 
@@ -149,11 +182,115 @@ function collectCodexPluginMirrorCandidates(rootDir) {
             desired: plugin,
             installed: installedEntry,
             installRoot,
-            codexManifest: readJsonSafely(codexManifestPath) || {}
+            codexManifest,
+            nativeCodexManifest,
+            synthesizedCodexManifest: !nativeCodexManifest
         });
     }
 
     return candidates.sort((left, right) => getPluginDisplayName(left).localeCompare(getPluginDisplayName(right)));
+}
+
+function synthesizeCodexManifestForClaudePlugin(installRoot, desiredPlugin, installedEntry) {
+    const claudeManifest = readJsonSafely(path.join(installRoot, '.claude-plugin', 'plugin.json')) || {};
+    const packageManifest = readJsonSafely(path.join(installRoot, 'package.json')) || {};
+    const metadata = {
+        ...packageManifest,
+        ...claudeManifest
+    };
+    const skillsPath = resolveSyntheticCodexSkillsPath(installRoot);
+    const hasAgents = exists(path.join(installRoot, 'agents'));
+    if (!skillsPath && !hasAgents) {
+        return null;
+    }
+
+    const identity = parsePluginIdentity((desiredPlugin && desiredPlugin.name) || '');
+    const name = sanitizeCodexPluginName(metadata.name || (installedEntry && installedEntry.name) || identity.name);
+    const description = metadata.description || `${titleizePluginName(name)} plugin mirrored from Claude.`;
+    const author = metadata.author || null;
+    const manifest = {
+        name,
+        version: String(metadata.version || (installedEntry && installedEntry.version) || (desiredPlugin && desiredPlugin.version) || '0.0.0'),
+        description,
+        interface: {
+            displayName: (metadata.interface && metadata.interface.displayName) || titleizePluginName(name),
+            shortDescription: description,
+            longDescription: description,
+            developerName: normalizePluginAuthor(author) || (metadata.interface && metadata.interface.developerName) || 'Claude plugin mirror',
+            category: (metadata.interface && metadata.interface.category) || metadata.category || 'Productivity',
+            capabilities: skillsPath ? ['Interactive'] : [],
+            websiteURL: metadata.homepage || metadata.repository || null,
+            privacyPolicyURL: metadata.homepage || metadata.repository || null,
+            termsOfServiceURL: metadata.homepage || metadata.repository || null
+        }
+    };
+
+    if (metadata.author) {
+        manifest.author = metadata.author;
+    }
+    if (metadata.homepage) {
+        manifest.homepage = metadata.homepage;
+    }
+    if (metadata.repository) {
+        manifest.repository = metadata.repository;
+    }
+    if (metadata.license) {
+        manifest.license = metadata.license;
+    }
+    if (Array.isArray(metadata.keywords) && metadata.keywords.length > 0) {
+        manifest.keywords = metadata.keywords;
+    }
+    if (skillsPath) {
+        manifest.skills = skillsPath;
+    }
+
+    return removeNullishManifestFields(manifest);
+}
+
+function resolveSyntheticCodexSkillsPath(installRoot) {
+    if (exists(path.join(installRoot, '.codex', 'skills'))) {
+        return './.codex/skills/';
+    }
+    if (exists(path.join(installRoot, 'skills'))) {
+        return './skills/';
+    }
+    return null;
+}
+
+function removeNullishManifestFields(value) {
+    if (Array.isArray(value)) {
+        return value.map((entry) => removeNullishManifestFields(entry));
+    }
+    if (!value || typeof value !== 'object') {
+        return value;
+    }
+    const next = {};
+    for (const [key, entry] of Object.entries(value)) {
+        if (entry === null || entry === undefined) {
+            continue;
+        }
+        next[key] = removeNullishManifestFields(entry);
+    }
+    return next;
+}
+
+function sanitizeCodexPluginName(value) {
+    const normalized = String(value || 'plugin')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/gu, '-')
+        .replace(/^-+|-+$/gu, '')
+        .replace(/-{2,}/gu, '-');
+    return normalized || 'plugin';
+}
+
+function titleizePluginName(value) {
+    const words = String(value || 'plugin')
+        .split(/[-_]+/u)
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`);
+    return words.join(' ') || 'Plugin';
 }
 
 function mirrorClaudePluginForCodex(rootDir, candidate, options) {
@@ -163,35 +300,287 @@ function mirrorClaudePluginForCodex(rootDir, candidate, options) {
     const marketplacePath = path.join(rootDir, '.agents', 'plugins', 'marketplace.json');
     const marketplaceEntry = buildCodexMarketplacePluginEntry(candidate, localName);
     const localMirror = isLocalCodexMarketplaceSource(marketplaceEntry.source);
+    const marketplaceName = resolveCodexMarketplaceName(rootDir, marketplacePath, marketplaceEntry);
+    const installInfo = buildCodexPluginInstallInfo(rootDir, candidate, marketplaceEntry, marketplaceName);
 
     if (!options || !options.dryRun) {
         removePath(pluginTargetDir);
         if (localMirror) {
             ensureDir(path.join(rootDir, 'plugins'));
             copyPath(candidate.installRoot, pluginTargetDir);
+            prepareSynthesizedCodexPluginCopy(pluginTargetDir, candidate);
         }
-        upsertCodexMarketplaceEntry(marketplacePath, marketplaceEntry);
+        upsertCodexMarketplaceEntry(marketplacePath, marketplaceEntry, marketplaceName);
+        installCodexPluginCache(rootDir, candidate, marketplaceEntry, marketplaceName, installInfo);
     }
 
     return {
         action: {
             type: 'sync-codex-plugin',
             name: displayName,
-            version: candidate.installed.version || candidate.desired.version || null,
+            version: installInfo.version,
             llms: ['codex'],
             status: options && options.dryRun ? 'planned' : 'synced',
             from: toPosixRelative(rootDir, candidate.installRoot),
-            to: describeCodexMarketplaceSource(marketplaceEntry.source, localName)
+            to: describeCodexMarketplaceSource(marketplaceEntry.source, localName),
+            installedTo: installInfo.cachePath,
+            config: installInfo.configPath,
+            message: buildCodexPluginInstallMessage(installInfo, options)
         },
         plugin: {
             name: displayName,
             displayName,
             installedName: candidate.installed.name,
             localName,
+            removeFallbackAgents: Boolean(candidate.nativeCodexManifest),
+            removeFallbackSkills: Boolean(candidate.codexManifest && candidate.codexManifest.skills),
             sourcePath: toPosixRelative(rootDir, candidate.installRoot),
             targetPath: localMirror ? path.posix.join('plugins', localName) : null
         }
     };
+}
+
+function buildCodexPluginInstallMessage(installInfo, options) {
+    const action = installInfo.shouldCopyCache
+        ? (options && options.dryRun ? 'will install' : 'installed')
+        : (options && options.dryRun ? 'will use existing' : 'using existing');
+    return `${action} ${installInfo.pluginId}`;
+}
+
+function resolveCodexMarketplaceName(rootDir, marketplacePath, marketplaceEntry) {
+    const configMatch = findCodexMarketplaceNameFromConfig(path.join(rootDir, '.codex', 'config.toml'), marketplaceEntry);
+    if (configMatch) {
+        return configMatch;
+    }
+    const current = readJsonSafely(marketplacePath) || {};
+    return current.name || 'local-codex-plugins';
+}
+
+function findCodexMarketplaceNameFromConfig(configPath, marketplaceEntry) {
+    if (!exists(configPath) || !marketplaceEntry || !marketplaceEntry.name) {
+        return null;
+    }
+
+    const content = readUtf8(configPath);
+    const pluginMarketplace = findCodexPluginMarketplaceInConfig(content, marketplaceEntry.name);
+    if (pluginMarketplace) {
+        return pluginMarketplace;
+    }
+
+    if (marketplaceEntry.source && marketplaceEntry.source.url) {
+        return findCodexMarketplaceBySourceInConfig(content, marketplaceEntry.source.url);
+    }
+    return null;
+}
+
+function findCodexPluginMarketplaceInConfig(content, pluginName) {
+    for (const rawLine of String(content || '').split(/\r?\n/u)) {
+        const line = rawLine.trim();
+        const match = line.match(/^\[plugins\.([^\]]+)\]$/u);
+        if (!match) {
+            continue;
+        }
+        const identity = parsePluginIdentity(parseTomlKey(match[1]));
+        if (identity.name === pluginName && identity.registry) {
+            return identity.registry;
+        }
+    }
+    return null;
+}
+
+function findCodexMarketplaceBySourceInConfig(content, sourceUrl) {
+    const expected = normalizeRepositoryUrl(sourceUrl);
+    let currentName = null;
+    let currentSource = null;
+
+    function flushCurrent() {
+        const matched = currentName && currentSource && normalizeRepositoryUrl(currentSource) === expected;
+        const name = matched ? currentName : null;
+        currentName = null;
+        currentSource = null;
+        return name;
+    }
+
+    for (const rawLine of String(content || '').split(/\r?\n/u)) {
+        const line = rawLine.trim();
+        const marketplaceMatch = line.match(/^\[marketplaces\.([^\]]+)\]$/u);
+        if (marketplaceMatch) {
+            const matched = flushCurrent();
+            if (matched) {
+                return matched;
+            }
+            currentName = parseTomlKey(marketplaceMatch[1]);
+            continue;
+        }
+
+        if (/^\[.*\]$/u.test(line)) {
+            const matched = flushCurrent();
+            if (matched) {
+                return matched;
+            }
+            continue;
+        }
+
+        if (!currentName) {
+            continue;
+        }
+
+        const sourceMatch = line.match(/^source\s*=\s*"([^"]+)"$/u);
+        if (sourceMatch) {
+            currentSource = parseTomlString(sourceMatch[1]);
+        }
+    }
+
+    return flushCurrent();
+}
+
+function buildCodexPluginInstallInfo(rootDir, candidate, marketplaceEntry, marketplaceName) {
+    const pluginName = marketplaceEntry.name;
+    const sourceVersion = String((candidate.codexManifest && candidate.codexManifest.version)
+        || candidate.installed.version
+        || candidate.desired.version
+        || '0.0.0');
+    const existingVersion = findNewestCodexPluginCacheVersion(rootDir, marketplaceName, pluginName);
+    const versionComparison = existingVersion ? compareVersions(existingVersion, sourceVersion) : null;
+    const preserveExisting = !candidate.synthesizedCodexManifest && versionComparison !== null && versionComparison >= 0;
+    const version = preserveExisting ? existingVersion : sourceVersion;
+    const cachePath = path.join(
+        '.codex',
+        'plugins',
+        'cache',
+        sanitizePluginDirName(marketplaceName),
+        sanitizePluginDirName(pluginName),
+        sanitizePluginDirName(version)
+    ).split(path.sep).join(path.posix.sep);
+
+    return {
+        pluginName,
+        marketplaceName,
+        version,
+        pluginId: `${pluginName}@${marketplaceName}`,
+        cachePath,
+        configPath: path.posix.join('.codex', 'config.toml'),
+        absoluteCachePath: path.join(rootDir, cachePath),
+        absoluteConfigPath: path.join(rootDir, '.codex', 'config.toml'),
+        shouldCopyCache: !preserveExisting
+    };
+}
+
+function installCodexPluginCache(rootDir, candidate, marketplaceEntry, marketplaceName, installInfo) {
+    if (installInfo.shouldCopyCache) {
+        removePath(installInfo.absoluteCachePath);
+        copyPath(candidate.installRoot, installInfo.absoluteCachePath);
+        prepareSynthesizedCodexPluginCopy(installInfo.absoluteCachePath, candidate);
+    }
+    upsertCodexConfigPluginInstall(installInfo.absoluteConfigPath, {
+        marketplaceName,
+        marketplaceSource: marketplaceEntry.source,
+        pluginId: installInfo.pluginId,
+        gitCommitSha: candidate.installed.gitCommitSha || null
+    });
+}
+
+function prepareSynthesizedCodexPluginCopy(pluginRoot, candidate) {
+    if (!candidate || !candidate.synthesizedCodexManifest) {
+        return;
+    }
+    if (candidate.codexManifest && candidate.codexManifest.skills === './.codex/skills/') {
+        removePath(path.join(pluginRoot, 'skills'));
+    }
+    writeJson(path.join(pluginRoot, '.codex-plugin', 'plugin.json'), candidate.codexManifest);
+}
+
+function findNewestCodexPluginCacheVersion(rootDir, marketplaceName, pluginName) {
+    const cacheRoot = path.join(
+        rootDir,
+        '.codex',
+        'plugins',
+        'cache',
+        sanitizePluginDirName(marketplaceName),
+        sanitizePluginDirName(pluginName)
+    );
+    const versions = Array.from(new Set(walkFiles(cacheRoot, (relativePath) => {
+        const parts = relativePath.replace(/\\/g, '/').split('/');
+        return parts.length === 3
+            && parts[1] === '.codex-plugin'
+            && parts[2] === 'plugin.json';
+    }).map((file) => file.relativePath.replace(/\\/g, '/').split('/')[0]).filter(Boolean)));
+
+    return versions.sort((left, right) => {
+        const compared = compareVersions(right, left);
+        return compared === null ? right.localeCompare(left) : compared;
+    })[0] || null;
+}
+
+function upsertCodexConfigPluginInstall(configPath, install) {
+    const current = exists(configPath) ? readUtf8(configPath) : '';
+    let next = current;
+    if (install.marketplaceSource && install.marketplaceSource.url) {
+        const marketplaceLines = [
+            `source_type = "git"`,
+            `source = "${escapeTomlString(install.marketplaceSource.url)}"`
+        ];
+        if (install.gitCommitSha) {
+            marketplaceLines.push(`last_revision = "${escapeTomlString(install.gitCommitSha)}"`);
+        }
+        next = upsertTomlSection(next, `[marketplaces.${formatTomlKey(install.marketplaceName)}]`, marketplaceLines);
+    }
+
+    next = upsertTomlSection(next, `[plugins.${formatTomlKey(install.pluginId)}]`, ['enabled = true']);
+    writeUtf8(configPath, next);
+}
+
+function upsertTomlSection(content, header, bodyLines) {
+    const lines = String(content || '').replace(/\s+$/u, '').split(/\r?\n/u);
+    if (lines.length === 1 && lines[0] === '') {
+        lines.pop();
+    }
+
+    const start = lines.findIndex((line) => line.trim() === header);
+    const replacement = [header, ...bodyLines];
+    if (start < 0) {
+        if (lines.length > 0 && lines[lines.length - 1] !== '') {
+            lines.push('');
+        }
+        lines.push(...replacement);
+        return `${lines.join('\n')}\n`;
+    }
+
+    let end = start + 1;
+    while (end < lines.length && !/^\s*\[.*\]\s*$/u.test(lines[end])) {
+        end += 1;
+    }
+    const section = lines.slice(start + 1, end);
+    for (const bodyLine of bodyLines) {
+        const key = extractTomlAssignmentKey(bodyLine);
+        const existing = key
+            ? section.findIndex((line) => extractTomlAssignmentKey(line) === key)
+            : -1;
+        if (existing >= 0) {
+            section[existing] = bodyLine;
+        } else {
+            section.push(bodyLine);
+        }
+    }
+    lines.splice(start, end - start, header, ...section);
+    return `${lines.join('\n')}\n`;
+}
+
+function extractTomlAssignmentKey(line) {
+    const match = String(line || '').trim().match(/^([A-Za-z0-9_-]+)\s*=/u);
+    return match ? match[1] : null;
+}
+
+function formatTomlKey(value) {
+    const text = String(value || '').trim();
+    if (/^[A-Za-z0-9_-]+$/u.test(text)) {
+        return text;
+    }
+    return `"${escapeTomlString(text)}"`;
+}
+
+function escapeTomlString(value) {
+    return String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
 function buildCodexPluginEnablementAction(candidate, options) {
@@ -220,9 +609,11 @@ function buildCodexMarketplacePluginEntry(candidate, localName) {
 }
 
 function buildCodexMarketplaceSource(candidate, localName) {
-    const gitSource = buildCodexGitMarketplaceSource(candidate);
-    if (gitSource) {
-        return gitSource;
+    if (!candidate.synthesizedCodexManifest) {
+        const gitSource = buildCodexGitMarketplaceSource(candidate);
+        if (gitSource) {
+            return gitSource;
+        }
     }
 
     return {
@@ -292,7 +683,7 @@ function describeCodexMarketplaceSource(source, localName) {
     return `${source.url}#${source.ref || 'main'}`;
 }
 
-function upsertCodexMarketplaceEntry(marketplacePath, pluginEntry) {
+function upsertCodexMarketplaceEntry(marketplacePath, pluginEntry, marketplaceName) {
     const current = readJson(marketplacePath, {});
     const items = Array.isArray(current.plugins) ? current.plugins.slice() : [];
     const index = items.findIndex((plugin) => plugin && plugin.name === pluginEntry.name);
@@ -307,7 +698,7 @@ function upsertCodexMarketplaceEntry(marketplacePath, pluginEntry) {
 
     writeJson(marketplacePath, {
         ...current,
-        name: current.name || 'local-codex-plugins',
+        name: marketplaceName || current.name || 'local-codex-plugins',
         interface: current.interface || {
             displayName: 'Local Codex Plugins'
         },
@@ -408,7 +799,17 @@ function extractPluginEntriesFromJson(value, llm, rootDir) {
 
 function extractPluginEntriesFromToml(content) {
     const entries = [];
-    let inPluginArray = false;
+    let current = null;
+
+    function flushCurrent() {
+        if (current && current.name && current.enabled !== false) {
+            entries.push(normalizePluginEntry({
+                name: current.name,
+                evidence: current.evidence
+            }));
+        }
+        current = null;
+    }
 
     for (const rawLine of String(content || '').split(/\r?\n/u)) {
         const line = rawLine.trim();
@@ -418,37 +819,59 @@ function extractPluginEntriesFromToml(content) {
 
         const namedPluginMatch = line.match(/^\[plugins\.([^\]]+)\]$/u);
         if (namedPluginMatch) {
-            inPluginArray = false;
-            entries.push(normalizePluginEntry({
-                name: namedPluginMatch[1],
+            flushCurrent();
+            current = {
+                name: parseTomlKey(namedPluginMatch[1]),
+                enabled: null,
                 evidence: 'plugins table'
-            }));
+            };
             continue;
         }
 
         if (/^\[\[plugins\]\]$/u.test(line)) {
-            inPluginArray = true;
+            flushCurrent();
+            current = {
+                name: null,
+                enabled: null,
+                evidence: 'plugins array'
+            };
             continue;
         }
 
         if (/^\[\[.*\]\]$/u.test(line) || /^\[.*\]$/u.test(line)) {
-            inPluginArray = false;
+            flushCurrent();
             continue;
         }
 
-        if (!inPluginArray) {
+        if (!current) {
             continue;
         }
 
         const nameMatch = line.match(/^name\s*=\s*"([^"]+)"$/u);
         if (nameMatch) {
-            entries.push(normalizePluginEntry({
-                name: nameMatch[1],
-                evidence: 'plugins array'
-            }));
+            current.name = parseTomlString(nameMatch[1]);
+            continue;
+        }
+
+        const enabledMatch = line.match(/^enabled\s*=\s*(true|false)$/u);
+        if (enabledMatch) {
+            current.enabled = enabledMatch[1] === 'true';
         }
     }
+    flushCurrent();
     return entries;
+}
+
+function parseTomlKey(value) {
+    const text = String(value || '').trim();
+    if (text.startsWith('"') && text.endsWith('"')) {
+        return parseTomlString(text.slice(1, -1));
+    }
+    return text;
+}
+
+function parseTomlString(value) {
+    return String(value || '').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
 }
 
 function extractPluginEntriesFromPluginArrayItem(value, metadata) {
