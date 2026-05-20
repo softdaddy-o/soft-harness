@@ -1,6 +1,6 @@
 ---
 name: analyze
-description: "Inspect the current Claude Code and Codex state, compare prompts/settings/skills/agents/plugins, surface malformed MCP or settings issues, and capture a reusable snapshot of the current setup. Use when the user wants a read-only assessment, a current-state report, or a first-pass consolidation plan before making changes. When `analyze` recommends `organize`, it should show the validation findings and note that displaced files will be backed up under `.harness/backups/`. `analyze` never mutates host files. In `--dry-run`, it also leaves snapshot state untouched."
+description: "Inspect the current Claude Code and Codex state, compare prompts/settings/skills/agents/plugins/memory, surface malformed MCP or settings issues, and capture a reusable snapshot of the current setup. Use when the user wants a read-only assessment, a current-state report, or a first-pass consolidation plan before making changes. When `analyze` recommends `organize`, it should show the validation findings and note that displaced files will be backed up under `.harness/backups/`. `analyze` never mutates host files. In `--dry-run`, it also leaves snapshot state untouched."
 ---
 
 # Analyze
@@ -22,7 +22,7 @@ Use this embedded reference directly. Codex plugin installs may provide only thi
   - `.harness/.sync-state.json` and `.harness/backups/` as support state, not user-authored truth
 - Promote to shared only when semantics are actually shared, not just similar.
 - Keep risky or vendor-specific settings host-local.
-- Use deterministic helpers only for exact parsing, hashing, validation, apply or backup steps, and local evidence collection. Relevant helper areas are `src/profiles.js`, `src/discover.js`, `src/md-parse.js`, `src/section-match.js`, `src/analyze/settings.js`, `src/settings.js`, `src/plugins.js`, `src/skills.js`, `src/export.js`, `src/backup.js`, `src/revert.js`, `src/state.js`, `src/origins.js`, `src/asset-origins.js`, `src/plugin-origins.js`, `src/fs-util.js`, `src/hash.js`, and `src/fs-backend.js`.
+- Use deterministic helpers only for exact parsing, hashing, validation, apply or backup steps, and local evidence collection. Relevant helper areas are `src/profiles.js`, `src/discover.js`, `src/md-parse.js`, `src/section-match.js`, `src/analyze/settings.js`, `src/settings.js`, `src/plugins.js`, `src/skills.js`, `src/memory-partition.js`, `src/export.js`, `src/backup.js`, `src/revert.js`, `src/state.js`, `src/origins.js`, `src/asset-origins.js`, `src/plugin-origins.js`, `src/fs-util.js`, `src/hash.js`, and `src/fs-backend.js`.
 - Helpers should not decide whether similar content should be merged, whether host-specific behavior should remain split, how to phrase user questions, final origin confidence when local evidence is incomplete, or memory placement when user intent is ambiguous.
 
 ## Workflow
@@ -34,6 +34,7 @@ Use this embedded reference directly. Codex plugin installs may provide only thi
    - settings parse results and MCP inventories
    - malformed settings or parse-error detection
    - discovered skills, agents, plugins, and local origin hints
+   - Claude project memory and Codex memory entries that look cross-host, project-state, stale, Claude-only, or Codex-only
    - the prior `.harness` snapshot when it exists
 3. If `.harness` does not exist yet, treat that as normal. Use the live host files as the only starting point and describe the snapshot files that would be created.
 4. Start the report with an overall score out of 100 plus a short explanation of the main reasons behind that score.
@@ -56,7 +57,8 @@ Use this embedded reference directly. Codex plugin installs may provide only thi
 ## Output
 
 - report intro with an overall score out of 100 and the main reasons for it
-- inventory of current prompts, settings, skills, agents, plugins, and memory candidates
+- inventory of current prompts, settings, skills, agents, plugins, and memory partition candidates
+- memory recommendations that distinguish Claude-only or Codex-only feedback from cross-host rules, project-state notes, and stale entries
 - current shared-vs-host-local opportunities
 - malformed MCP/settings findings
 - safe optimization ideas

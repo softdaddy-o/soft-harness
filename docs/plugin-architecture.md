@@ -31,6 +31,7 @@ The plugin content is shared. Distribution wrappers are host-specific.
 
 - inspect the current host prompts, settings, skills, agents, plugins, and memory candidates
 - compare shared-vs-host-local opportunities
+- flag Claude and Codex memory entries that look cross-host, project-state, stale, or host-only
 - surface malformed MCP or settings definitions
 - collect local origin hints
 - refresh `.harness` as a snapshot when not in `--dry-run`
@@ -42,10 +43,22 @@ The plugin content is shared. Distribution wrappers are host-specific.
 - inspect real host state first, then the current `.harness` snapshot
 - update real host files
 - catch settings and MCP errors
+- partition Claude/Codex memory into shared `.harness/memory/`, project docs, host-local memory, or removal when requested
+- mark imported memory with source-host provenance and `do not reverse-merge` instructions, then track it in `.harness/memory/partition-state.json`
 - propose or apply safe optimizations
 - refresh `.harness` after applying changes
 
 Both skills support `--dry-run`.
+
+## Hook Integration
+
+Soft Harness does not install host hooks automatically. The supported hook command is `soft-harness organize --partition-memory --dry-run`, which can be attached to host lifecycle or file-change hooks to report drift after:
+
+- Claude project memory changes
+- Codex memory file changes
+- `.harness/`, `AGENTS.md`, `CLAUDE.md`, skill, agent, or plugin changes
+
+Hooks should stay non-destructive by default. Use the non-dry-run partition command only from a deliberately trusted managed hook or from an explicit user action.
 
 ## `.harness` Model
 
@@ -85,6 +98,7 @@ Keep code only where exact parsing, validation, local evidence extraction, apply
 - `src/settings.js`
 - `src/plugins.js`
 - `src/skills.js`
+- `src/memory-partition.js`
 - `src/export.js`
 - `src/backup.js`
 - `src/revert.js`

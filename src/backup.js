@@ -1,6 +1,7 @@
 const path = require('node:path');
 const { getFsBackend } = require('./fs-backend');
 const { copyPath, ensureDir, exists, kstTimestamp, readJson, removePath, writeJson } = require('./fs-util');
+const { hashString } = require('./hash');
 const { getHarnessDir } = require('./state');
 
 function getBackupsDir(rootDir) {
@@ -112,14 +113,19 @@ function listBackups(rootDir) {
 
 function restoreBackup(rootDir, timestamp) {
     const manifest = readManifest(rootDir, timestamp);
-    createBackup(
-        rootDir,
-        manifest.entries.map((entry) => entry.path),
-        { reason: `revert:${timestamp}` }
-    );
+    createRestoreBackup(rootDir, manifest, timestamp);
 
     const backupDir = getBackupDir(rootDir, timestamp);
     for (const entry of manifest.entries) {
+        if (entry.kind === 'external-file') {
+            copyPath(path.join(backupDir, entry.backupPath), entry.originalPath);
+            continue;
+        }
+        if (entry.kind === 'external-missing') {
+            removePath(entry.originalPath);
+            continue;
+        }
+
         const targetPath = path.join(rootDir, entry.path);
         if (entry.kind === 'missing') {
             removePath(targetPath);
@@ -141,6 +147,76 @@ function restoreBackup(rootDir, timestamp) {
         timestamp,
         restoredCount: manifest.entries.length
     };
+}
+
+function createRestoreBackup(rootDir, manifest, timestamp) {
+    const internalPaths = manifest.entries
+        .filter((entry) => entry.kind !== 'external-file' && entry.kind !== 'external-missing')
+        .map((entry) => entry.path);
+    const externalEntries = manifest.entries
+        .filter((entry) => entry.kind === 'external-file' || entry.kind === 'external-missing');
+
+    let backup = createBackup(rootDir, internalPaths, { reason: `revert:${timestamp}` });
+    if (!backup && externalEntries.length > 0) {
+        backup = createEmptyBackup(rootDir, { reason: `revert:${timestamp}` });
+    }
+    if (backup && externalEntries.length > 0) {
+        appendExternalCurrentBackups(backup, externalEntries);
+    }
+    return backup;
+}
+
+function createEmptyBackup(rootDir, options) {
+    const timestamp = getAvailableTimestamp(rootDir, (options && options.timestamp) || kstTimestamp());
+    const backupDir = getBackupDir(rootDir, timestamp);
+    const manifestPath = path.join(backupDir, 'manifest.json');
+    ensureDir(backupDir);
+    writeJson(manifestPath, {
+        timestamp,
+        reason: options && options.reason,
+        created_at: new Date().toString(),
+        entries: []
+    });
+    return {
+        timestamp,
+        backupDir,
+        manifestPath,
+        entryCount: 0
+    };
+}
+
+function appendExternalCurrentBackups(backup, entries) {
+    const manifest = readJson(backup.manifestPath);
+    for (const entry of entries) {
+        const originalPath = entry.originalPath;
+        const backupPath = normalizeBackupPath(path.join(
+            'external',
+            hashString(originalPath).slice(0, 12),
+            path.basename(originalPath)
+        ));
+        if (!exists(originalPath)) {
+            manifest.entries.push({
+                path: `external:${originalPath}`,
+                kind: 'external-missing',
+                originalPath
+            });
+            continue;
+        }
+
+        copyPath(originalPath, path.join(backup.backupDir, backupPath));
+        manifest.entries.push({
+            path: `external:${originalPath}`,
+            kind: 'external-file',
+            originalPath,
+            backupPath
+        });
+    }
+    writeJson(backup.manifestPath, manifest);
+    backup.entryCount = manifest.entries.length;
+}
+
+function normalizeBackupPath(value) {
+    return String(value || '').replace(/\\/gu, '/');
 }
 
 function inferLinkType(absolutePath) {

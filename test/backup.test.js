@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createBackup, listBackups, restoreBackup } = require('../src/backup');
-const { exists, readJson, readUtf8, writeUtf8 } = require('../src/fs-util');
+const { exists, readJson, readUtf8, writeJson, writeUtf8 } = require('../src/fs-util');
 const { makeTempDir } = require('./helpers');
 
 test('backup: createBackup and restoreBackup roundtrip a file', () => {
@@ -26,6 +26,40 @@ test('backup: missing file entries restore by deleting current file', () => {
     writeUtf8(path.join(root, 'CLAUDE.md'), 'created later');
     restoreBackup(root, backup.timestamp);
     assert.equal(exists(path.join(root, 'CLAUDE.md')), false);
+});
+
+test('backup: external file entries restore and preserve the pre-restore external state', () => {
+    const root = makeTempDir('soft-harness-backup-external-root-');
+    const externalRoot = makeTempDir('soft-harness-backup-external-file-');
+    const externalPath = path.join(externalRoot, 'MEMORY.md');
+    writeUtf8(externalPath, 'before partition');
+
+    const backup = createBackup(root, ['AGENTS.md'], { timestamp: '2026-04-10-external', reason: 'partition-memory' });
+    const backupPath = path.join('external', 'memory', 'MEMORY.md');
+    fs.mkdirSync(path.join(backup.backupDir, 'external', 'memory'), { recursive: true });
+    fs.copyFileSync(externalPath, path.join(backup.backupDir, backupPath));
+
+    const manifestPath = path.join(root, '.harness', 'backups', backup.timestamp, 'manifest.json');
+    const manifest = readJson(manifestPath);
+    manifest.entries.push({
+        path: `external:${externalPath}`,
+        kind: 'external-file',
+        originalPath: externalPath,
+        backupPath
+    });
+    writeJson(manifestPath, manifest);
+
+    writeUtf8(externalPath, 'after partition');
+    restoreBackup(root, backup.timestamp);
+
+    assert.equal(readUtf8(externalPath), 'before partition');
+
+    const revertBackup = listBackups(root).find((entry) => entry.reason === `revert:${backup.timestamp}`);
+    assert.ok(revertBackup);
+    const revertManifest = readJson(path.join(root, '.harness', 'backups', revertBackup.timestamp, 'manifest.json'));
+    const externalEntry = revertManifest.entries.find((entry) => entry.kind === 'external-file');
+    assert.equal(externalEntry.originalPath, externalPath);
+    assert.match(readUtf8(path.join(root, '.harness', 'backups', revertBackup.timestamp, externalEntry.backupPath)), /after partition/);
 });
 
 test('backup: symlink entries restore as symlinks when supported', { skip: process.platform === 'win32' ? false : false }, () => {

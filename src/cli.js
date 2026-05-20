@@ -12,7 +12,9 @@ Active user workflow lives in the plugin skills:
 
 Commands:
   soft-harness sync [options]         Legacy reconcile helper during plugin migration
-  soft-harness analyze [options]      Debug analysis for prompts, settings, skills, and plugins
+  soft-harness analyze [options]      Debug analysis for prompts, settings, skills, plugins, and memory
+  soft-harness organize --partition-memory [opts]
+                                      Partition Claude/Codex memory into shared memory, docs, or removal
   soft-harness plugins import-origins [opts]
                                       Save LLM-found plugin origins into .harness/ (debug helper)
   soft-harness origins import [opts]  Save LLM-found skill/agent origins into .harness/ (debug helper)
@@ -43,7 +45,7 @@ Analyze options:
   --account                          Analyze the current account home directory
   --include-account                  Include account-level Codex settings while analyzing a project
   --account-root=<path>              Account home to use with --include-account
-  --category=<name>                  Analyze prompts, settings, skills, plugins, or all
+  --category=<name>                  Analyze prompts, settings, skills, plugins, memory, or all
   --llms=<names>                     Limit analysis to a comma-separated llm list
   --verbose                          Show file-level analysis details
   --explain                          Show classification reasons
@@ -68,6 +70,14 @@ Remember options:
   --title=<name>                     Entry title to create or update
   --content=<text>                   Entry body content
   --no-export                        Update harness truth without regenerating host outputs
+
+Organize options:
+  --partition-memory                 Classify Claude/Codex memory entries and apply migration
+  --root=<path>                      Organize an explicit root instead of the current directory
+  --account                          Organize the current account home directory
+  --account-root=<path>              Include an account home while organizing a project
+  --dry-run                          Report planned memory partition changes and write nothing
+  --json                             Emit JSON instead of text
 `;
 
 const ICONS = {
@@ -121,7 +131,7 @@ function parseAnalyzeArgs(args) {
     const root = parseCommandRootArgs(args);
     const thresholds = parseThresholdArgs(args);
     const category = categoryArg ? categoryArg.split('=')[1] : 'all';
-    if (!['all', 'prompts', 'settings', 'skills', 'plugins'].includes(category)) {
+    if (!['all', 'prompts', 'settings', 'skills', 'plugins', 'memory'].includes(category)) {
         throw new Error(`invalid --category: ${category}`);
     }
 
@@ -142,6 +152,25 @@ function parseAnalyzeArgs(args) {
         llms,
         root,
         verbose: flags.has('--verbose')
+    };
+}
+
+function parsePartitionMemoryArgs(args) {
+    const flags = new Set(args);
+    const accountRootArg = args.find((arg) => arg.startsWith('--account-root='));
+    const root = parseCommandRootArgs(args);
+    if (!flags.has('--partition-memory')) {
+        throw new Error('organize requires --partition-memory');
+    }
+
+    return {
+        account: flags.has('--account'),
+        accountRoot: parseAccountRootArg(accountRootArg),
+        dryRun: flags.has('--dry-run') || flags.has('-n'),
+        json: flags.has('--json'),
+        partitionMemory: true,
+        root,
+        verbose: flags.has('--verbose') || flags.has('--explain')
     };
 }
 
@@ -299,6 +328,30 @@ function runRemember(args) {
     }
 }
 
+function runOrganize(args) {
+    const { runPartitionMemory } = require('./memory-partition');
+    let organizeOptions;
+    try {
+        organizeOptions = parsePartitionMemoryArgs(args);
+    } catch (error) {
+        process.stderr.write(`organize failed: ${error.message}\n`);
+        return 1;
+    }
+
+    try {
+        const rootDir = resolveCommandRoot(process.cwd(), organizeOptions);
+        const result = runPartitionMemory(rootDir, organizeOptions);
+        const report = organizeOptions.json
+            ? `${JSON.stringify(result, null, 2)}\n`
+            : formatPartitionMemoryReport(result, organizeOptions);
+        process.stdout.write(report);
+        return 0;
+    } catch (error) {
+        process.stderr.write(`organize failed: ${error.message}\n`);
+        return 1;
+    }
+}
+
 function runRevert(args) {
     const { runRevert: runRevertImpl } = require('./revert');
     if (args.includes('--list')) {
@@ -353,6 +406,8 @@ async function main(argv, io) {
             return runPrompt(argv.slice(3));
         case 'remember':
             return runRemember(argv.slice(3));
+        case 'organize':
+            return runOrganize(argv.slice(3));
         case 'revert':
             return runRevert(argv.slice(3));
         default:
@@ -375,10 +430,12 @@ module.exports = {
     },
     formatAnalyzeReport,
     formatCurateReport,
+    formatPartitionMemoryReport,
     formatRememberReport,
     formatSyncReport,
     main,
     parseAnalyzeArgs,
+    parsePartitionMemoryArgs,
     parseSyncArgs
 };
 
@@ -579,6 +636,7 @@ function formatAnalyzeReport(result, options) {
     lines.push(`${ICONS.analyze} common=${result.summary.common}  similar=${result.summary.similar}  conflicts=${result.summary.conflicts}  host_only=${result.summary.host_only}  unknown=${result.summary.unknown}`);
 
     appendTreeSection(lines, ICONS.documents, formatAnalyzeDocuments(result, options));
+    appendTreeSection(lines, 'Memory', formatAnalyzeMemory(result, options));
     appendTreeSection(lines, ICONS.settings, formatAnalyzeSettings(result.inventory && result.inventory.settings));
     appendTreeSection(lines, '🧰 Skills', formatAnalyzeSkills(result, options));
     appendTreeSection(lines, '🧩 Plugins', formatAnalyzePlugins(result, options));
@@ -596,6 +654,24 @@ function formatAnalyzeReport(result, options) {
     }
 
     return `${lines.join('\n')}\n`;
+}
+
+function formatAnalyzeMemory(result, options) {
+    const entries = result && result.inventory && result.inventory.memory;
+    return (entries || []).map((entry) => {
+        const children = [
+            { text: `source: ${entry.file}:${entry.line}` },
+            { text: `action: ${entry.action}` },
+            { text: `reason: ${entry.reason}` }
+        ];
+        if (options && options.explain) {
+            children.push({ text: `text: ${entry.text}` });
+        }
+        return {
+            text: `entry: ${entry.classification} -> ${entry.destination} [${entry.confidence}]`,
+            children
+        };
+    });
 }
 
 function formatAnalyzeDocuments(result, options) {
@@ -862,6 +938,37 @@ function formatAnalyzePluginEntry(plugin, llm, annotations, options) {
 function formatCurateReport(result) {
     const label = result && result.target === 'assets' ? 'asset origins' : 'plugin origins';
     return `${ICONS.completed} ${label} imported target=${result.target}  updated=${result.updated}  file=${result.file}\n`;
+}
+
+function formatPartitionMemoryReport(result, options) {
+    const lines = [];
+    const summary = result.summary || {};
+    lines.push(`partition-memory phase=${result.phase} total=${summary.total || 0}  cross_host=${summary.cross_host || 0}  project_state=${summary.project_state || 0}  stale=${summary.stale || 0}  claude_only=${summary.claude_only || 0}  codex_only=${summary.codex_only || 0}`);
+    if (result.backupTs) {
+        lines.push(`backup: ${result.backupTs}`);
+    }
+    if (result.ledger) {
+        lines.push(`ledger: ${result.ledger.path} entries=${result.ledger.entries}`);
+    }
+
+    appendTreeSection(lines, 'actions', (result.entries || [])
+        .filter((entry) => options && options.verbose ? true : entry.action !== 'keep')
+        .map((entry) => ({
+            text: `${entry.classification} -> ${entry.destination}: ${entry.text}`,
+            children: [
+                { text: `source: ${entry.file}:${entry.line}` },
+                { text: `action: ${entry.action}` },
+                { text: `reason: ${entry.reason}` }
+            ]
+        })));
+
+    if (result.exports && result.exports.length > 0) {
+        appendTreeSection(lines, 'exports', result.exports.map((entry) => ({
+            text: `${entry.llm}:${entry.path}`
+        })));
+    }
+
+    return `${lines.join('\n')}\n`;
 }
 
 function formatRememberReport(result) {

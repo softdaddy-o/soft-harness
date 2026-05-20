@@ -20,6 +20,8 @@ The plugin keeps the LLM-facing workflow in skills. Deterministic code stays nar
   - local plugin manifest reading, snapshot validation, drift checks, and local origin hints from Claude cache and manifests
 - `src/skills.js`
   - skill and agent discovery, bucket planning, and apply helpers
+- `src/memory-partition.js`
+  - Claude/Codex memory entry parsing, heuristic partition recommendations, imported-memory provenance, partition ledger tracking, and backup-backed partition apply steps
 - `src/export.js`
   - render or refresh host-facing instruction files when organize applies prompt changes
 - `src/backup.js`, `src/revert.js`, `src/state.js`
@@ -42,6 +44,7 @@ The plugin keeps the LLM-facing workflow in skills. Deterministic code stays nar
 - parsing and validating settings files, including MCP inventories
 - spotting malformed MCP definitions or unsupported settings formats
 - finding local origin hints before asking the LLM to research GitHub or marketplaces
+- flagging memory entries that likely belong in shared memory, project docs, Claude-only memory, Codex-only memory, or removal
 - applying prompt or settings changes to real host files
 - refreshing `.harness` after analyze or organize
 - backing up displaced host files before replacement

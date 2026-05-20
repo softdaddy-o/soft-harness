@@ -3,6 +3,7 @@ const { analyzeSettings } = require('./analyze/settings');
 const { analyzeSkills } = require('./analyze/skills');
 const { analyzePlugins } = require('./analyze/plugins');
 const { mergeFindings } = require('./analyze/shared');
+const { analyzeMemoryPartition } = require('./memory-partition');
 
 async function runAnalyze(rootDir, options) {
     const categories = selectCategories(options);
@@ -11,6 +12,7 @@ async function runAnalyze(rootDir, options) {
         documents: [],
         settings: [],
         skills: [],
+        memory: [],
         skillOrigins: {
             llmPacket: {
                 schema_version: 1,
@@ -61,6 +63,10 @@ async function runAnalyze(rootDir, options) {
         inventory.plugins.llmPacket.instructions = ((pluginsResult.inventory && pluginsResult.inventory.llmPacket) || {}).instructions || [];
         inventory.plugins.llmPacket.output_schema = ((pluginsResult.inventory && pluginsResult.inventory.llmPacket) || {}).output_schema || { plugin_origins: [] };
         inventory.plugins.llmPacket.plugins.push(...(((pluginsResult.inventory && pluginsResult.inventory.llmPacket) || {}).plugins || []));
+    }
+    if (categories.includes('memory')) {
+        const memoryResult = analyzeMemoryPartition(rootDir, options || {});
+        inventory.memory.push(...memoryResult.entries);
     }
 
     const findings = mergeFindings(...parts);
@@ -162,7 +168,10 @@ function calculateAnalyzeScore(findings, inventory) {
 function selectCategories(options) {
     const category = options && options.category;
     if (!category || category === 'all') {
-        return ['prompts', 'settings', 'skills', 'plugins'];
+        return ['prompts', 'settings', 'skills', 'plugins', 'memory'];
+    }
+    if (category === 'memory') {
+        return ['memory'];
     }
     return [category];
 }

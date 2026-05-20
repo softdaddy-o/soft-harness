@@ -2,7 +2,7 @@
 
 ## Introduction
 
-`soft-harness` helps you analyze and organize the messy AI-related settings already scattered across your repo, including `CLAUDE.md`, `AGENTS.md`, MCP settings, local skills, agents, and plugins.
+`soft-harness` helps you analyze and organize the messy AI-related settings already scattered across your repo, including `CLAUDE.md`, `AGENTS.md`, Claude/Codex memory, MCP settings, local skills, agents, and plugins.
 
 The shared plugin core lives in [`plugins/soft-harness`](plugins/soft-harness) and exposes two skills:
 
@@ -234,8 +234,18 @@ The skill content is shared, but the plugin wrappers are host-specific.
 - `.harness/` is a reusable snapshot plus decision-memory layer.
 - `analyze` inspects current host state, surfaces issues, and can refresh `.harness` without mutating host files.
 - `organize` handles natural-language maintenance requests, applies changes to real host files, and then refreshes `.harness`.
+- `organize --partition-memory` backs up Claude project memory and Codex memory files, mirrors cross-host entries into `.harness/memory/shared.md`, moves project-state notes into docs, removes stale entries, and records observed entries in `.harness/memory/partition-state.json`.
+- Partitioned memory written into `.harness/memory/shared.md` and generated instructions is explicitly marked as imported host memory with `do not reverse-merge` provenance so it is not mistaken for native shared guidance.
 - `--dry-run` means no writes.
 - Plugin install and uninstall execution are out of scope.
+
+## Hook Strategy
+
+Host hooks can run the partition check, but they should default to review mode:
+
+- run `soft-harness organize --partition-memory --dry-run` after memory writes or at session stop to detect new Claude/Codex memory entries before applying changes
+- watch `.claude/projects/**/memory/MEMORY.md`, `.codex/memories/**`, `.harness/**`, `AGENTS.md`, `CLAUDE.md`, and skill/agent/plugin folders when the host supports file-change hooks
+- keep automatic hooks non-destructive; apply `soft-harness organize --partition-memory` manually or from an explicitly trusted managed hook
 
 ## Important References
 

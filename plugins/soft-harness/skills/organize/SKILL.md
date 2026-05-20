@@ -22,7 +22,7 @@ Use this embedded reference directly. Codex plugin installs may provide only thi
   - `.harness/.sync-state.json` and `.harness/backups/` as support state, not user-authored truth
 - `analyze` may refresh `.harness` without mutating host files. `organize` should update real host files first, then refresh `.harness` to match the new state.
 - Direct edits to `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, and host settings are allowed because those files are authoritative.
-- Use deterministic helpers only for exact parsing, hashing, validation, apply or backup steps, and local evidence collection. Relevant helper areas are `src/profiles.js`, `src/discover.js`, `src/md-parse.js`, `src/section-match.js`, `src/analyze/settings.js`, `src/settings.js`, `src/plugins.js`, `src/skills.js`, `src/export.js`, `src/backup.js`, `src/revert.js`, `src/state.js`, `src/origins.js`, `src/asset-origins.js`, `src/plugin-origins.js`, `src/fs-util.js`, `src/hash.js`, and `src/fs-backend.js`.
+- Use deterministic helpers only for exact parsing, hashing, validation, apply or backup steps, and local evidence collection. Relevant helper areas are `src/profiles.js`, `src/discover.js`, `src/md-parse.js`, `src/section-match.js`, `src/analyze/settings.js`, `src/settings.js`, `src/plugins.js`, `src/skills.js`, `src/memory-partition.js`, `src/export.js`, `src/backup.js`, `src/revert.js`, `src/state.js`, `src/origins.js`, `src/asset-origins.js`, `src/plugin-origins.js`, `src/fs-util.js`, `src/hash.js`, and `src/fs-backend.js`.
 - Helpers should not decide whether similar content should be merged, whether host-specific behavior should remain split, how to phrase user questions, final origin confidence when local evidence is incomplete, or memory placement when user intent is ambiguous.
 
 ## Workflow
@@ -67,6 +67,14 @@ Use this embedded reference directly. Codex plugin installs may provide only thi
 ## Memory And Rules
 
 - Route durable memory and prior decisions into `.harness/memory/`.
+- Use `soft-harness organize --partition-memory` when Claude project `MEMORY.md` entries or Codex memory files need sorting:
+  - keep Claude-only feedback in Claude memory and Codex-only feedback in Codex memory
+  - mirror cross-host rules to `.harness/memory/shared.md` so regenerated host instructions include them
+  - move project-state notes to `docs/memory-project-state.md`
+  - remove stale entries after backing up the original memory file
+  - record observed/imported entries in `.harness/memory/partition-state.json`
+- Imported memory in `.harness/memory/shared.md`, generated instructions, and project-state docs must include explicit `Imported from <host> memory; do not reverse-merge into host memory` provenance.
+- Host hooks may run `soft-harness organize --partition-memory --dry-run` after memory changes, session stop, or `.harness`/instruction/skill/agent changes. Keep automatic hooks non-destructive unless the user has explicitly trusted a managed apply hook.
 - Use `.harness/HARNESS.md` and `.harness/llm/*.md` as a record of analyzed or organized host guidance, not as authoritative truth.
 - Direct host edits are allowed, but prefer `organize` when the user wants coordinated multi-host changes or durable decision tracking.
 
