@@ -204,6 +204,59 @@ test('analyze: skills classify common, similar, conflict, and host-only content'
     assert.ok(result.host_only.some((entry) => entry.key === 'skills.agent.claude-only'));
 });
 
+test('analyze: skills reports harness sources shadowed by common bucket', async () => {
+    const root = makeProjectTree('soft-harness-analyze-shadowed-skills-', {
+        '.harness': {
+            skills: {
+                common: {
+                    shared: {
+                        'SKILL.md': '# Common shared'
+                    }
+                },
+                claude: {
+                    shared: {
+                        'SKILL.md': '# Claude shadow'
+                    }
+                }
+            }
+        }
+    });
+
+    const result = await runAnalyze(root, { category: 'skills' });
+
+    assert.ok(result.inventory.shadowedAssets.some((entry) => entry.type === 'skill'
+        && entry.llm === 'claude'
+        && entry.name === 'shared'
+        && entry.source === '.harness/skills/claude/shared'
+        && entry.shadowedBy === '.harness/skills/common/shared'
+        && entry.target === '.claude/skills/shared'));
+});
+
+test('analyze: skills applies llm filters to shadowed harness sources', async () => {
+    const root = makeProjectTree('soft-harness-analyze-shadowed-filter-', {
+        '.harness': {
+            skills: {
+                common: {
+                    shared: {
+                        'SKILL.md': '# Common shared'
+                    }
+                },
+                claude: {
+                    shared: {
+                        'SKILL.md': '# Claude shadow'
+                    }
+                }
+            }
+        }
+    });
+
+    const codexResult = await runAnalyze(root, { category: 'skills', llms: ['codex'] });
+    const claudeResult = await runAnalyze(root, { category: 'skills', llms: ['claude'] });
+
+    assert.equal(codexResult.inventory.shadowedAssets.some((entry) => entry.llm === 'claude'), false);
+    assert.ok(claudeResult.inventory.shadowedAssets.some((entry) => entry.llm === 'claude'));
+});
+
 test('analyze: skills expose git origin evidence and agent research packet', async () => {
     const memoryFs = createMemoryFs();
     await memoryFs.run(async () => {

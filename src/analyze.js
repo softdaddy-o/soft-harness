@@ -12,6 +12,7 @@ async function runAnalyze(rootDir, options) {
         documents: [],
         settings: [],
         skills: [],
+        shadowedAssets: [],
         memory: [],
         skillOrigins: {
             llmPacket: {
@@ -51,6 +52,7 @@ async function runAnalyze(rootDir, options) {
         const skillsResult = analyzeSkills(rootDir, options || {});
         parts.push(skillsResult.findings);
         inventory.skills.push(...(skillsResult.inventory || []));
+        inventory.shadowedAssets.push(...(skillsResult.shadowedAssets || []));
         inventory.skillOrigins.llmPacket.instructions = ((skillsResult.originsInventory && skillsResult.originsInventory.llmPacket) || {}).instructions || [];
         inventory.skillOrigins.llmPacket.output_schema = ((skillsResult.originsInventory && skillsResult.originsInventory.llmPacket) || {}).output_schema || { asset_origins: [] };
         inventory.skillOrigins.llmPacket.assets.push(...(((skillsResult.originsInventory && skillsResult.originsInventory.llmPacket) || {}).assets || []));

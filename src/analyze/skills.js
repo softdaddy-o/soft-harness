@@ -1,6 +1,6 @@
 const path = require('node:path');
 const { findAssetOrigin, loadAssetOrigins } = require('../asset-origins');
-const { discoverSkillsAndAgents } = require('../skills');
+const { discoverShadowedHarnessAssets, discoverSkillsAndAgents } = require('../skills');
 const { exists, readUtf8 } = require('../fs-util');
 const { listProfiles } = require('../profiles');
 const { createFinding, similarity } = require('./shared');
@@ -91,6 +91,7 @@ function analyzeSkills(rootDir, options) {
     return {
         findings,
         inventory,
+        shadowedAssets: discoverShadowedHarnessAssets(rootDir).filter((item) => llmFilter.size === 0 || llmFilter.has(item.llm)),
         originsInventory: {
             llmPacket: buildSkillOriginPacket(rootDir, discovered, assetOrigins)
         }

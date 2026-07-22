@@ -442,7 +442,8 @@ test('cli: formatSyncReport includes plugins, drift targets, bucket reasons, and
                 { action: 'maybe-common', heading: 'Guidelines', llms: ['claude', 'codex'], similarity: 0.78 }
             ],
             exports: [
-                { action: 'export', from: '.harness/skills/common/foo', to: '.claude/skills/foo', mode: 'copy', reason: 'default-copy' }
+                { action: 'export', from: '.harness/skills/common/foo', to: '.claude/skills/foo', mode: 'copy', reason: 'default-copy' },
+                { action: 'shadowed', type: 'skill', source: '.harness/skills/claude/foo', target: '.claude/skills/foo', shadowedBy: '.harness/skills/common/foo' }
             ],
             drift: [
                 { type: 'skill', relativePath: '.claude/skills/foo' },
@@ -464,6 +465,7 @@ test('cli: formatSyncReport includes plugins, drift targets, bucket reasons, and
     assert.match(output, /backup: 2026-04-13-120000/);
     assert.match(output, /\nexports\n/u);
     assert.match(output, /\.harness\/skills\/common\/foo -> \.claude\/skills\/foo \[copy\] \(default-copy\)/);
+    assert.match(output, /\.harness\/skills\/claude\/foo -> \.claude\/skills\/foo \[shadowed by \.harness\/skills\/common\/foo\]/);
     assert.match(output, /skill: \.claude\/skills\/foo/);
     assert.match(output, /plugin: manual-plugin@local/);
     assert.match(output, /instruction: CLAUDE\.md/);
@@ -549,6 +551,16 @@ test('cli: formatAnalyzeReport renders document-first explain details as trees',
                 llm: 'claude',
                 skills: ['foo'],
                 agents: ['reviewer']
+            }],
+            shadowedAssets: [{
+                action: 'shadowed',
+                type: 'skill',
+                llm: 'claude',
+                name: 'foo',
+                source: '.harness/skills/claude/foo',
+                target: '.claude/skills/foo',
+                shadowedBy: '.harness/skills/common/foo',
+                reason: '.harness/skills/claude/foo is shadowed by .harness/skills/common/foo'
             }],
             plugins: {
                 desired: [{
@@ -644,6 +656,9 @@ test('cli: formatAnalyzeReport renders document-first explain details as trees',
     assert.match(output, /server: shared/);
     assert.match(output, /key: theme/);
     assert.match(output, /Skills/u);
+    assert.match(output, /shadowed sources: 1/);
+    assert.match(output, /\.harness\/skills\/claude\/foo -> \.claude\/skills\/foo/);
+    assert.match(output, /shadowed by: \.harness\/skills\/common\/foo/);
     assert.match(output, /host: claude/);
     assert.match(output, /skill: foo/);
     assert.match(output, /agent: reviewer/);

@@ -135,6 +135,120 @@ test('skills: discoverHarnessAssets expands common buckets across all llms', () 
     assert.equal(assets.filter((item) => item.type === 'agent').length, 2);
 });
 
+test('skills: export validates source skill trees before writing targets', () => {
+    const root = makeProjectTree('soft-harness-skills-export-preflight-', {
+        '.harness': {
+            skills: {
+                common: {
+                    unsafe: {
+                        'SKILL.md': [
+                            '# Unsafe',
+                            '',
+                            'See `../references/missing.md`.',
+                            ''
+                        ].join('\n')
+                    }
+                }
+            }
+        },
+        '.claude': {
+            skills: {
+                unsafe: {
+                    'SKILL.md': '# Existing target'
+                }
+            }
+        }
+    });
+
+    assert.throws(() => exportSkillsAndAgents(root, {}), /managed skill export is missing referenced file: \.\.\/references\/missing\.md/);
+    assert.match(readUtf8(path.join(root, '.claude', 'skills', 'unsafe', 'SKILL.md')), /# Existing target/);
+    assert.equal(exists(path.join(root, '.codex', 'skills', 'unsafe')), false);
+});
+
+test('skills: export preflight rejects references missing from exported target layout', () => {
+    const root = makeProjectTree('soft-harness-skills-export-target-layout-', {
+        '.harness': {
+            skills: {
+                claude: {
+                    unsafe: {
+                        'SKILL.md': [
+                            '# Unsafe',
+                            '',
+                            'See `../outside.md`.',
+                            ''
+                        ].join('\n')
+                    },
+                    'outside.md': '# Source sibling that is not exported'
+                }
+            }
+        },
+        '.claude': {
+            skills: {
+                unsafe: {
+                    'SKILL.md': '# Existing target'
+                }
+            }
+        }
+    });
+
+    assert.throws(() => exportSkillsAndAgents(root, {}), /managed skill export is missing referenced file in target layout: \.\.\/outside\.md/);
+    assert.match(readUtf8(path.join(root, '.claude', 'skills', 'unsafe', 'SKILL.md')), /# Existing target/);
+});
+
+test('skills: export reports host-specific sources shadowed by common bucket', () => {
+    const root = makeProjectTree('soft-harness-skills-shadowed-export-', {
+        '.harness': {
+            skills: {
+                common: {
+                    foo: {
+                        'SKILL.md': '# Common'
+                    }
+                },
+                claude: {
+                    foo: {
+                        'SKILL.md': '# Claude shadow'
+                    }
+                }
+            },
+            agents: {
+                common: {
+                    'reviewer.toml': [
+                        'name = "Reviewer"',
+                        'description = "Common reviewer"',
+                        'developer_instructions = """',
+                        'Review carefully.',
+                        '"""',
+                        ''
+                    ].join('\n')
+                },
+                codex: {
+                    'reviewer.toml': [
+                        'name = "Reviewer"',
+                        'description = "Codex reviewer"',
+                        'developer_instructions = """',
+                        'Review carefully.',
+                        '"""',
+                        ''
+                    ].join('\n')
+                }
+            }
+        }
+    });
+
+    const result = exportSkillsAndAgents(root, { dryRun: true });
+
+    assert.ok(result.routes.some((entry) => entry.action === 'shadowed'
+        && entry.type === 'skill'
+        && entry.source === '.harness/skills/claude/foo'
+        && entry.shadowedBy === '.harness/skills/common/foo'));
+    assert.ok(result.routes.some((entry) => entry.action === 'shadowed'
+        && entry.type === 'agent'
+        && entry.source === '.harness/agents/codex/reviewer.toml'
+        && entry.shadowedBy === '.harness/agents/common/reviewer.toml'));
+    assert.equal(result.exported.some((entry) => entry.from === '.harness/skills/claude/foo'), false);
+    assert.equal(result.exported.some((entry) => entry.from === '.harness/agents/codex/reviewer.toml'), false);
+});
+
 test('skills: pull-back skips unsupported entries and dry-run avoids re-export', () => {
     const root = makeProjectTree('soft-harness-skills-pullback-skip-', {
         '.harness': {

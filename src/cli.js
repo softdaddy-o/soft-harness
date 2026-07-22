@@ -603,6 +603,10 @@ function formatExportDetails(entries, options) {
         if (entry.action === 'export') {
             const reason = options && options.explain && entry.reason ? ` (${entry.reason})` : '';
             items.push(`${entry.from} -> ${entry.to} [${entry.mode}]${reason}`);
+            continue;
+        }
+        if (entry.action === 'shadowed') {
+            items.push(`${entry.source} -> ${entry.target} [shadowed by ${entry.shadowedBy}]`);
         }
     }
     return items;
@@ -749,10 +753,26 @@ function formatAnalyzeSettings(entries) {
 
 function formatAnalyzeSkills(result, options) {
     const entries = result && result.inventory && result.inventory.skills;
+    const shadowedAssets = (result && result.inventory && result.inventory.shadowedAssets) || [];
     const originAssets = (result && result.inventory && result.inventory.skillOrigins
         && result.inventory.skillOrigins.llmPacket && result.inventory.skillOrigins.llmPacket.assets) || [];
     const annotations = buildCategoryAnnotations(result, 'skills');
     const items = [];
+
+    if (shadowedAssets.length > 0) {
+        items.push({
+            text: `shadowed sources: ${shadowedAssets.length}`,
+            children: shadowedAssets.map((entry) => ({
+                text: `${entry.source} -> ${entry.target}`,
+                children: options && options.explain
+                    ? [
+                        { text: `shadowed by: ${entry.shadowedBy}` },
+                        { text: `reason: ${entry.reason}` }
+                    ]
+                    : []
+            }))
+        });
+    }
 
     if (originAssets.length > 0) {
         items.push({

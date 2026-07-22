@@ -11,7 +11,7 @@ const { getProfile } = require('./profiles');
 const { confirm } = require('./prompt');
 const { pullBackInstructionDrift } = require('./pullback');
 const { buildSettingsState, exportSettings } = require('./settings');
-const { buildManagedAssetState, discoverHarnessAssets, discoverSkillsAndAgents, exportSkillsAndAgents, importSkillsAndAgents, pullBackSkillsAndAgents, removeCodexPluginFallbackAssets } = require('./skills');
+const { buildManagedAssetState, discoverHarnessAssets, discoverSkillsAndAgents, exportSkillsAndAgents, importSkillsAndAgents, pullBackSkillsAndAgents, removeCodexPluginFallbackAssets, validateManagedSkillExportSources } = require('./skills');
 const { loadState, saveState } = require('./state');
 
 async function runSync(rootDir, options, io) {
@@ -104,6 +104,10 @@ async function runSync(rootDir, options, io) {
     }
 
     if (!options || !options.noExport) {
+        if (!options || !options.dryRun) {
+            validateManagedSkillExportSources(rootDir, discoverHarnessAssets(rootDir));
+        }
+
         const exportResult = exportInstructions(rootDir, { ...options, state });
         exported.push(...exportResult.exported);
         plan.export.push(...exportResult.exported);

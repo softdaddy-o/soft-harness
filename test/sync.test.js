@@ -121,6 +121,36 @@ test('sync: backup targets include existing harness assets and discovered projec
     assert.ok(manifest.entries.some((entry) => entry.path === '.claude/skills/local'));
 });
 
+test('sync: dry-run reports harness sources shadowed by common bucket', async () => {
+    const root = makeTempDir('soft-harness-sync-shadowed-skills-');
+    writeUtf8(path.join(root, '.harness', 'skills', 'common', 'shared', 'SKILL.md'), '# Common shared');
+    writeUtf8(path.join(root, '.harness', 'skills', 'claude', 'shared', 'SKILL.md'), '# Claude shadow');
+
+    const result = await runSync(root, { dryRun: true }, {});
+
+    assert.ok(result.details.exports.some((entry) => entry.action === 'shadowed'
+        && entry.type === 'skill'
+        && entry.source === '.harness/skills/claude/shared'
+        && entry.shadowedBy === '.harness/skills/common/shared'
+        && entry.target === '.claude/skills/shared'));
+});
+
+test('sync: skill export preflight failure leaves instruction targets untouched', async () => {
+    const root = makeTempDir('soft-harness-sync-export-preflight-');
+    writeUtf8(path.join(root, 'AGENTS.md'), '# Existing Codex instructions');
+    writeUtf8(path.join(root, '.harness', 'HARNESS.md'), '# Managed shared instructions');
+    writeUtf8(path.join(root, '.harness', 'llm', 'codex.md'), '# Managed Codex instructions');
+    writeUtf8(path.join(root, '.harness', 'skills', 'common', 'unsafe', 'SKILL.md'), [
+        '# Unsafe',
+        '',
+        'See `../references/missing.md`.',
+        ''
+    ].join('\n'));
+
+    await assert.rejects(() => runSync(root, { noImport: true }, {}), /managed skill export is missing referenced file: \.\.\/references\/missing\.md/);
+    assert.match(readUtf8(path.join(root, 'AGENTS.md')), /# Existing Codex instructions/);
+});
+
 test('sync: organize ports Claude markdown agents into codex toml outputs', async () => {
     const root = makeTempDir('soft-harness-sync-agent-port-');
     writeUtf8(path.join(root, '.claude', 'agents', 'backend-architect.md'), [

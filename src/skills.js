@@ -430,10 +430,14 @@ function dedupePluginSkillMembers(items) {
 }
 
 function exportSkillsAndAgents(rootDir, options) {
-    const plan = discoverHarnessAssets(rootDir);
+    const assetPlan = buildHarnessAssetPlan(rootDir);
+    const plan = assetPlan.plan;
     const exported = [];
-    const routes = [];
-    const skillTargetsToValidate = [];
+    const routes = [...assetPlan.shadowed];
+
+    if (!options || !options.dryRun) {
+        validateManagedSkillExportSources(rootDir, plan);
+    }
 
     for (const entry of plan) {
         const outcome = ensureManagedTarget(rootDir, entry, options);
@@ -448,9 +452,6 @@ function exportSkillsAndAgents(rootDir, options) {
             to: entry.target,
             mode
         });
-        if ((!options || !options.dryRun) && entry.type === 'skill' && !isSharedSupportDirectory(entry.target)) {
-            skillTargetsToValidate.push(path.join(rootDir, entry.target));
-        }
         routes.push({
             action: 'export',
             type: entry.type,
@@ -460,12 +461,6 @@ function exportSkillsAndAgents(rootDir, options) {
             mode,
             reason: outcome.reason || null
         });
-    }
-
-    if (!options || !options.dryRun) {
-        for (const targetPath of skillTargetsToValidate) {
-            validateManagedSkillTree(targetPath);
-        }
     }
 
     return {
@@ -750,7 +745,17 @@ function findPluginMirror(pluginMirrors, sourcePlugin) {
 }
 
 function discoverHarnessAssets(rootDir) {
+    return buildHarnessAssetPlan(rootDir).plan;
+}
+
+function discoverShadowedHarnessAssets(rootDir) {
+    return buildHarnessAssetPlan(rootDir).shadowed;
+}
+
+function buildHarnessAssetPlan(rootDir) {
     const plan = [];
+    const shadowed = [];
+    const plannedTargets = new Map();
 
     for (const bucket of ['common', ...listProfiles()]) {
         const skillsDir = path.join(rootDir, '.harness', 'skills', bucket);
@@ -762,9 +767,10 @@ function discoverHarnessAssets(rootDir) {
 
                 const targets = bucket === 'common' ? listProfiles() : [bucket];
                 for (const llm of targets) {
-                    plan.push({
+                    addHarnessAssetEntry(plan, shadowed, plannedTargets, {
                         type: 'skill',
                         llm,
+                        name: item.name,
                         source: path.posix.join('.harness', 'skills', bucket, item.name),
                         target: path.posix.join(getProfile(llm).skills_dir, item.name)
                     });
@@ -794,9 +800,10 @@ function discoverHarnessAssets(rootDir) {
                     continue;
                 }
 
-                plan.push({
+                addHarnessAssetEntry(plan, shadowed, plannedTargets, {
                     type: 'agent',
                     llm,
+                    name,
                     source: path.posix.join('.harness', 'agents', bucket, item.name),
                     target: path.posix.join(getProfile(llm).agents_dir, `${name}${getPreferredAgentExtension(llm)}`),
                     extension
@@ -805,7 +812,31 @@ function discoverHarnessAssets(rootDir) {
         }
     }
 
-    return plan;
+    return {
+        plan,
+        shadowed
+    };
+}
+
+function addHarnessAssetEntry(plan, shadowed, plannedTargets, entry) {
+    const key = `${entry.type}:${entry.target}`;
+    const existing = plannedTargets.get(key);
+    if (existing) {
+        shadowed.push({
+            action: 'shadowed',
+            type: entry.type,
+            llm: entry.llm,
+            name: entry.name,
+            source: entry.source,
+            target: entry.target,
+            shadowedBy: existing.source,
+            reason: `${entry.source} is shadowed by ${existing.source}`
+        });
+        return;
+    }
+
+    plannedTargets.set(key, entry);
+    plan.push(entry);
 }
 
 function buildManagedAssetState(rootDir) {
@@ -1109,6 +1140,53 @@ function validateManagedSkillTree(rootDir) {
             const absoluteRef = path.resolve(skillDir, relativeRef);
             if (!exists(absoluteRef)) {
                 throw new Error(`managed skill export is missing referenced file: ${relativeRef}`);
+            }
+        }
+    }
+}
+
+function validateManagedSkillExportSources(rootDir, plan) {
+    const validated = new Set();
+    const plannedTargetFiles = buildPlannedSkillTargetFiles(rootDir, plan);
+    for (const entry of plan) {
+        if (entry.type !== 'skill' || isSharedSupportDirectory(entry.target)) {
+            continue;
+        }
+
+        const absoluteSource = path.join(rootDir, entry.source);
+        if (!validated.has(absoluteSource)) {
+            validateManagedSkillTree(absoluteSource);
+            validated.add(absoluteSource);
+        }
+
+        validateManagedSkillTargetLayout(rootDir, entry, plannedTargetFiles);
+    }
+}
+
+function buildPlannedSkillTargetFiles(rootDir, plan) {
+    const files = new Set();
+    for (const entry of plan) {
+        if (entry.type !== 'skill') {
+            continue;
+        }
+
+        const absoluteSource = path.join(rootDir, entry.source);
+        for (const file of walkFiles(absoluteSource)) {
+            files.add(path.resolve(rootDir, entry.target, file.relativePath));
+        }
+    }
+    return files;
+}
+
+function validateManagedSkillTargetLayout(rootDir, entry, plannedTargetFiles) {
+    const absoluteSource = path.join(rootDir, entry.source);
+    for (const file of walkFiles(absoluteSource, (relativePath) => path.posix.basename(relativePath) === 'SKILL.md')) {
+        const skillTargetDir = path.dirname(path.resolve(rootDir, entry.target, file.relativePath));
+        const content = readUtf8(file.absolutePath);
+        for (const relativeRef of collectLocalMarkdownReferences(content)) {
+            const targetRef = path.resolve(skillTargetDir, relativeRef);
+            if (!plannedTargetFiles.has(targetRef) && !exists(targetRef)) {
+                throw new Error(`managed skill export is missing referenced file in target layout: ${relativeRef}`);
             }
         }
     }
@@ -1425,9 +1503,11 @@ module.exports = {
     buildManagedAssetState,
     detectSkillsAndAgentsDrift,
     discoverHarnessAssets,
+    discoverShadowedHarnessAssets,
     discoverSkillsAndAgents,
     exportSkillsAndAgents,
     importSkillsAndAgents,
     removeCodexPluginFallbackAssets,
-    pullBackSkillsAndAgents
+    pullBackSkillsAndAgents,
+    validateManagedSkillExportSources
 };
