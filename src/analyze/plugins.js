@@ -3,6 +3,8 @@ const { createFinding } = require('./shared');
 const { listProfiles } = require('../profiles');
 const { findPluginOrigin, loadPluginOrigins } = require('../plugin-origins');
 const { compareVersions } = require('../version');
+const path = require('node:path');
+const { exists, readUtf8, walkFiles } = require('../fs-util');
 
 async function analyzePlugins(rootDir, options) {
     const findings = {
@@ -64,9 +66,19 @@ async function analyzePlugins(rootDir, options) {
                 ...plugin,
                 curatedOrigin,
                 latestVersion,
-                updateAvailable
+                updateAvailable,
+                hooks: llm === 'codex' ? inspectCodexPluginHooks(rootDir, plugin) : []
             };
             plugins.push(enrichedPlugin);
+            for (const hook of enrichedPlugin.hooks) {
+                findings.unknown.push(createFinding('unknown', {
+                    category: 'plugins',
+                    kind: 'plugin-hook',
+                    key: `plugins.hook:${plugin.displayName}:${hook.event}`,
+                    sources: [{ llm, file: hook.file, path: hook.path }],
+                    reason: hook.reason
+                }));
+            }
             inventory.llmPacket.plugins.push({
                 id: `plugins.plugin:${plugin.displayName || plugin.name}`,
                 host: llm,
@@ -141,6 +153,65 @@ async function analyzePlugins(rootDir, options) {
         findings,
         inventory
     };
+}
+
+function inspectCodexPluginHooks(rootDir, plugin) {
+    const identity = resolveCodexPluginCacheIdentity(plugin);
+    if (!identity) {
+        return [{ event: 'manifest', file: '.codex/config.toml', path: '.codex/config.toml', reason: 'Codex plugin cache root cannot be resolved' }];
+    }
+    const cacheRoot = path.join(rootDir, '.codex', 'plugins', 'cache', identity.marketplace, identity.name);
+    if (!exists(cacheRoot)) {
+        return [{ event: 'manifest', file: '.codex/config.toml', path: '.codex/config.toml', reason: 'Codex plugin cache root cannot be resolved' }];
+    }
+    return walkFiles(cacheRoot, (relativePath) => {
+        const normalized = relativePath.replace(/\\/gu, '/');
+        return normalized.endsWith('hooks/hooks.json') || normalized.endsWith('.codex-plugin/plugin.json');
+    }).flatMap((file) => file.relativePath.replace(/\\/gu, '/').endsWith('.codex-plugin/plugin.json')
+        ? inspectPluginManifest(file.absolutePath, file.relativePath)
+        : inspectHookFile(file.absolutePath, file.relativePath));
+}
+
+function resolveCodexPluginCacheIdentity(plugin) {
+    const displayName = String((plugin && (plugin.displayName || plugin.name)) || '').trim();
+    const separator = displayName.lastIndexOf('@');
+    if (separator <= 0 || separator === displayName.length - 1) return null;
+    const name = sanitizePathPart(displayName.slice(0, separator));
+    const marketplace = sanitizePathPart(displayName.slice(separator + 1));
+    return name && marketplace ? { name, marketplace } : null;
+}
+
+function inspectHookFile(filePath, relativePath) {
+    try {
+        const parsed = JSON.parse(readUtf8(filePath));
+        const findings = [];
+        for (const [event, groups] of Object.entries(parsed.hooks || {})) {
+            for (const group of Array.isArray(groups) ? groups : []) {
+                for (const handler of Array.isArray(group.hooks) ? group.hooks : []) {
+                    if (typeof handler.command === 'string' && /\$\{CLAUDE_PLUGIN_ROOT\}/u.test(handler.command)) {
+                        findings.push({ event, file: relativePath, path: relativePath, reason: `Codex hook ${event} still references \${CLAUDE_PLUGIN_ROOT}: ${handler.command}` });
+                    }
+                }
+            }
+        }
+        return findings;
+    } catch (error) {
+        return [{ event: 'manifest', file: relativePath, path: relativePath, reason: 'Codex hook manifest is malformed' }];
+    }
+}
+
+function inspectPluginManifest(filePath, relativePath) {
+    try {
+        const parsed = JSON.parse(readUtf8(filePath));
+        if (!Object.prototype.hasOwnProperty.call(parsed, 'hooks')) return [];
+        return [{ event: 'manifest', file: relativePath, path: relativePath, reason: 'Codex plugin manifest declares hook configuration; review required' }];
+    } catch (error) {
+        return [{ event: 'manifest', file: relativePath, path: relativePath, reason: 'Codex plugin manifest is malformed' }];
+    }
+}
+
+function sanitizePathPart(value) {
+    return String(value).trim().toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-+|-+$/gu, '');
 }
 
 function hasCompleteCuration(origin) {

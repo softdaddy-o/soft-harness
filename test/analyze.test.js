@@ -435,6 +435,43 @@ test('analyze: plugins classify shared and host-only plugins and expose inventor
     assert.ok(result.host_only.some((entry) => entry.key === 'plugins.plugin:claude-only-plugin'));
 });
 
+test('analyze: plugins reports Claude-only hook commands in an enabled Codex plugin cache', async () => {
+    const root = makeProjectTree('soft-harness-analyze-codex-hooks-', {
+        '.codex': {
+            'config.toml': '[plugins."superpowers@local"]\nenabled = true\n',
+            plugins: {
+                cache: {
+                    local: {
+                        superpowers: {
+                            '5.0.7': {
+                                hooks: {
+                                    'hooks.json': JSON.stringify({
+                                        hooks: {
+                                            SessionStart: [{ hooks: [{ type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd" session-start' }] }]
+                                        }
+                                    })
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    const result = await runAnalyze(root, { category: 'plugins', llms: ['codex'] });
+    assert.ok(result.unknown.some((entry) => entry.kind === 'plugin-hook' && /CLAUDE_PLUGIN_ROOT.*run-hook/u.test(entry.reason)), JSON.stringify(result.inventory.plugins.hosts));
+});
+
+test('analyze: reports an enabled Codex plugin with no resolvable cache', async () => {
+    const root = makeProjectTree('soft-harness-analyze-codex-hook-missing-cache-', {
+        '.codex': { 'config.toml': '[plugins."superpowers@local"]\nenabled = true\n' }
+    });
+
+    const result = await runAnalyze(root, { category: 'plugins', llms: ['codex'] });
+    assert.ok(result.unknown.some((entry) => entry.kind === 'plugin-hook' && /cache root cannot be resolved/u.test(entry.reason)));
+});
+
 test('analyze: plugins expose an llm research packet and merge curated origin metadata', async () => {
     const memoryFs = createMemoryFs();
     await memoryFs.run(async () => {

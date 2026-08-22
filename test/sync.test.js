@@ -337,6 +337,63 @@ test('sync: Codex plugin mirror synthesizes a manifest for Claude plugin bundles
     });
 });
 
+test('sync: Codex plugin mirror removes an unsupported Claude hook from a native Codex manifest bundle', async () => {
+    const root = makeClaudePluginMirrorFixture('soft-harness-sync-codex-plugin-hook-native-');
+    const sourceRoot = path.join(root, '.claude', 'plugins', 'cache', 'claude-plugins-official', 'superpowers', '5.0.7');
+    writeUtf8(path.join(sourceRoot, 'hooks', 'hooks.json'), JSON.stringify({
+        hooks: {
+            PreToolUse: [{
+                hooks: [{ type: 'command', command: 'echo unsupported' }]
+            }]
+        }
+    }, null, 2));
+
+    await runSync(root, { codexPluginsEnabled: true }, {});
+
+    const cacheHook = path.join(root, '.codex', 'plugins', 'cache', 'local-codex-plugins', 'superpowers', '5.0.7', 'hooks', 'hooks.json');
+    assert.equal(fs.existsSync(cacheHook), false);
+});
+
+test('sync: Codex plugin mirror adapts the supported Claude SessionStart hook', async () => {
+    const root = makeClaudePluginMirrorFixture('soft-harness-sync-codex-plugin-hook-session-start-');
+    const sourceRoot = path.join(root, '.claude', 'plugins', 'cache', 'claude-plugins-official', 'superpowers', '5.0.7');
+    writeUtf8(path.join(sourceRoot, 'hooks', 'hooks.json'), JSON.stringify({
+        hooks: {
+            SessionStart: [{
+                matcher: 'startup|clear',
+                hooks: [{ type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd" session-start', async: false }]
+            }]
+        }
+    }, null, 2));
+
+    await runSync(root, { codexPluginsEnabled: true }, {});
+
+    const cacheRoot = path.join(root, '.codex', 'plugins', 'cache', 'local-codex-plugins', 'superpowers', '5.0.7', 'hooks');
+    const hooks = JSON.parse(readUtf8(path.join(cacheRoot, 'hooks.json')));
+    assert.equal(hooks.hooks.SessionStart[0].matcher, 'startup|clear');
+    assert.match(hooks.hooks.SessionStart[0].hooks[0].command, /soft-harness-codex-session-start-0\.sh/u);
+    assert.match(hooks.hooks.SessionStart[0].hooks[0].commandWindows, /soft-harness-codex-session-start-0\.cmd/u);
+    assert.match(readUtf8(path.join(cacheRoot, 'soft-harness-codex-session-start-0.cmd')), /run-hook\.cmd" session-start/u);
+});
+
+test('sync: Codex plugin mirror removes manifest-declared hooks and emits platform adapters', async () => {
+    const root = makeClaudePluginMirrorFixture('soft-harness-sync-codex-plugin-hook-manifest-');
+    const sourceRoot = path.join(root, '.claude', 'plugins', 'cache', 'claude-plugins-official', 'superpowers', '5.0.7');
+    writeUtf8(path.join(sourceRoot, '.codex-plugin', 'plugin.json'), JSON.stringify({
+        name: 'superpowers', version: '5.0.7', hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'echo unsafe' }] }] }
+    }, null, 2));
+    writeUtf8(path.join(sourceRoot, 'hooks', 'hooks.json'), JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd" session-start' }] }] } }, null, 2));
+
+    await runSync(root, { codexPluginsEnabled: true }, {});
+
+    const cacheRoot = path.join(root, '.codex', 'plugins', 'cache', 'local-codex-plugins', 'superpowers', '5.0.7');
+    const manifest = JSON.parse(readUtf8(path.join(cacheRoot, '.codex-plugin', 'plugin.json')));
+    const hook = JSON.parse(readUtf8(path.join(cacheRoot, 'hooks', 'hooks.json'))).hooks.SessionStart[0].hooks[0];
+    assert.equal(manifest.hooks, undefined);
+    assert.match(hook.command, /\.sh/u);
+    assert.match(hook.commandWindows, /\.cmd/u);
+});
+
 test('sync: Codex plugin mirror reuses an existing Codex Git marketplace name', async () => {
     const root = makeClaudePluginMirrorFixture('soft-harness-sync-codex-plugin-existing-marketplace-');
     writeUtf8(path.join(root, '.codex', 'config.toml'), [
@@ -370,11 +427,16 @@ test('sync: Codex plugin mirror preserves a newer existing Codex plugin cache', 
         name: 'superpowers',
         version: '5.1.0'
     }, null, 2));
+    writeUtf8(path.join(root, '.codex', 'plugins', 'cache', 'superpowers-local', 'superpowers', '5.1.0', 'hooks', 'hooks.json'), JSON.stringify({
+        hooks: { SessionStart: [{ hooks: [{ type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd" session-start' }] }] }
+    }, null, 2));
 
     const result = await runSync(root, { codexPluginsEnabled: true }, {});
 
     assert.equal(fs.existsSync(path.join(root, '.codex', 'plugins', 'cache', 'superpowers-local', 'superpowers', '5.1.0', '.codex-plugin', 'plugin.json')), true);
     assert.equal(fs.existsSync(path.join(root, '.codex', 'plugins', 'cache', 'superpowers-local', 'superpowers', '5.0.7')), false);
+    assert.equal(fs.existsSync(path.join(root, '.codex', 'plugins', 'cache', 'superpowers-local', 'superpowers', '5.1.0', 'hooks', 'hooks.json')), true);
+    assert.doesNotMatch(readUtf8(path.join(root, '.codex', 'plugins', 'cache', 'superpowers-local', 'superpowers', '5.1.0', 'hooks', 'hooks.json')), /CLAUDE_PLUGIN_ROOT/u);
     assert.ok(result.pluginActions.some((entry) => entry.type === 'sync-codex-plugin'
         && entry.name === 'superpowers@claude-plugins-official'
         && entry.version === '5.1.0'));

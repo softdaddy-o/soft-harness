@@ -3,6 +3,7 @@ const YAML = require('yaml');
 const { copyPath, ensureDir, exists, readJson, readUtf8, removePath, walkFiles, writeJson, writeUtf8 } = require('./fs-util');
 const { listProfiles, getProfile } = require('./profiles');
 const { compareVersions } = require('./version');
+const { prepareCodexPluginHooks } = require('./plugin-hooks');
 
 function loadPlugins(rootDir) {
     const pluginsPath = path.join(rootDir, '.harness', 'plugins.yaml');
@@ -303,15 +304,19 @@ function mirrorClaudePluginForCodex(rootDir, candidate, options) {
     const marketplaceName = resolveCodexMarketplaceName(rootDir, marketplacePath, marketplaceEntry);
     const installInfo = buildCodexPluginInstallInfo(rootDir, candidate, marketplaceEntry, marketplaceName);
 
+    let hookCompatibility = null;
     if (!options || !options.dryRun) {
         removePath(pluginTargetDir);
         if (localMirror) {
             ensureDir(path.join(rootDir, 'plugins'));
             copyPath(candidate.installRoot, pluginTargetDir);
             prepareSynthesizedCodexPluginCopy(pluginTargetDir, candidate);
+            hookCompatibility = prepareCodexPluginHooks(pluginTargetDir, {
+                pluginName: marketplaceEntry.name
+            });
         }
         upsertCodexMarketplaceEntry(marketplacePath, marketplaceEntry, marketplaceName);
-        installCodexPluginCache(rootDir, candidate, marketplaceEntry, marketplaceName, installInfo);
+        hookCompatibility = installCodexPluginCache(rootDir, candidate, marketplaceEntry, marketplaceName, installInfo) || hookCompatibility;
     }
 
     return {
@@ -325,6 +330,7 @@ function mirrorClaudePluginForCodex(rootDir, candidate, options) {
             to: describeCodexMarketplaceSource(marketplaceEntry.source, localName),
             installedTo: installInfo.cachePath,
             config: installInfo.configPath,
+            hookCompatibility,
             message: buildCodexPluginInstallMessage(installInfo, options)
         },
         plugin: {
@@ -467,17 +473,24 @@ function buildCodexPluginInstallInfo(rootDir, candidate, marketplaceEntry, marke
 }
 
 function installCodexPluginCache(rootDir, candidate, marketplaceEntry, marketplaceName, installInfo) {
+    let hookCompatibility = null;
     if (installInfo.shouldCopyCache) {
         removePath(installInfo.absoluteCachePath);
         copyPath(candidate.installRoot, installInfo.absoluteCachePath);
         prepareSynthesizedCodexPluginCopy(installInfo.absoluteCachePath, candidate);
     }
+    // Existing equal/newer caches are selected deliberately. Sanitize their
+    // copied Claude hooks too, so verification and later syncs stay safe.
+    hookCompatibility = prepareCodexPluginHooks(installInfo.absoluteCachePath, {
+        pluginName: marketplaceEntry.name
+    });
     upsertCodexConfigPluginInstall(installInfo.absoluteConfigPath, {
         marketplaceName,
         marketplaceSource: marketplaceEntry.source,
         pluginId: installInfo.pluginId,
         gitCommitSha: candidate.installed.gitCommitSha || null
     });
+    return hookCompatibility;
 }
 
 function prepareSynthesizedCodexPluginCopy(pluginRoot, candidate) {
