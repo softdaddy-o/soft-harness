@@ -17,7 +17,7 @@ Use this embedded reference directly. Codex plugin installs may provide only thi
   - `.harness/settings/portable.yaml` for settings that appear safe to share
   - `.harness/settings/llm/{claude,codex,gemini}.yaml` for host-specific settings or overrides
   - `.harness/skills/` and `.harness/agents/` buckets for common and host-specific assets
-  - `.harness/memory/` for durable user memory and prior decision notes
+  - `.harness/memory/` for durable user memory and prior decision notes; it may also hold an `INDEX.md` (one line per file: when to open it) plus per-topic reference files with arbitrary names — treat those as intentional user-authored reference content, not narrative decisions to merge into `shared.md`, and not stale/duplicate entries to fold into `skills/`
   - `.harness/plugins.yaml`, `.harness/plugin-origins.yaml`, and `.harness/asset-origins.yaml` for plugin targeting and origin evidence
   - `.harness/.sync-state.json` and `.harness/backups/` as support state, not user-authored truth
 - Promote to shared only when semantics are actually shared, not just similar.
