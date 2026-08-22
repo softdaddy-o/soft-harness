@@ -17,7 +17,7 @@ Use this embedded reference directly. Codex plugin installs may provide only thi
   - `.harness/settings/portable.yaml` for settings that appear safe to share
   - `.harness/settings/llm/{claude,codex,gemini}.yaml` for host-specific settings or overrides
   - `.harness/skills/` and `.harness/agents/` buckets for common and host-specific assets
-  - `.harness/memory/` for durable user memory and prior decision notes
+  - `.harness/memory/` for durable user memory and prior decision notes; it may also hold an `INDEX.md` (one line per file: when to open it) plus per-topic reference files with arbitrary names — treat those as intentional user-authored reference content, not narrative decisions to merge into `shared.md`, and not stale/duplicate entries to fold into `skills/`
   - `.harness/plugins.yaml`, `.harness/plugin-origins.yaml`, and `.harness/asset-origins.yaml` for plugin targeting and origin evidence
   - `.harness/.sync-state.json` and `.harness/backups/` as support state, not user-authored truth
 - `analyze` may refresh `.harness` without mutating host files. `organize` should update real host files first, then refresh `.harness` to match the new state.
@@ -67,6 +67,7 @@ Use this embedded reference directly. Codex plugin installs may provide only thi
 ## Memory And Rules
 
 - Route durable memory and prior decisions into `.harness/memory/`.
+- If the user asks to store standalone reference material for a specific topic (not a narrative decision), prefer a new `.harness/memory/<topic>.md` file plus a one-line entry in `.harness/memory/INDEX.md`, rather than appending it into `shared.md`. When `.harness/memory/INDEX.md` already exists, treat it and the files it lists as an established convention to preserve, not something to consolidate away.
 - Use `soft-harness organize --partition-memory` when Claude project `MEMORY.md` entries or Codex memory files need sorting:
   - keep Claude-only feedback in Claude memory and Codex-only feedback in Codex memory
   - mirror cross-host rules to `.harness/memory/shared.md` so regenerated host instructions include them
