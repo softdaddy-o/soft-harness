@@ -24,6 +24,11 @@ directory hashing remains unchanged, as do copying, import/export, and managed
 tree equality checks. This avoids treating an ignored dependency cache as if it
 were absent from a copied skill.
 
+When two host skills differ only inside an excluded tree, discovery may classify
+them as common. That is intentional: the first imported host tree is copied in
+full into `.harness`; later managed-copy drift detection still uses a complete
+tree hash.
+
 ## Design
 
 `hashDirectory` will accept its existing optional ignore list for both files and

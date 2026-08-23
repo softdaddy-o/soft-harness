@@ -4,7 +4,7 @@
 
 **Goal:** Make account-level skill discovery skip regenerated dependency and VCS trees while continuing to detect authored skill-file changes.
 
-**Architecture:** `src/hash.js` retains its generic caller-provided ignore behavior. `src/skills.js` owns a private skill-discovery ignore list and passes it only when `discoverSkillsAndAgents` hashes a host skill; import, export, copy, and managed-tree equality continue to process complete trees.
+**Architecture:** `src/hash.js` retains its generic caller-provided ignore behavior. `src/skills.js` owns a private skill-discovery ignore list and passes it only when `discoverSkillsAndAgents` hashes a host skill; import, export, copy, and managed-tree equality continue to process complete trees. Two host skills that differ only inside the excluded trees intentionally classify as common, and the copied `.harness` source retains the selected complete tree.
 
 **Tech Stack:** Node.js 20+, `node:test`, `node:assert/strict`, native filesystem fixtures.
 
@@ -113,11 +113,52 @@ test('skills: discovery ignores regenerated trees but hashes authored support fi
 });
 ```
 
+Add this second test immediately after it:
+
+```js
+test('skills: import groups host skills that differ only in regenerated trees', () => {
+    const root = makeProjectTree('soft-harness-skills-common-ignore-', {
+        '.claude': {
+            skills: {
+                sample: {
+                    'SKILL.md': '# Sample',
+                    scripts: {
+                        'run.js': 'module.exports = 1;',
+                        node_modules: {
+                            package: { 'index.js': 'claude-generated' }
+                        }
+                    }
+                }
+            }
+        },
+        '.codex': {
+            skills: {
+                sample: {
+                    'SKILL.md': '# Sample',
+                    scripts: {
+                        'run.js': 'module.exports = 1;',
+                        node_modules: {
+                            package: { 'index.js': 'codex-generated' }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    importSkillsAndAgents(root, {});
+
+    assert.equal(exists(path.join(root, '.harness', 'skills', 'common', 'sample', 'SKILL.md')), true);
+    assert.equal(exists(path.join(root, '.harness', 'skills', 'claude', 'sample')), false);
+    assert.equal(exists(path.join(root, '.harness', 'skills', 'codex', 'sample')), false);
+});
+```
+
 - [ ] **Step 2: Run the focused test and observe the failure**
 
 Run: `node --test --test-name-pattern="discovery ignores regenerated" test/skills.test.js`
 
-Expected: FAIL at `assert.equal(readHash(), baseline)` because the current discovery call hashes all files under the skill directory.
+Expected: FAIL at `assert.equal(readHash(), baseline)` because the current discovery call hashes all files under the skill directory; the new common-bucket test also fails because the two host hashes differ.
 
 - [ ] **Step 3: Add the discovery-only ignore policy**
 
