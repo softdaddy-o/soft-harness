@@ -46,13 +46,33 @@ test('backup: nested junctions are preserved while copying a parent directory', 
 });
 ```
 
-- [ ] **Step 2: Run the focused test and observe the failure**
+- [ ] **Step 2: Add relative-link and existing-target regression cases**
+
+Create `host/skill/relative-references` as a relative link to a directory
+outside `host`. Back up `host`, inspect the copied backup link with
+`readlinkSync`, and assert it resolves to the original external directory when
+resolved from the backup link's parent. Also call `copyPath` with a link source
+and an already-existing file target; assert that the target becomes a link and
+is readable through the link.
+
+```js
+fs.symlinkSync('../../shared-references', relativeLink, 'dir');
+const copiedRelative = path.join(root, '.harness', 'backups', backup.timestamp, 'host', 'skill', 'relative-references');
+assert.equal(fs.lstatSync(copiedRelative).isSymbolicLink(), true);
+assert.equal(path.resolve(path.dirname(copiedRelative), fs.readlinkSync(copiedRelative)), sharedDir);
+
+writeUtf8(existingTarget, 'stale');
+copyPath(relativeLink, existingTarget);
+assert.equal(fs.lstatSync(existingTarget).isSymbolicLink(), true);
+```
+
+- [ ] **Step 3: Run the focused test and observe the failure**
 
 Run: `node --test --test-name-pattern="nested junctions" test/backup.test.js`
 
 Expected: FAIL with `EPERM` from `fs.cpSync` while recreating `references` beneath the backup directory.
 
-- [ ] **Step 3: Commit the failing regression test**
+- [ ] **Step 4: Commit the failing regression test**
 
 ```bash
 git add test/backup.test.js
@@ -69,7 +89,14 @@ git commit -m "test: cover nested junction backups"
 
 - [ ] **Step 1: Replace the recursive `cpSync` call with `copyPathEntry`**
 
-Define a private helper which calls `lstatSync(sourcePath)`. If the entry is a symbolic link, call `readlinkSync(sourcePath)`, infer `junction` for links that resolve to directories and `file` otherwise, and invoke `symlinkSync(linkTarget, targetPath, linkType)`. If it is a directory, create `targetPath`, list its entries, and recursively copy each child. Otherwise call `copyFileSync`.
+Define a private helper which calls `lstatSync(sourcePath)`. If the entry is a
+symbolic link, call `readlinkSync(sourcePath)` and resolve a relative target
+against `path.dirname(sourcePath)` before recreating it. Infer `junction` for
+links that resolve to directories and `file` otherwise. Remove an existing
+destination entry before `symlinkSync` so link sources retain the old
+`force: true` replacement behavior. If the entry is a directory, create
+`targetPath`, list its entries, and recursively copy each child. Otherwise call
+`copyFileSync`.
 
 ```js
 function copyPath(sourcePath, targetPath) {
@@ -81,12 +108,18 @@ function copyPathEntry(sourcePath, targetPath) {
     const backend = getFsBackend();
     const stats = backend.lstatSync(sourcePath);
     if (stats.isSymbolicLink()) {
-        const linkTarget = backend.readlinkSync(sourcePath);
+        const rawLinkTarget = backend.readlinkSync(sourcePath);
+        const linkTarget = path.isAbsolute(rawLinkTarget)
+            ? rawLinkTarget
+            : path.resolve(path.dirname(sourcePath), rawLinkTarget);
         let linkType = 'file';
         try {
             linkType = backend.statSync(sourcePath).isDirectory() ? 'junction' : 'file';
         } catch (error) {
             linkType = 'junction';
+        }
+        if (backend.existsSync(targetPath)) {
+            backend.rmSync(targetPath, { recursive: true, force: true });
         }
         backend.symlinkSync(linkTarget, targetPath, linkType);
         return;
