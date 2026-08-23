@@ -112,6 +112,98 @@ test('skills: discovery skips invalid entries and imports agents during dry-run'
     assert.equal(exists(path.join(root, '.harness', 'agents', 'claude', 'helper.md')), false);
 });
 
+test('skills: discovery ignores support artifact directories at any depth when hashing skills', () => {
+    const root = makeProjectTree('soft-harness-skills-discovery-ignore-depth-', {
+        '.claude': {
+            skills: {
+                shared: {
+                    'SKILL.md': '# Shared'
+                }
+            }
+        },
+        '.gemini': {
+            skills: {
+                shared: {
+                    'SKILL.md': '# Shared'
+                }
+            }
+        }
+    });
+
+    const ignoredPaths = [
+        [path.join(root, '.claude', 'skills', 'shared', '.git', 'config'), 'claude git config'],
+        [path.join(root, '.gemini', 'skills', 'shared', 'deps', '.git', 'HEAD'), 'gemini git head'],
+        [path.join(root, '.claude', 'skills', 'shared', 'lib', 'node_modules', 'pkg', 'index.js'), 'claude node module'],
+        [path.join(root, '.gemini', 'skills', 'shared', 'lib', 'node_modules', 'pkg', 'index.js'), 'gemini node module'],
+        [path.join(root, '.claude', 'skills', 'shared', 'cache', '__pycache__', 'cache.bin'), 'claude pycache'],
+        [path.join(root, '.gemini', 'skills', 'shared', 'cache', '__pycache__', 'cache.bin'), 'gemini pycache'],
+        [path.join(root, '.claude', 'skills', 'shared', 'tests', '.pytest_cache', 'cache.json'), 'claude pytest cache'],
+        [path.join(root, '.gemini', 'skills', 'shared', 'tests', '.pytest_cache', 'cache.json'), 'gemini pytest cache']
+    ];
+    for (const [ignoredPath, content] of ignoredPaths) {
+        writeUtf8(ignoredPath, content);
+    }
+
+    const discoverStable = discoverSkillsAndAgents(root)
+        .filter((item) => item.type === 'skill' && item.name === 'shared')
+        .sort((left, right) => left.llm.localeCompare(right.llm));
+    assert.equal(discoverStable.length, 2);
+    const stableHashes = discoverStable.map((item) => item.hash);
+    assert.equal(stableHashes[0], stableHashes[1]);
+
+    const imported = importSkillsAndAgents(root, { dryRun: true });
+    const commonImports = imported.imported
+        .filter((item) => item.type === 'skill' && item.to === '.harness/skills/common/shared');
+    assert.equal(commonImports.length, 2);
+    assert.ok(commonImports.every((item) => item.bucket === 'common'));
+
+    writeUtf8(path.join(root, '.claude', 'skills', 'shared', 'lib', 'node_modules', 'pkg', 'index.js'), 'claude node module changed');
+    const rediscovered = discoverSkillsAndAgents(root)
+        .filter((item) => item.type === 'skill' && item.name === 'shared')
+        .sort((left, right) => left.llm.localeCompare(right.llm));
+    const rediscoveredHashes = rediscovered.map((item) => item.hash);
+    assert.equal(rediscoveredHashes[0], stableHashes[0]);
+    assert.equal(rediscoveredHashes[0], rediscoveredHashes[1]);
+
+    writeUtf8(path.join(root, '.claude', 'skills', 'shared', 'SKILL.md'), '# Shared edited');
+    const afterContentChange = discoverSkillsAndAgents(root)
+        .filter((item) => item.type === 'skill' && item.name === 'shared')
+        .sort((left, right) => left.llm.localeCompare(right.llm));
+    const afterContentHashes = afterContentChange.map((item) => item.hash);
+    assert.notEqual(afterContentHashes[0], afterContentHashes[1]);
+});
+
+test('skills: identical node_modules-only skill differences hash as common', () => {
+    const root = makeProjectTree('soft-harness-skills-discovery-node-modules-only-', {
+        '.claude': {
+            skills: {
+                importer: {
+                    'SKILL.md': '# Importer'
+                }
+            }
+        },
+        '.gemini': {
+            skills: {
+                importer: {
+                    'SKILL.md': '# Importer'
+                }
+            }
+        }
+    });
+
+    writeUtf8(path.join(root, '.claude', 'skills', 'importer', 'assets', 'node_modules', 'import.js'), 'console.log("claude");');
+    writeUtf8(path.join(root, '.gemini', 'skills', 'importer', 'assets', 'node_modules', 'import.js'), 'console.log("gemini");');
+
+    const discovered = discoverSkillsAndAgents(root)
+        .filter((item) => item.type === 'skill' && item.name === 'importer')
+        .sort((left, right) => left.llm.localeCompare(right.llm));
+    assert.equal(discovered.length, 2);
+    assert.equal(discovered[0].hash, discovered[1].hash);
+
+    const importResult = importSkillsAndAgents(root, {});
+    assert.ok(importResult.imported.some((item) => item.type === 'skill' && item.bucket === 'common' && item.to === '.harness/skills/common/importer'));
+});
+
 test('skills: discoverHarnessAssets expands common buckets across all llms', () => {
     const root = makeProjectTree('soft-harness-skills-assets-', {
         '.harness': {

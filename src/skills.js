@@ -30,7 +30,7 @@ function discoverSkillsAndAgents(rootDir) {
                     llm,
                     relativePath: path.posix.join(profile.skills_dir, item.name),
                     absolutePath: skillDir,
-                    hash: hashDirectory(skillDir)
+                    hash: hashDirectory(skillDir, { ignore: SKILL_DISCOVERY_HASH_IGNORES })
                 });
             }
         }
@@ -1497,6 +1497,7 @@ function toPosixRelative(rootDir, absolutePath) {
     return path.relative(rootDir, absolutePath).split(path.sep).join('/');
 }
 
+const SKILL_DISCOVERY_HASH_IGNORES = ['.git', 'node_modules', '__pycache__', '.pytest_cache'];
 const SUPPORTED_AGENT_EXTENSIONS = new Set(['.md', '.toml']);
 
 module.exports = {

@@ -33,3 +33,32 @@ test('hash: hashDirectory walks nested directories', () => {
 
     assert.match(hashDirectory(dir), /^[a-f0-9]{64}$/);
 });
+
+test('hash: hashDirectory skips nested node_modules when explicitly ignored', () => {
+    const dir = makeTempDir('soft-harness-dirhash-nm-ignore-');
+    fs.writeFileSync(path.join(dir, 'base.txt'), 'A');
+    fs.mkdirSync(path.join(dir, 'src', 'node_modules'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src', 'node_modules', 'x.txt'), 'node module cache');
+
+    const withoutIgnore = hashDirectory(dir);
+    const withIgnore = hashDirectory(dir, { ignore: ['node_modules'] });
+
+    assert.notEqual(withoutIgnore, withIgnore);
+
+    fs.rmSync(path.join(dir, 'src', 'node_modules', 'x.txt'));
+    const withIgnoreAfterRemove = hashDirectory(dir, { ignore: ['node_modules'] });
+
+    assert.equal(withIgnore, withIgnoreAfterRemove);
+});
+
+test('hash: hashDirectory reflects nested node_modules by default', () => {
+    const dir = makeTempDir('soft-harness-dirhash-nm-default-');
+    fs.writeFileSync(path.join(dir, 'base.txt'), 'A');
+    const withoutNodeModules = hashDirectory(dir);
+
+    fs.mkdirSync(path.join(dir, 'src', 'node_modules'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src', 'node_modules', 'x.txt'), 'node module cache');
+    const withNodeModules = hashDirectory(dir);
+
+    assert.notEqual(withoutNodeModules, withNodeModules);
+});
