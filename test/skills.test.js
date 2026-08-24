@@ -257,6 +257,99 @@ test('skills: export validates source skill trees before writing targets', () =>
     assert.equal(exists(path.join(root, '.codex', 'skills', 'unsafe')), false);
 });
 
+test('skills: external runtime worktrees are excluded unless explicitly portable', () => {
+    const root = makeProjectTree('soft-harness-skills-runtime-exclusion-', {
+        '.harness': {
+            skills: {
+                claude: {
+                    runtime: {
+                        '.git': { config: '[core]' },
+                        bin: { runner: 'runtime' },
+                        'SKILL.md': '# Runtime'
+                    },
+                    portable: {
+                        '.git': { config: '[core]' },
+                        bin: { runner: 'runtime' },
+                        '.harness-portable': '',
+                        'SKILL.md': '# Portable'
+                    },
+                    plain: { 'SKILL.md': '# Plain' }
+                }
+            }
+        }
+    });
+
+    const assets = discoverHarnessAssets(root);
+    assert.equal(assets.some((item) => item.name === 'runtime'), false);
+    assert.equal(assets.some((item) => item.name === 'portable'), true);
+    assert.equal(assets.some((item) => item.name === 'plain'), true);
+});
+
+test('skills: host runtime worktrees are excluded from discovery', () => {
+    const root = makeProjectTree('soft-harness-skills-runtime-discovery-', {
+        '.claude': {
+            skills: {
+                runtime: { '.git': { config: '[core]' }, bin: { runner: 'runtime' }, 'SKILL.md': '# Runtime' },
+                portable: { '.git': { config: '[core]' }, bin: { runner: 'runtime' }, '.harness-portable': '', 'SKILL.md': '# Portable' }
+            }
+        }
+    });
+
+    const names = discoverSkillsAndAgents(root).filter((item) => item.type === 'skill').map((item) => item.name);
+    assert.equal(names.includes('runtime'), false);
+    assert.equal(names.includes('portable'), true);
+});
+
+test('skills: export ignores relative directory arguments in inline code examples', () => {
+    const root = makeProjectTree('soft-harness-skills-export-cli-directory-', {
+        '.harness': {
+            skills: {
+                common: {
+                    finance: {
+                        'SKILL.md': 'History directory defaults to `./data/history/`.\n'
+                    }
+                }
+            }
+        }
+    });
+
+    assert.doesNotThrow(() => exportSkillsAndAgents(root, {}));
+    assert.equal(exists(path.join(root, '.claude', 'skills', 'finance', 'SKILL.md')), true);
+});
+
+test('skills: export ignores extensionless relative directory arguments in inline code examples', () => {
+    const root = makeProjectTree('soft-harness-skills-export-extensionless-directory-', {
+        '.harness': {
+            skills: {
+                common: {
+                    experiment: {
+                        'SKILL.md': 'Experiment data is stored in `./data/experiments`.\n'
+                    }
+                }
+            }
+        }
+    });
+
+    assert.doesNotThrow(() => exportSkillsAndAgents(root, {}));
+    assert.equal(exists(path.join(root, '.codex', 'skills', 'experiment', 'SKILL.md')), true);
+});
+
+test('skills: export validates trailing-slash Markdown links', () => {
+    const root = makeProjectTree('soft-harness-skills-export-directory-link-', {
+        '.harness': {
+            skills: {
+                common: {
+                    unsafe: {
+                        'SKILL.md': '[History directory](./data/history/)\n'
+                    }
+                }
+            }
+        }
+    });
+
+    assert.throws(() => exportSkillsAndAgents(root, {}), /managed skill export is missing referenced file: \.\/data\/history\//);
+});
+
 test('skills: export preflight rejects references missing from exported target layout', () => {
     const root = makeProjectTree('soft-harness-skills-export-target-layout-', {
         '.harness': {
