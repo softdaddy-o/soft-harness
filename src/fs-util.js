@@ -50,7 +50,20 @@ function rejectInvalidCopyTarget(backend, sourcePath, targetPath, stats) {
     if (!relativeTarget) {
         throwInvalidCopyTarget(sourcePath, targetPath);
     }
-    const resolvedSource = backend.realpathSync(sourcePath);
+    let resolvedSource;
+    try {
+        resolvedSource = backend.realpathSync(sourcePath);
+    } catch (error) {
+        if (stats.isSymbolicLink() && isMissingEntryError(error)) {
+            const resolvedSourceEntry = resolveWithExistingAncestor(backend, sourcePath);
+            const resolvedTarget = resolveWithExistingAncestor(backend, targetPath);
+            if (isSameOrNestedPath(resolvedTarget, resolvedSourceEntry)) {
+                throwInvalidCopyTarget(sourcePath, targetPath);
+            }
+            return;
+        }
+        throw error;
+    }
     const resolvedTarget = resolveWithExistingAncestor(backend, targetPath);
     if (!stats.isDirectory()) {
         if (resolvedSource === resolvedTarget) {

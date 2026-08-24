@@ -130,6 +130,37 @@ test('backup: copying a link replaces a dangling link target', (context) => {
     assert.equal(readUtf8(path.join(targetLink, 'guide.md')), '# Source');
 });
 
+test('backup: dangling source links replace existing destination directories', () => {
+    const memoryFs = createMemoryFs();
+    return memoryFs.run(() => {
+        const root = memoryFs.root('soft-harness-backup-dangling-source-link-root');
+        const sourceLink = path.join(root, 'source-link');
+        const targetDir = path.join(root, 'target');
+        memoryFs.backend.symlinkSync(path.join(root, 'missing'), sourceLink, 'junction');
+        writeUtf8(path.join(targetDir, 'stale.txt'), 'stale');
+
+        copyPath(sourceLink, targetDir);
+
+        assert.equal(memoryFs.backend.lstatSync(targetDir).isSymbolicLink(), true);
+        assert.equal(memoryFs.backend.readlinkSync(targetDir), path.join(root, 'missing'));
+    });
+});
+
+test('backup: dangling links reject destinations that contain the source link', () => {
+    const memoryFs = createMemoryFs();
+    return memoryFs.run(() => {
+        const root = memoryFs.root('soft-harness-backup-dangling-self-copy-root');
+        const sourceLink = path.join(root, 'source-link');
+        memoryFs.backend.symlinkSync(path.join(root, 'missing'), sourceLink, 'junction');
+
+        assert.throws(
+            () => copyPath(sourceLink, root),
+            (error) => error.code === 'ERR_FS_CP_EINVAL'
+        );
+        assert.equal(memoryFs.backend.lstatSync(sourceLink).isSymbolicLink(), true);
+    });
+});
+
 test('backup: directory copies reject a destination nested inside the source', () => {
     const root = makeTempDir('soft-harness-backup-self-copy-');
     const sourceDir = path.join(root, 'source');
@@ -214,6 +245,24 @@ test('backup: ordinary file copies replace destination symlinks', () => {
         assert.equal(memoryFs.backend.lstatSync(targetLink).isFile(), true);
         assert.equal(readUtf8(targetLink), 'new');
         assert.equal(readUtf8(referentFile), 'keep');
+    });
+});
+
+test('backup: file copies reject destination links that resolve to the source', () => {
+    const memoryFs = createMemoryFs();
+    return memoryFs.run(() => {
+        const root = memoryFs.root('soft-harness-backup-file-source-alias-root');
+        const sourceFile = path.join(root, 'source.txt');
+        const targetLink = path.join(root, 'target.txt');
+        writeUtf8(sourceFile, 'keep');
+        memoryFs.backend.symlinkSync(sourceFile, targetLink, 'file');
+
+        assert.throws(
+            () => copyPath(sourceFile, targetLink),
+            (error) => error.code === 'ERR_FS_CP_EINVAL'
+        );
+        assert.equal(memoryFs.backend.lstatSync(targetLink).isSymbolicLink(), true);
+        assert.equal(readUtf8(sourceFile), 'keep');
     });
 });
 
