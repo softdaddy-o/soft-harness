@@ -323,7 +323,10 @@ function evaluateOrganizeHelperFlow() {
 
         expectMatch(claudeRoot, /@\.harness\/HARNESS\.md/, 'Claude root instruction should become an import stub');
         expectMatch(claudeRoot, /@\.harness\/memory\/shared\.md/, 'Claude root instruction should include shared memory');
-        expectMatch(claudeNested, /@\.harness\/llm\/claude\.md/, 'Nested Claude instruction should include the host-specific snapshot');
+        // The nested file lives one directory below the harness root, and a host
+        // resolves a relative import against the importing file's own directory,
+        // so this import has to climb back out to reach `.harness/`.
+        expectMatch(claudeNested, /@\.\.\/\.harness\/llm\/claude\.md/, 'Nested Claude instruction should include the host-specific snapshot');
         expectMatch(codexRoot, /Shared guidance/, 'Codex root instruction should render shared snapshot content');
         expectMatch(codexRoot, /Always summarize risky MCP changes/, 'Codex root instruction should render shared memory content');
         expect(claudeSettings.approval_policy === 'never', 'Claude JSON export should preserve unrelated keys');

@@ -17,14 +17,19 @@ function buildInstructionExports(rootDir, options) {
         }
 
         const profile = getProfile(llm);
-        const expected = profile.supports_imports
-            ? buildImportStub(sources.map((entry) => entry.source))
-            : buildConcatStub(sources.map((entry) => ({
-                path: entry.blockPath,
-                content: entry.content
-            })));
 
         for (const relativePath of profile.instruction_files) {
+            // Import stubs are per-file: a relative import resolves against the
+            // instruction file's own directory, so a file nested below the root
+            // needs its own prefix. Concat stubs inline content and are
+            // position-independent.
+            const expected = profile.supports_imports
+                ? buildImportStub(sources.map((entry) => entry.source), relativePath)
+                : buildConcatStub(sources.map((entry) => ({
+                    path: entry.blockPath,
+                    content: entry.content
+                })));
+
             exports.push({
                 llm,
                 relativePath,
