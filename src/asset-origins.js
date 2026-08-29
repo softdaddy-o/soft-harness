@@ -1,5 +1,5 @@
 const path = require('node:path');
-const YAML = require('yaml');
+const YAML = require('./yaml-lite');
 const { exists, readUtf8, writeUtf8 } = require('./fs-util');
 
 const ASSET_ORIGINS_PATH = path.join('.harness', 'asset-origins.yaml');

@@ -1,0 +1,5 @@
+asset_origins:
+  - kind: agent
+    asset: x
+    notes: "Found by LLM web/GitHub search: exact agent filename exists in the
+      repository and the description matches the installed copy closely"

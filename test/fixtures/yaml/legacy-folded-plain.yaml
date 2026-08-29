@@ -1,0 +1,5 @@
+asset_origins:
+  - kind: skill
+    asset: analyze
+    notes: Generated as a Codex skill from Claude plugin skill
+      soft-harness@soft-harness.

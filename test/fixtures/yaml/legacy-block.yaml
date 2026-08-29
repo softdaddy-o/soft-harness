@@ -1,0 +1,5 @@
+scenario:
+  user_request: |-
+    line one
+    line two
+    line three

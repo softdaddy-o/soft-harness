@@ -1,6 +1,6 @@
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
-const YAML = require('yaml');
+const YAML = require('./yaml-lite');
 const { loadAssetOrigins, saveAssetOrigins } = require('./asset-origins');
 const { getFsBackend } = require('./fs-backend');
 const { hashDirectory, hashFile } = require('./hash');
@@ -1016,12 +1016,21 @@ function extractFrontmatter(content) {
     try {
         return {
             frontmatter: YAML.parse(match[1]) || {},
-            body: match[2]
+            body: match[2],
+            raw: match[1],
+            lossy: false
         };
     } catch (error) {
+        // Skills come from arbitrary authors. When frontmatter uses something
+        // outside our grammar we can still read `name` and `description` off
+        // it, but we must not re-serialize from that partial view:
+        // normalizeSkillMarkdown writes back every key it sees, so an
+        // unmodelled one would be silently deleted from someone's skill.
         return {
             frontmatter: parseSimpleFrontmatter(match[1]),
-            body: match[2]
+            body: match[2],
+            raw: match[1],
+            lossy: true
         };
     }
 }
@@ -1033,9 +1042,23 @@ function parseSimpleFrontmatter(content) {
         if (!match) {
             continue;
         }
-        frontmatter[match[1]] = match[2];
+        frontmatter[match[1]] = unquoteScalar(match[2]);
     }
     return frontmatter;
+}
+
+// The fallback reader works on raw lines, so a quoted value still carries its
+// quotes. Leaving them attached means the value gets quoted a second time when
+// written back: `name: "My skill"` became `name: "\"My skill\""`.
+function unquoteScalar(value) {
+    const text = String(value == null ? '' : value).trim();
+    if (text.length >= 2 && text[0] === '"' && text.endsWith('"')) {
+        return text.slice(1, -1).replace(/\\"/gu, '"').replace(/\\\\/gu, '\\');
+    }
+    if (text.length >= 2 && text[0] === "'" && text.endsWith("'")) {
+        return text.slice(1, -1).replace(/''/gu, "'");
+    }
+    return text;
 }
 
 function extractTitle(content) {
@@ -1121,15 +1144,54 @@ function normalizeSkillMarkdown(content, fallbackName) {
     const description = cleanText(frontmatter.description)
         || extractFirstMeaningfulParagraph(body)
         || `Skill for ${name}.`;
-    const nextFrontmatter = {
-        ...frontmatter,
-        name,
-        description
-    };
-    const serializedFrontmatter = Object.entries(nextFrontmatter)
-        .map(([key, value]) => serializeSkillFrontmatterEntry(key, value))
-        .join('\n');
+    const serializedFrontmatter = parsed.lossy
+        ? patchRawFrontmatter(parsed.raw, { name, description })
+        : Object.entries({ ...frontmatter, name, description })
+            .map(([key, value]) => serializeSkillFrontmatterEntry(key, value))
+            .join('\n');
     return `---\n${serializedFrontmatter}\n---\n\n${body}`;
+}
+
+// Rewrite only `name` and `description` and leave every other line of the
+// author's frontmatter byte-for-byte intact. Used when the frontmatter could
+// not be fully parsed, where reconstructing from the parsed view would drop
+// whatever we failed to model.
+function patchRawFrontmatter(raw, values) {
+    const lines = String(raw || '').replace(/\r\n/g, '\n').split('\n');
+    const out = [];
+    const applied = new Set();
+    let skippingContinuation = false;
+
+    for (const line of lines) {
+        const match = line.match(/^([A-Za-z0-9_-]+):/u);
+        if (!match) {
+            // Only an *indented* line continues the key above it. A comment or
+            // a blank line at column zero belongs to the author and must
+            // survive, even when it follows a key we replaced.
+            const isContinuation = /^\s+\S/u.test(line);
+            if (!isContinuation || !skippingContinuation) {
+                out.push(line);
+            }
+            continue;
+        }
+        skippingContinuation = false;
+        const key = match[1];
+        if (Object.prototype.hasOwnProperty.call(values, key)) {
+            out.push(serializeSkillFrontmatterEntry(key, values[key]));
+            applied.add(key);
+            skippingContinuation = true;
+            continue;
+        }
+        out.push(line);
+    }
+
+    for (const [key, value] of Object.entries(values)) {
+        if (!applied.has(key)) {
+            out.unshift(serializeSkillFrontmatterEntry(key, value));
+        }
+    }
+
+    return out.join('\n').replace(/\n+$/u, '');
 }
 
 function validateManagedSkillTree(rootDir) {
@@ -1501,6 +1563,8 @@ const SUPPORTED_AGENT_EXTENSIONS = new Set(['.md', '.toml']);
 
 module.exports = {
     buildManagedAssetState,
+    extractFrontmatter,
+    normalizeSkillMarkdown,
     detectSkillsAndAgentsDrift,
     discoverHarnessAssets,
     discoverShadowedHarnessAssets,

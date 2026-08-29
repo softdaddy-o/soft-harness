@@ -1,0 +1,13 @@
+plugins:
+  - name: code-simplifier@claude-plugins-official
+    llms:
+      - claude
+      - codex
+    version: 1.0.0
+    registry: claude-plugins-official
+    git_commit_sha: 96276205880a60fd66bbae981f5ab568e70c4cbf
+  - name: frontend-design@claude-code-plugins
+    llms: [claude, codex]
+    version: 1.0.0
+    registry: claude-code-plugins
+    git_commit_sha: null

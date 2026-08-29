@@ -1,0 +1,10 @@
+version: 1
+mcp_servers:
+  shared:
+    command: node
+    args: [shared.js]
+    enabled_for: [claude, codex]
+  solo:
+    command: node
+    args: [claude.js]
+    enabled_for: [claude]

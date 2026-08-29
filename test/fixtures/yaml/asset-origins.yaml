@@ -1,0 +1,18 @@
+asset_origins:
+  - kind: agent
+    asset: agentic-identity-trust
+    hosts:
+      - claude
+    plugin: null
+    source_type: github
+    repo: msitarzewski/agency-agents
+    installed_version: null
+    confidence: confirmed
+    notes: Found by search; filename exists in the repo
+  - kind: skill
+    asset: humanize-korean
+    hosts: [claude, codex]
+    plugin: im-not-ai
+    source_type: unknown
+    confidence: guess
+    notes: "Contains: a colon, and a # hash"

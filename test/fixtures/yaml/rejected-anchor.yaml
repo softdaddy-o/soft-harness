@@ -1,0 +1,3 @@
+base: &anchor
+  a: 1
+use: *anchor

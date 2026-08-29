@@ -1,5 +1,5 @@
 const path = require('node:path');
-const YAML = require('yaml');
+const YAML = require('./yaml-lite');
 const { copyPath, ensureDir, exists, readJson, readUtf8, removePath, walkFiles, writeJson, writeUtf8 } = require('./fs-util');
 const { listProfiles, getProfile } = require('./profiles');
 const { compareVersions } = require('./version');
