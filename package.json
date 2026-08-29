@@ -53,7 +53,7 @@
   ],
   "author": "softdaddy-o",
   "license": "MIT",
-  "dependencies": {
+  "devDependencies": {
     "yaml": "^2.8.3"
   }
 }
