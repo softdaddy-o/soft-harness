@@ -68,14 +68,14 @@ Use this embedded reference directly. Codex plugin installs may provide only thi
 
 - Route durable memory and prior decisions into `.harness/memory/`.
 - If the user asks to store standalone reference material for a specific topic (not a narrative decision), prefer a new `.harness/memory/<topic>.md` file plus a one-line entry in `.harness/memory/INDEX.md`, rather than appending it into `shared.md`. When `.harness/memory/INDEX.md` already exists, treat it and the files it lists as an established convention to preserve, not something to consolidate away.
-- Use `soft-harness organize --partition-memory` when Claude project `MEMORY.md` entries or Codex memory files need sorting:
+- Use `node "${CLAUDE_PLUGIN_ROOT}/src/cli.js" organize --partition-memory` when Claude project `MEMORY.md` entries or Codex memory files need sorting:
   - keep Claude-only feedback in Claude memory and Codex-only feedback in Codex memory
   - mirror cross-host rules to `.harness/memory/shared.md` so regenerated host instructions include them
   - move project-state notes to `docs/memory-project-state.md`
   - remove stale entries after backing up the original memory file
   - record observed/imported entries in `.harness/memory/partition-state.json`
 - Imported memory in `.harness/memory/shared.md`, generated instructions, and project-state docs must include explicit `Imported from <host> memory; do not reverse-merge into host memory` provenance.
-- Host hooks may run `soft-harness organize --partition-memory --dry-run` after memory changes, session stop, or `.harness`/instruction/skill/agent changes. Keep automatic hooks non-destructive unless the user has explicitly trusted a managed apply hook.
+- Host hooks may run `node "${CLAUDE_PLUGIN_ROOT}/src/cli.js" organize --partition-memory --dry-run` after memory changes, session stop, or `.harness`/instruction/skill/agent changes. Keep automatic hooks non-destructive unless the user has explicitly trusted a managed apply hook.
 - Use `.harness/HARNESS.md` and `.harness/llm/*.md` as a record of analyzed or organized host guidance, not as authoritative truth.
 - Direct host edits are allowed, but prefer `organize` when the user wants coordinated multi-host changes or durable decision tracking.
 

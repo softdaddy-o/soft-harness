@@ -250,24 +250,37 @@ test('packaging: nothing reachable from the CLI requires a third-party module', 
     );
 });
 
-test('packaging: the bundle loads with no node_modules above it', () => {
+// The plugin must carry the CLI itself, or installing it is not enough and the
+// user is back to a second, separate npm install.
+test('packaging: the plugin ships the runtime graph and stays in sync with src', () => {
+    const { execFileSync } = require('node:child_process');
+
+    const pluginSrc = path.join(__dirname, '..', 'plugins', 'soft-harness', 'src');
+    assert.ok(fs.existsSync(path.join(pluginSrc, 'cli.js')), 'plugin does not ship the CLI');
+
+    // Fails loudly if src/ changed and the plugin copy was not refreshed.
+    execFileSync(
+        process.execPath,
+        [path.join(__dirname, '..', 'scripts', 'sync-plugin-src.js'), '--check'],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+
+    // Dev-only modules keep using `yaml`; they must not reach the bundle.
+    for (const excluded of ['llm-eval.js', 'skill-eval.js']) {
+        assert.ok(!fs.existsSync(path.join(pluginSrc, excluded)), `${excluded} must not ship in the plugin`);
+    }
+});
+
+test('packaging: the shipped plugin runs with no node_modules above it', () => {
     const { execFileSync } = require('node:child_process');
     const os = require('node:os');
 
-    const { files } = reachableFromCli();
-    const srcDir = path.join(__dirname, '..', 'src');
-    const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'soft-harness-bundle-'));
-    const bundleSrc = path.join(stage, 'src');
-    fs.mkdirSync(bundleSrc, { recursive: true });
+    // Copy the real plugin directory, not a bundle assembled by this test:
+    // otherwise a broken release would still pass.
+    const pluginDir = path.join(__dirname, '..', 'plugins', 'soft-harness');
+    const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'soft-harness-plugin-'));
+    fs.cpSync(pluginDir, stage, { recursive: true });
 
-    for (const file of files) {
-        const relative = path.relative(srcDir, file);
-        const target = path.join(bundleSrc, relative);
-        fs.mkdirSync(path.dirname(target), { recursive: true });
-        fs.copyFileSync(file, target);
-    }
-
-    // Prove the staged copy really has no resolvable node_modules above it.
     let probe = stage;
     while (true) {
         assert.ok(
@@ -281,11 +294,11 @@ test('packaging: the bundle loads with no node_modules above it', () => {
         probe = parent;
     }
 
-    const output = execFileSync(process.execPath, [path.join(bundleSrc, 'cli.js'), '--help'], {
+    const output = execFileSync(process.execPath, [path.join(stage, 'src', 'cli.js'), '--help'], {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe']
     });
-    assert.ok(output.length > 0, 'bundled CLI produced no output');
+    assert.ok(output.length > 0, 'plugin CLI produced no output');
 });
 
 // --- regressions from the Codex review of the implementation --------------
