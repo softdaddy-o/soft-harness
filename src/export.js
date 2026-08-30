@@ -1,5 +1,5 @@
 const path = require('node:path');
-const { getProfile, listProfiles } = require('./profiles');
+const { getProfile, instructionFilesFor, listProfiles } = require('./profiles');
 const { exists, readUtf8, removePath, writeUtf8 } = require('./fs-util');
 const { hashString } = require('./hash');
 const { buildConcatStub, buildImportStub } = require('./stubs');
@@ -31,7 +31,7 @@ function buildInstructionExports(rootDir, options) {
 
         const profile = getProfile(llm);
 
-        for (const relativePath of profile.instruction_files) {
+        for (const relativePath of instructionFilesFor(profile, rootDir)) {
             // Import stubs are per-file: a relative import resolves against the
             // instruction file's own directory, so a file nested below the root
             // needs its own prefix. Concat stubs inline content and are
