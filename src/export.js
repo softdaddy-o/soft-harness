@@ -3,8 +3,17 @@ const { getProfile, listProfiles } = require('./profiles');
 const { exists, readUtf8, removePath, writeUtf8 } = require('./fs-util');
 const { hashString } = require('./hash');
 const { buildConcatStub, buildImportStub } = require('./stubs');
+const { areInstructionsExternal } = require('./harness-config');
 
 function buildInstructionExports(rootDir, options) {
+    // Every instruction path funnels through here — export, drift detection,
+    // pull-back and state all derive from this list — so one guard covers them
+    // all. A project whose instruction files are owned by another convention
+    // declares that in .harness/config.json.
+    if (areInstructionsExternal(rootDir)) {
+        return [];
+    }
+
     const state = (options && options.state) || { assets: { instructions: [] } };
     const exports = [];
 
@@ -98,6 +107,13 @@ function buildInstructionState(rootDir, state) {
 }
 
 function pruneStaleTargets(rootDir, exports, options) {
+    // Opting out means "these files are not mine", not "delete them". Without
+    // this guard the empty export list would read every previously managed
+    // target as stale and remove the project's own instruction files.
+    if (areInstructionsExternal(rootDir)) {
+        return;
+    }
+
     const desired = new Set(exports.map((entry) => entry.relativePath));
     const state = (options && options.state) || { assets: { instructions: [] } };
 
