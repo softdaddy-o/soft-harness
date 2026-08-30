@@ -109,6 +109,9 @@ test('sync: backup targets include existing harness assets and discovered projec
     const root = makeTempDir('soft-harness-sync-backups-');
     writeUtf8(path.join(root, '.harness', 'skills', 'claude', 'built-in', 'SKILL.md'), '# Built In');
     writeUtf8(path.join(root, '.claude', 'skills', 'local', 'SKILL.md'), '# Local');
+    writeUtf8(path.join(root, '.claude', 'skills', 'runtime', '.git', 'config'), '[core]');
+    writeUtf8(path.join(root, '.claude', 'skills', 'runtime', 'bin', 'runner'), 'runtime');
+    writeUtf8(path.join(root, '.claude', 'skills', 'runtime', 'SKILL.md'), '# Runtime');
 
     const result = await runSync(root, {}, {});
     const backups = listBackups(root);
@@ -119,6 +122,7 @@ test('sync: backup targets include existing harness assets and discovered projec
     assert.ok(manifest.entries.some((entry) => entry.path === '.harness/skills/claude/built-in'));
     assert.ok(manifest.entries.some((entry) => entry.path === '.claude/skills/built-in'));
     assert.ok(manifest.entries.some((entry) => entry.path === '.claude/skills/local'));
+    assert.equal(manifest.entries.some((entry) => entry.path === '.claude/skills/runtime'), false);
 });
 
 test('sync: dry-run reports harness sources shadowed by common bucket', async () => {

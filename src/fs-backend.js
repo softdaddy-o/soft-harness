@@ -3,6 +3,8 @@ const fs = require('node:fs');
 
 function createNodeBackend() {
     return {
+        chmodSync: fs.chmodSync.bind(fs),
+        copyFileSync: fs.copyFileSync.bind(fs),
         cpSync: fs.cpSync.bind(fs),
         existsSync: fs.existsSync.bind(fs),
         lstatSync: fs.lstatSync.bind(fs),
@@ -10,6 +12,7 @@ function createNodeBackend() {
         readFileSync: fs.readFileSync.bind(fs),
         readdirSync: fs.readdirSync.bind(fs),
         readlinkSync: fs.readlinkSync.bind(fs),
+        realpathSync: fs.realpathSync.bind(fs),
         rmSync: fs.rmSync.bind(fs),
         statSync: fs.statSync.bind(fs),
         symlinkSync: fs.symlinkSync.bind(fs),

@@ -38,11 +38,158 @@ function writeJson(filePath, value) {
 }
 
 function copyPath(sourcePath, targetPath) {
+    const backend = getFsBackend();
+    const stats = backend.lstatSync(sourcePath);
+    rejectInvalidCopyTarget(backend, sourcePath, targetPath, stats);
     ensureDir(path.dirname(targetPath));
-    getFsBackend().cpSync(sourcePath, targetPath, {
-        recursive: true,
-        force: true
-    });
+    copyPathEntry(sourcePath, targetPath, stats);
+}
+
+function rejectInvalidCopyTarget(backend, sourcePath, targetPath, stats) {
+    const relativeTarget = path.relative(path.resolve(sourcePath), path.resolve(targetPath));
+    if (!relativeTarget) {
+        throwInvalidCopyTarget(sourcePath, targetPath);
+    }
+    let resolvedSource;
+    try {
+        resolvedSource = backend.realpathSync(sourcePath);
+    } catch (error) {
+        if (stats.isSymbolicLink() && isMissingEntryError(error)) {
+            const resolvedSourceEntry = resolveWithExistingAncestor(backend, sourcePath);
+            const resolvedTarget = resolveWithExistingAncestor(backend, targetPath);
+            if (isSameOrNestedPath(resolvedTarget, resolvedSourceEntry)) {
+                throwInvalidCopyTarget(sourcePath, targetPath);
+            }
+            return;
+        }
+        throw error;
+    }
+    const resolvedTarget = resolveWithExistingAncestor(backend, targetPath);
+    if (!stats.isDirectory()) {
+        if (resolvedSource === resolvedTarget) {
+            throwInvalidCopyTarget(sourcePath, targetPath);
+        }
+        return;
+    }
+    if (!isParentTraversal(relativeTarget) && !path.isAbsolute(relativeTarget)) {
+        throwInvalidCopyTarget(sourcePath, targetPath);
+    }
+    if (!isSameOrNestedPath(resolvedSource, resolvedTarget)) {
+        return;
+    }
+    throwInvalidCopyTarget(sourcePath, targetPath);
+}
+
+function throwInvalidCopyTarget(sourcePath, targetPath) {
+    const error = new TypeError(`Cannot copy ${sourcePath} to a subdirectory of self ${targetPath}`);
+    error.code = 'ERR_FS_CP_EINVAL';
+    throw error;
+}
+
+function resolveWithExistingAncestor(backend, targetPath) {
+    let currentPath = path.resolve(targetPath);
+    const missingParts = [];
+    while (true) {
+        try {
+            return path.join(backend.realpathSync(currentPath), ...missingParts);
+        } catch (error) {
+            if (!isMissingEntryError(error)) {
+                throw error;
+            }
+        }
+        const parentPath = path.dirname(currentPath);
+        if (parentPath === currentPath) {
+            throw new Error(`ENOENT: no existing ancestor for ${targetPath}`);
+        }
+        missingParts.unshift(path.basename(currentPath));
+        currentPath = parentPath;
+    }
+}
+
+function copyPathEntry(sourcePath, targetPath, sourceStats) {
+    const backend = getFsBackend();
+    const stats = sourceStats || backend.lstatSync(sourcePath);
+    const targetStats = getEntryStats(backend, targetPath);
+    if (stats.isSymbolicLink()) {
+        const rawLinkTarget = backend.readlinkSync(sourcePath);
+        const linkTarget = path.isAbsolute(rawLinkTarget)
+            ? rawLinkTarget
+            : path.resolve(path.dirname(sourcePath), rawLinkTarget);
+        let linkType = 'file';
+        try {
+            linkType = backend.statSync(sourcePath).isDirectory() ? 'junction' : 'file';
+        } catch (error) {
+            linkType = 'junction';
+        }
+        if (targetStats) {
+            rejectContainedLinkTarget(backend, sourcePath, targetPath, linkTarget);
+        }
+        if (targetStats) {
+            backend.rmSync(targetPath, { recursive: true, force: true });
+        }
+        backend.symlinkSync(linkTarget, targetPath, linkType);
+        return;
+    }
+    if (stats.isDirectory()) {
+        if (targetStats && targetStats.isSymbolicLink()) {
+            backend.rmSync(targetPath, { recursive: true, force: true });
+        }
+        ensureDir(targetPath);
+        for (const entry of backend.readdirSync(sourcePath)) {
+            copyPathEntry(path.join(sourcePath, entry), path.join(targetPath, entry));
+        }
+        backend.chmodSync(targetPath, stats.mode);
+        return;
+    }
+    if (targetStats && !targetStats.isDirectory()) {
+        backend.rmSync(targetPath, { recursive: true, force: true });
+    }
+    backend.copyFileSync(sourcePath, targetPath);
+    backend.chmodSync(targetPath, stats.mode);
+}
+
+function getEntryStats(backend, targetPath) {
+    try {
+        return backend.lstatSync(targetPath);
+    } catch (error) {
+        if (isMissingEntryError(error)) {
+            return null;
+        }
+        throw error;
+    }
+}
+
+function isMissingEntryError(error) {
+    return error.code === 'ENOENT' || String(error.message).startsWith('ENOENT:');
+}
+
+function isSameOrNestedPath(parentPath, candidatePath) {
+    const relativePath = path.relative(path.resolve(parentPath), path.resolve(candidatePath));
+    return !relativePath || (!isParentTraversal(relativePath) && !path.isAbsolute(relativePath));
+}
+
+function isParentTraversal(relativePath) {
+    return relativePath === '..' || relativePath.startsWith(`..${path.sep}`);
+}
+
+function rejectContainedLinkTarget(backend, sourcePath, targetPath, fallbackLinkTarget) {
+    let resolvedLinkTarget;
+    try {
+        resolvedLinkTarget = backend.realpathSync(sourcePath);
+    } catch (error) {
+        return;
+    }
+    const resolvedTarget = resolveWithExistingAncestor(backend, targetPath);
+    if (isSameOrNestedPath(resolvedLinkTarget, resolvedTarget)
+        || isSameOrNestedPath(resolvedTarget, resolvedLinkTarget)) {
+        throwLinkTargetConflict(resolvedLinkTarget, resolvedTarget);
+    }
+}
+
+function throwLinkTargetConflict(linkTarget, targetPath) {
+    const error = new Error(`EEXIST: link target ${linkTarget} is inside destination ${targetPath}`);
+    error.code = 'EEXIST';
+    throw error;
 }
 
 function removePath(targetPath) {

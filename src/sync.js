@@ -245,7 +245,6 @@ function collectInitialBackupTargets(rootDir, discovered, state) {
         '.harness/llm',
         '.harness/memory',
         '.harness/settings',
-        '.harness/skills',
         '.harness/agents',
         '.harness/asset-origins.yaml',
         '.harness/plugins.yaml',

@@ -6,6 +6,8 @@ function createMemoryFs() {
     let clock = 1;
 
     const backend = {
+        chmodSync,
+        copyFileSync,
         cpSync,
         existsSync,
         lstatSync,
@@ -13,6 +15,7 @@ function createMemoryFs() {
         readFileSync,
         readdirSync,
         readlinkSync,
+        realpathSync,
         rmSync,
         statSync,
         symlinkSync,
@@ -68,6 +71,7 @@ function createMemoryFs() {
         }
 
         const node = { type: 'dir', mtimeMs: 0 };
+        node.mode = 0o777;
         touch(node);
         entries.set(absolutePath, node);
         return node;
@@ -105,6 +109,7 @@ function createMemoryFs() {
     function makeStats(entry) {
         return {
             mtimeMs: entry.mtimeMs,
+            mode: entry.mode,
             isDirectory() {
                 return entry.type === 'dir';
             },
@@ -146,6 +151,7 @@ function createMemoryFs() {
         const node = {
             type: 'file',
             content: String(content),
+            mode: 0o666,
             mtimeMs: 0
         };
         touch(node);
@@ -176,6 +182,10 @@ function createMemoryFs() {
         return resolved.entry.target;
     }
 
+    function realpathSync(targetPath) {
+        return getEntry(targetPath, { followSymlinks: true }).path;
+    }
+
     function symlinkSync(target, linkPath, type) {
         const absolutePath = normalize(linkPath);
         ensureDirectoryEntry(path.dirname(absolutePath));
@@ -183,6 +193,7 @@ function createMemoryFs() {
             type: 'symlink',
             target,
             linkType: type,
+            mode: 0o777,
             mtimeMs: 0
         };
         touch(node);
@@ -227,6 +238,21 @@ function createMemoryFs() {
                 entries.delete(entryPath);
             }
         }
+    }
+
+    function chmodSync(targetPath, mode) {
+        const resolved = getEntry(targetPath, { followSymlinks: true });
+        resolved.entry.mode = mode;
+        touch(resolved.entry);
+    }
+
+    function copyFileSync(sourcePath, targetPath) {
+        const source = getEntry(sourcePath, { followSymlinks: false });
+        if (source.entry.type !== 'file') {
+            throw new Error(`EINVAL: invalid argument, copyfile ${source.path}`);
+        }
+        writeFileSync(targetPath, source.entry.content);
+        chmodSync(targetPath, source.entry.mode);
     }
 
     function cpSync(sourcePath, targetPath) {
