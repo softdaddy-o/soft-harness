@@ -3,7 +3,7 @@ const { getProfile, listProfiles } = require('./profiles');
 const { exists, readUtf8, removePath, writeUtf8 } = require('./fs-util');
 const { hashString } = require('./hash');
 const { buildConcatStub, buildImportStub } = require('./stubs');
-const { areInstructionsExternal } = require('./harness-config');
+const { areInstructionsExternal, excludedInstructionLlms } = require('./harness-config');
 
 function buildInstructionExports(rootDir, options) {
     // Every instruction path funnels through here — export, drift detection,
@@ -15,9 +15,13 @@ function buildInstructionExports(rootDir, options) {
     }
 
     const state = (options && options.state) || { assets: { instructions: [] } };
+    const excluded = excludedInstructionLlms(rootDir);
     const exports = [];
 
     for (const llm of listProfiles()) {
+        if (excluded.has(llm)) {
+            continue;
+        }
         const sources = getInstructionSourceEntries(rootDir, llm);
         const shouldExport = sources.some((entry) => entry.present || entry.content.trim().length > 0)
             || state.assets.instructions.some((item) => item.llm === llm);
@@ -115,10 +119,11 @@ function pruneStaleTargets(rootDir, exports, options) {
     }
 
     const desired = new Set(exports.map((entry) => entry.relativePath));
+    const excluded = excludedInstructionLlms(rootDir);
     const state = (options && options.state) || { assets: { instructions: [] } };
 
     for (const entry of state.assets.instructions) {
-        if (desired.has(entry.target)) {
+        if (desired.has(entry.target) || excluded.has(entry.llm)) {
             continue;
         }
         removePath(path.join(rootDir, entry.target));

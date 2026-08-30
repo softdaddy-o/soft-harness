@@ -101,3 +101,30 @@ test('instructions: external never deletes a previously managed target', () => {
     assert.ok(fs.existsSync(path.join(root, 'CLAUDE.md')), 'CLAUDE.md was deleted');
     assert.match(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), /a rule the project owns/);
 });
+
+// A project can keep harness-managed instructions for some hosts and drop a
+// host it does not use. Deleting the file is not enough: the exporter re-adopts
+// the target whenever the shared fragments exist, so the exclusion has to be
+// declared.
+test('instructions.exclude drops one host and keeps the rest', () => {
+    const root = makeProjectTree('soft-harness-instr-exclude-',
+        tree('{ "instructions": { "exclude": ["gemini"] } }\n'));
+    const llms = buildInstructionExports(root, { state: { assets: { instructions: [] } } })
+        .map((entry) => entry.llm);
+
+    assert.ok(!llms.includes('gemini'), 'gemini should be excluded');
+    assert.ok(llms.includes('claude'), 'claude should still be generated');
+    assert.ok(llms.includes('codex'), 'codex should still be generated');
+});
+
+test('instructions.exclude never deletes the excluded host file', () => {
+    const root = makeProjectTree('soft-harness-instr-exclude-keep-',
+        tree('{ "instructions": { "exclude": ["gemini"] } }\n'));
+    fs.writeFileSync(path.join(root, 'GEMINI.md'), '# kept by hand\n', 'utf8');
+
+    exportInstructions(root, {
+        state: { assets: { instructions: [{ llm: 'gemini', target: 'GEMINI.md', sources: [] }] } }
+    });
+
+    assert.ok(fs.existsSync(path.join(root, 'GEMINI.md')), 'excluded host file was deleted');
+});

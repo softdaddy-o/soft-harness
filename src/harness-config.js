@@ -33,7 +33,20 @@ function areInstructionsExternal(rootDir) {
     return String(value == null ? '' : value).trim().toLowerCase() === 'external';
 }
 
+// `{"instructions": {"exclude": ["gemini"]}}` keeps generation on for the other
+// hosts and drops one the project does not use. Deleting the file alone does
+// not hold: the exporter re-adopts a target whenever the shared fragments
+// exist, so the exclusion has to be declared rather than performed.
+function excludedInstructionLlms(rootDir) {
+    const value = readHarnessConfig(rootDir).instructions;
+    if (!value || typeof value !== 'object' || !Array.isArray(value.exclude)) {
+        return new Set();
+    }
+    return new Set(value.exclude.map((llm) => String(llm).trim().toLowerCase()).filter(Boolean));
+}
+
 module.exports = {
     areInstructionsExternal,
+    excludedInstructionLlms,
     readHarnessConfig
 };
