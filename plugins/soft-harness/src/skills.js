@@ -24,13 +24,16 @@ function discoverSkillsAndAgents(rootDir) {
                 if (!exists(path.join(skillDir, 'SKILL.md'))) {
                     continue;
                 }
+                if (isExternalRuntimeSkill(skillDir)) {
+                    continue;
+                }
                 items.push({
                     name: item.name,
                     type: 'skill',
                     llm,
                     relativePath: path.posix.join(profile.skills_dir, item.name),
                     absolutePath: skillDir,
-                    hash: hashDirectory(skillDir)
+                    hash: hashDirectory(skillDir, { ignore: SKILL_DISCOVERY_HASH_IGNORES })
                 });
             }
         }
@@ -764,6 +767,10 @@ function buildHarnessAssetPlan(rootDir) {
                 if (!item.isDirectory()) {
                     continue;
                 }
+                const skillDir = path.join(skillsDir, item.name);
+                if (isExternalRuntimeSkill(skillDir)) {
+                    continue;
+                }
 
                 const targets = bucket === 'common' ? listProfiles() : [bucket];
                 for (const llm of targets) {
@@ -1124,6 +1131,13 @@ function copyManagedAsset(sourcePath, targetPath, entry) {
     normalizeSkillMarkdownTree(targetPath);
 }
 
+function isExternalRuntimeSkill(skillDir) {
+    return exists(path.join(skillDir, '.git'))
+        && exists(path.join(skillDir, 'SKILL.md'))
+        && exists(path.join(skillDir, 'bin'))
+        && !exists(path.join(skillDir, '.harness-portable'));
+}
+
 function normalizeSkillMarkdownTree(rootDir) {
     for (const file of walkFiles(rootDir, (relativePath) => path.posix.basename(relativePath) === 'SKILL.md')) {
         const relativeDir = path.posix.dirname(file.relativePath);
@@ -1258,14 +1272,19 @@ function collectLocalMarkdownReferences(content) {
     const references = new Set();
     const text = String(content || '');
     const patterns = [
-        /`((?:\.\.?\/)[^`\r\n]+)`/gu,
-        /\[[^\]]+\]\(((?:\.\.?\/)[^)]+)\)/gu
+        { pattern: /`((?:\.\.?\/)[^`\r\n]+)`/gu, allowDirectoryArgument: true },
+        { pattern: /\[[^\]]+\]\(((?:\.\.?\/)[^)]+)\)/gu, allowDirectoryArgument: false }
     ];
 
-    for (const pattern of patterns) {
+    for (const { pattern, allowDirectoryArgument } of patterns) {
         for (const match of text.matchAll(pattern)) {
             const value = cleanText(match[1]);
             if (!value) {
+                continue;
+            }
+            const isInlineDirectoryArgument = allowDirectoryArgument
+                && (value.endsWith('/') || value.endsWith('\\') || !path.extname(value));
+            if (isInlineDirectoryArgument) {
                 continue;
             }
             references.add(value.split('#')[0]);
@@ -1559,6 +1578,7 @@ function toPosixRelative(rootDir, absolutePath) {
     return path.relative(rootDir, absolutePath).split(path.sep).join('/');
 }
 
+const SKILL_DISCOVERY_HASH_IGNORES = ['.git', 'node_modules', '__pycache__', '.pytest_cache'];
 const SUPPORTED_AGENT_EXTENSIONS = new Set(['.md', '.toml']);
 
 module.exports = {
