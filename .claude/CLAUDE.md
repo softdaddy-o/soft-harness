@@ -13,7 +13,7 @@ Soft Harness provides two skills:
 Use `organize` whenever you modify `AGENTS.md` or `CLAUDE.md`; first ask the user whether the change should be shared with other LLM instruction files or kept LLM-specific. Only sync to other LLM files when the user chooses a shared change.
 <!-- soft-harness prompt:end -->
 
-@.harness/HARNESS.md
-@.harness/memory/shared.md
-@.harness/llm/claude.md
-@.harness/memory/llm/claude.md
+@../.harness/HARNESS.md
+@../.harness/memory/shared.md
+@../.harness/llm/claude.md
+@../.harness/memory/llm/claude.md

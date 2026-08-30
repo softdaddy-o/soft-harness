@@ -31,6 +31,39 @@ It is not:
 - Plugin install and uninstall execution are out of scope.
 - Secrets must never be committed.
 
+## Releasing
+
+Publishing runs in GitHub Actions, not from a developer machine. The package
+uses npm **trusted publishing** (OIDC), which only works inside the workflow:
+the short-lived identity token comes from the CI runner, so a local
+`npm publish` has nothing to present and falls back to demanding 2FA. A stored
+token in `~/.npmrc` does not change this. If you find yourself entering an OTP,
+you are on the wrong path.
+
+Release steps:
+
+1. bump `version` in `package.json`, then `npm run version` to propagate it to
+   the plugin manifests
+2. `node scripts/sync-plugin-src.js` so the plugin carries the current runtime
+   graph, and `npm test`
+3. commit and push to `main`
+4. publish by either
+   - `gh workflow run publish.yml --ref main`, or
+   - creating a GitHub Release tagged `v<version>`
+
+The trusted publisher is registered on npmjs.com as
+`softdaddy-o/soft-harness` + `publish.yml`. Changing the workflow's filename
+breaks publishing until that registration is updated.
+
+Verify with `curl -s https://registry.npmjs.org/soft-harness` rather than
+`npm view` — the latter serves a local cache and will show the previous version
+for a while after a successful publish.
+
+Two distribution channels exist and drift silently: the npm package and the
+Claude plugin (installed from the GitHub marketplace entry). A publish updates
+only npm; the plugin needs `/plugin marketplace update soft-harness` and
+`/reload-plugins` on each machine.
+
 ## Code Style
 
 ### JavaScript
