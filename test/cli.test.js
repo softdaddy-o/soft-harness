@@ -1079,3 +1079,33 @@ test('cli: revert list prints no backups message when empty', async () => {
         process.stdout.write = originalStdoutWrite;
     }
 });
+
+// Regression for #26: a skipped skill must be visible in the report, not just
+// silently absent from the export list.
+test('cli: sync report shows skipped skills as warnings', () => {
+    const warning = {
+        action: 'skipped',
+        type: 'skill',
+        llm: 'claude',
+        name: 'unsafe',
+        source: '.harness/skills/common/unsafe',
+        target: '.claude/skills/unsafe',
+        reason: 'managed skill export is missing referenced file: ./references/notes.md'
+    };
+    const report = formatSyncReport({
+        phase: 'completed',
+        plan: { import: [], export: [], drift: [], conflicts: [], plugins: [] },
+        imported: [],
+        exported: [],
+        pulledBack: [],
+        pluginActions: [],
+        details: { imports: [], exports: [warning], drift: [], conflicts: [] },
+        warnings: [warning],
+        backupTs: null
+    }, {});
+
+    assert.match(report, /warnings/);
+    assert.match(report, /\.claude\/skills\/unsafe: managed skill export is missing referenced file/);
+    // and it is marked inline in the export listing too
+    assert.match(report, /\[skipped: managed skill export is missing referenced file/);
+});
