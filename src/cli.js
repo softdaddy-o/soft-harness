@@ -94,54 +94,130 @@ const ICONS = {
     unknown: '❓ Unknown'
 };
 
-// Flags each mutating subcommand actually understands. Derived from the
-// parsers below rather than from HELP: `--no-run-installs` and
-// `--no-run-uninstalls` are parsed but undocumented, and a HELP-derived list
-// would reject them.
-const KNOWN_FLAGS = {
+// The syntax each subcommand accepts: the flags it understands and how many
+// positional arguments it takes at most. Declared here rather than derived from HELP
+// because `--no-run-installs` and `--no-run-uninstalls` are parsed but
+// undocumented, and a HELP-derived list would reject them.
+//
+// An argument that does not fit this grammar is a parse failure, not something
+// to skip. Skipping it is how `sync --help` ran a real pull-back and how
+// `sync no-import` -- the same flag with its hyphens dropped -- still did:
+// both parsed as "sync with defaults". A leading `-` is not the test.
+//
+// Value checks stay in the parsers that own them (`--category=`, `--link-mode=`,
+// `remember --title`), so each mistake keeps one error message.
+const COMMAND_SYNTAX = {
     sync: {
-        boolean: [
+        booleans: [
             '--account', '--codex-plugins-enabled', '--dry-run', '-n', '--explain',
             '--force-export-untracked-hosts', '--manual-review', '-i', '--no-export',
             '--no-import', '--no-run-installs', '--no-run-uninstalls', '--verbose', '--yes'
         ],
-        prefix: ['--body-threshold=', '--heading-threshold=', '--link-mode=', '--root=']
+        values: ['--body-threshold=', '--heading-threshold=', '--link-mode=', '--root='],
+        maxPositionals: 0
+    },
+    analyze: {
+        booleans: ['--account', '--explain', '--include-account', '--json', '--verbose'],
+        values: [
+            '--account-root=', '--body-threshold=', '--category=', '--heading-threshold=',
+            '--llms=', '--root='
+        ],
+        maxPositionals: 0
     },
     organize: {
-        boolean: ['--account', '--dry-run', '-n', '--explain', '--json', '--partition-memory', '--verbose'],
-        prefix: ['--account-root=', '--root=']
+        booleans: ['--account', '--dry-run', '-n', '--explain', '--json', '--partition-memory', '--verbose'],
+        values: ['--account-root=', '--root='],
+        maxPositionals: 0
     },
     remember: {
-        boolean: ['--no-export'],
-        prefix: ['--content=', '--llm=', '--scope=', '--section=', '--title=']
+        booleans: ['--no-export'],
+        values: ['--content=', '--llm=', '--scope=', '--section=', '--title='],
+        maxPositionals: 0
+    },
+    // The subcommand is the single positional. Which names are supported stays
+    // with runCurate/runPlugins/runOrigins, which already report it.
+    curate: {
+        booleans: ['--account'],
+        values: ['--input=', '--root='],
+        maxPositionals: 1
+    },
+    plugins: {
+        booleans: ['--account'],
+        values: ['--input=', '--root='],
+        maxPositionals: 1
+    },
+    origins: {
+        booleans: ['--account'],
+        values: ['--input=', '--root='],
+        maxPositionals: 1
+    },
+    prompt: {
+        booleans: ['--account', '--analyze', '--no-web'],
+        values: [],
+        maxPositionals: 0
     },
     revert: {
-        boolean: ['--list'],
-        prefix: []
+        booleans: ['--list'],
+        values: [],
+        // A bare `revert` stays a runRevert error so the two spellings of
+        // "no timestamp" keep one message.
+        maxPositionals: 1,
+        rule(positionals, args) {
+            if (args.includes('--list') && positionals.length > 0) {
+                throw new Error(`revert --list takes no timestamp: ${positionals[0]}`);
+            }
+        }
     }
 };
 
-// A mutating subcommand must refuse what it does not understand. Running with
-// defaults instead is how `sync --help` came to execute a real pull-back.
-function assertKnownFlags(command, args) {
-    const known = KNOWN_FLAGS[command];
-    if (!known) {
-        return;
+// `--help` is a form of every command, not a special case ahead of the grammar:
+// it asks for usage, so nothing else in the line has to parse, and it can never
+// reach an execution path.
+function wantsHelp(args) {
+    return args.includes('--help') || args.includes('-h');
+}
+
+// Returns what the invocation asks for, or throws when it matches no form of
+// the command. Never falls back to "run with defaults".
+function planInvocation(command, args) {
+    if (command === 'help' || wantsHelp([command, ...args])) {
+        return { action: 'help' };
     }
 
+    const syntax = COMMAND_SYNTAX[command];
+    if (!syntax) {
+        // An unrecognized command is reported by the dispatch switch.
+        return { action: 'run' };
+    }
+
+    const positionals = [];
     for (const arg of args) {
         if (!arg.startsWith('-')) {
+            positionals.push(arg);
             continue;
         }
-        if (known.boolean.includes(arg) || known.prefix.some((prefix) => arg.startsWith(prefix))) {
+        if (syntax.booleans.includes(arg) || syntax.values.some((prefix) => arg.startsWith(prefix))) {
             continue;
         }
         throw new Error(`unknown option: ${arg}`);
     }
-}
 
-function wantsHelp(args) {
-    return args.includes('--help') || args.includes('-h');
+    if (positionals.length > syntax.maxPositionals) {
+        const extra = positionals[syntax.maxPositionals];
+        const meantFlag = syntax.booleans.includes(`--${extra}`)
+            || syntax.values.some((prefix) => `--${extra}`.startsWith(prefix));
+        throw new Error(
+            meantFlag
+                ? `unexpected argument: ${extra} (did you mean --${extra}?)`
+                : `unexpected argument: ${extra}`
+        );
+    }
+
+    if (syntax.rule) {
+        syntax.rule(positionals, args);
+    }
+
+    return { action: 'run' };
 }
 
 function parseSyncArgs(args) {
@@ -438,18 +514,19 @@ async function main(argv, io) {
     const command = argv[2] || 'help';
     const args = argv.slice(3);
 
-    // `--help` resolves before any option-dependent execution path, for every
-    // subcommand. It must never be able to reach a mutating code path.
-    if (command === 'help' || wantsHelp([command, ...args])) {
-        process.stdout.write(HELP);
-        return 0;
-    }
-
+    // The grammar is resolved before the dispatch switch, so an invocation the
+    // command does not understand can never reach an execution path.
+    let plan;
     try {
-        assertKnownFlags(command, args);
+        plan = planInvocation(command, args);
     } catch (error) {
         process.stderr.write(`${command} failed: ${error.message}\n`);
         return 1;
+    }
+
+    if (plan.action === 'help') {
+        process.stdout.write(HELP);
+        return 0;
     }
 
     switch (command) {
