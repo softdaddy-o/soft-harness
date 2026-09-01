@@ -513,6 +513,10 @@ function formatSyncReport(result, options) {
         appendSection(lines, 'conflicts', formatConflictDetails(result.details && result.details.conflicts));
     }
 
+    appendSection(lines, 'backup warnings', (result.backupWarnings || []).map(
+        (warning) => `${warning.path}: ${warning.reason}`
+    ));
+
     if (result.pluginActions && result.pluginActions.length > 0) {
         lines.push('');
         lines.push('plugins');

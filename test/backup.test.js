@@ -356,3 +356,88 @@ test('backup: inferLinkType falls back to junction when stat fails', () => {
         fs.statSync = originalStatSync;
     }
 });
+
+// Regression for #24: a nested symlink inside a backed-up tree used to be
+// recreated with symlinkSync, which Windows refuses without Developer Mode or
+// elevation. The EPERM aborted the whole sync. Backups only need the bytes, so
+// they dereference instead.
+test('backup: nested symlinks are dereferenced rather than recreated', () => {
+    const memoryFs = createMemoryFs();
+    return memoryFs.run(() => {
+        const root = memoryFs.root('soft-harness-backup-nested-link-root');
+        writeUtf8(path.join(root, 'real', 'note.md'), '# Real note');
+        writeUtf8(path.join(root, 'skill', 'SKILL.md'), '# Skill');
+        memoryFs.backend.symlinkSync(path.join(root, 'real'), path.join(root, 'skill', 'references'), 'junction');
+
+        // Windows without Developer Mode: creating a link is not permitted.
+        const originalSymlink = memoryFs.backend.symlinkSync;
+        memoryFs.backend.symlinkSync = () => {
+            const error = new Error('EPERM: operation not permitted, symlink');
+            error.code = 'EPERM';
+            throw error;
+        };
+
+        try {
+            const backup = createBackup(root, ['skill'], { timestamp: '2026-09-01-131046', reason: 'sync' });
+
+            assert.equal(backup.warnings.length, 0);
+            const backedUpLink = path.join(backup.backupDir, 'skill', 'references');
+            assert.equal(memoryFs.backend.lstatSync(backedUpLink).isSymbolicLink(), false);
+            assert.equal(readUtf8(path.join(backedUpLink, 'note.md')), '# Real note');
+        } finally {
+            memoryFs.backend.symlinkSync = originalSymlink;
+        }
+    });
+});
+
+// Regression for #24: one unreadable asset must not take down the run.
+test('backup: an asset that cannot be copied warns and leaves the rest intact', () => {
+    const memoryFs = createMemoryFs();
+    return memoryFs.run(() => {
+        const root = memoryFs.root('soft-harness-backup-per-asset-failure-root');
+        writeUtf8(path.join(root, 'good', 'SKILL.md'), '# Good');
+        writeUtf8(path.join(root, 'bad', 'SKILL.md'), '# Bad');
+
+        const originalReaddir = memoryFs.backend.readdirSync;
+        memoryFs.backend.readdirSync = (target, ...rest) => {
+            if (String(target).endsWith(`${path.sep}bad`)) {
+                const error = new Error('EPERM: operation not permitted, scandir');
+                error.code = 'EPERM';
+                throw error;
+            }
+            return originalReaddir(target, ...rest);
+        };
+
+        try {
+            const backup = createBackup(root, ['good', 'bad'], { timestamp: '2026-09-01-131047', reason: 'sync' });
+
+            assert.equal(backup.warnings.length, 1);
+            assert.match(backup.warnings[0].reason, /backup skipped: EPERM/);
+            assert.equal(backup.warnings[0].path, 'bad');
+            // the unrelated asset is still captured
+            assert.equal(readUtf8(path.join(backup.backupDir, 'good', 'SKILL.md')), '# Good');
+
+            const manifest = readJson(backup.manifestPath);
+            assert.ok(manifest.entries.some((entry) => entry.path === 'bad' && entry.kind === 'skipped'));
+        } finally {
+            memoryFs.backend.readdirSync = originalReaddir;
+        }
+    });
+});
+
+// Regression for #24: restoring must not delete a live file we never captured.
+test('backup: restore leaves a skipped entry untouched instead of deleting it', () => {
+    const root = makeTempDir('soft-harness-backup-restore-skipped-');
+    writeUtf8(path.join(root, 'kept.md'), 'live content');
+    const backup = createBackup(root, ['kept.md'], { timestamp: '2026-09-01-131048', reason: 'sync' });
+
+    // rewrite the manifest as though the copy had failed
+    const manifest = readJson(backup.manifestPath);
+    manifest.entries = [{ path: 'kept.md', kind: 'skipped', error: 'EPERM' }];
+    writeJson(backup.manifestPath, manifest);
+
+    restoreBackup(root, backup.timestamp);
+
+    assert.equal(exists(path.join(root, 'kept.md')), true);
+    assert.equal(readUtf8(path.join(root, 'kept.md')), 'live content');
+});

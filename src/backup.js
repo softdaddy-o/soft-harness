@@ -27,6 +27,7 @@ function createBackup(rootDir, paths, options) {
     ensureDir(backupDir);
 
     const entries = [];
+    const warnings = [];
     for (const relativePath of uniquePaths) {
         const absolutePath = path.join(rootDir, relativePath);
         if (!exists(absolutePath)) {
@@ -49,11 +50,28 @@ function createBackup(rootDir, paths, options) {
         }
 
         const kind = stats.isDirectory() ? 'directory' : 'file';
+        // One unreadable asset must not abort the run. A nested symlink used to
+        // do exactly that on Windows: recreating it needs Developer Mode or
+        // elevation, and the EPERM took down an otherwise unrelated sync.
+        try {
+            copyPath(absolutePath, path.join(backupDir, relativePath), { dereferenceLinks: true });
+        } catch (error) {
+            entries.push({
+                path: relativePath,
+                kind: 'skipped',
+                error: error.message
+            });
+            warnings.push({
+                path: relativePath,
+                reason: `backup skipped: ${error.message}`
+            });
+            continue;
+        }
+
         entries.push({
             path: relativePath,
             kind
         });
-        copyPath(absolutePath, path.join(backupDir, relativePath));
     }
 
     const manifest = {
@@ -68,7 +86,8 @@ function createBackup(rootDir, paths, options) {
         timestamp,
         backupDir,
         manifestPath: path.join(backupDir, 'manifest.json'),
-        entryCount: entries.length
+        entryCount: entries.length,
+        warnings
     };
 }
 
@@ -129,6 +148,13 @@ function restoreBackup(rootDir, timestamp) {
         const targetPath = path.join(rootDir, entry.path);
         if (entry.kind === 'missing') {
             removePath(targetPath);
+            continue;
+        }
+
+        // Nothing was captured for this path, so there is nothing to restore.
+        // Leaving it untouched is right -- removing it first, as the copy path
+        // below does, would destroy the live file we failed to back up.
+        if (entry.kind === 'skipped') {
             continue;
         }
 

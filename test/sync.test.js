@@ -540,3 +540,37 @@ function makeClaudePluginMirrorFixture(prefix) {
     }, null, 2));
     return root;
 }
+
+// Regression for #24: export writes targets, never sources. Backing up harness
+// sources on a --no-import run meant walking trees the run would never touch,
+// which is how a nested symlink in one of them could abort everything.
+test('sync: --no-import backs up export targets but not harness sources', async () => {
+    const root = makeTempDir('soft-harness-sync-backup-scope-');
+    writeUtf8(path.join(root, '.harness', 'skills', 'claude', 'built-in', 'SKILL.md'), '# Built In');
+    writeUtf8(path.join(root, '.claude', 'skills', 'built-in', 'SKILL.md'), '# Existing target');
+
+    await runSync(root, { noImport: true }, {});
+
+    const backups = listBackups(root);
+    const latest = backups[backups.length - 1];
+    const manifest = JSON.parse(readUtf8(path.join(root, '.harness', 'backups', latest.timestamp, 'manifest.json')));
+    const backedUp = manifest.entries.map((entry) => entry.path);
+
+    assert.ok(backedUp.includes('.claude/skills/built-in'), 'the export target is backed up');
+    assert.equal(backedUp.includes('.harness/skills/claude/built-in'), false, 'the source is not written to, so it is not backed up');
+});
+
+// ...but pull-back does write into harness sources, so an importing run still
+// has to back them up.
+test('sync: an importing run still backs up harness sources', async () => {
+    const root = makeTempDir('soft-harness-sync-backup-scope-import-');
+    writeUtf8(path.join(root, '.harness', 'skills', 'claude', 'built-in', 'SKILL.md'), '# Built In');
+
+    await runSync(root, {}, {});
+
+    const backups = listBackups(root);
+    const latest = backups[backups.length - 1];
+    const manifest = JSON.parse(readUtf8(path.join(root, '.harness', 'backups', latest.timestamp, 'manifest.json')));
+
+    assert.ok(manifest.entries.some((entry) => entry.path === '.harness/skills/claude/built-in'));
+});

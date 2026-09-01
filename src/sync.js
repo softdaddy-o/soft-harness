@@ -27,7 +27,7 @@ async function runSync(rootDir, options, io) {
         || Boolean(options && options.interactive && firstSync && !options.yes);
 
     const discovered = await discoverInstructions(rootDir, effectiveOptions);
-    const backupTargets = collectInitialBackupTargets(rootDir, discovered, state);
+    const backupTargets = collectInitialBackupTargets(rootDir, discovered, state, options);
     const backup = (options && options.dryRun)
         ? null
         : createBackup(rootDir, backupTargets, { reason: 'sync' });
@@ -142,6 +142,7 @@ async function runSync(rootDir, options, io) {
             pulledBack,
             pluginActions,
             details,
+            backupWarnings: [],
             backupTs: null
         };
     }
@@ -157,6 +158,7 @@ async function runSync(rootDir, options, io) {
         pulledBack,
         pluginActions,
         details,
+        backupWarnings: backup ? (backup.warnings || []) : [],
         backupTs: backup ? backup.timestamp : null
     };
 }
@@ -239,7 +241,7 @@ async function resolveInstructionConflicts(conflicts, options) {
     return decisions;
 }
 
-function collectInitialBackupTargets(rootDir, discovered, state) {
+function collectInitialBackupTargets(rootDir, discovered, state, options) {
     const paths = new Set([
         '.harness/HARNESS.md',
         '.harness/llm',
@@ -273,8 +275,17 @@ function collectInitialBackupTargets(rootDir, discovered, state) {
     paths.add('.harness/settings/portable.yaml');
     paths.add('.harness/memory/shared.md');
 
+    // Export writes targets, never sources, so a source only needs a backup
+    // when pull-back can write into it -- that is, when import runs. Backing
+    // up sources unconditionally meant traversing trees the run would never
+    // touch, which is how a nested symlink in one of them could abort
+    // everything. Shadowed sources are already excluded: discoverHarnessAssets
+    // returns the plan, and a shadowed entry is never planned.
+    const backsUpSources = !options || !options.noImport;
     for (const item of discoverHarnessAssets(rootDir)) {
-        paths.add(item.source);
+        if (backsUpSources) {
+            paths.add(item.source);
+        }
         paths.add(item.target);
     }
 
