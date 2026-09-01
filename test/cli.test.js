@@ -1079,3 +1079,25 @@ test('cli: revert list prints no backups message when empty', async () => {
         process.stdout.write = originalStdoutWrite;
     }
 });
+
+// Regression for #24: surviving a failed backup asset is only half the fix if
+// the user is never told something was skipped.
+test('cli: sync report shows backup warnings for skipped assets', () => {
+    const report = formatSyncReport({
+        phase: 'completed',
+        plan: { import: [], export: [], drift: [], conflicts: [], plugins: [] },
+        imported: [],
+        exported: [],
+        pulledBack: [],
+        pluginActions: [],
+        details: { imports: [], exports: [], drift: [], conflicts: [] },
+        backupWarnings: [{
+            path: '.harness/skills/claude/session-end-learning',
+            reason: 'backup skipped: EPERM: operation not permitted, symlink'
+        }],
+        backupTs: '2026-09-01-131046'
+    }, {});
+
+    assert.match(report, /backup warnings/);
+    assert.match(report, /session-end-learning: backup skipped: EPERM/);
+});
