@@ -227,7 +227,10 @@ test('skills: discoverHarnessAssets expands common buckets across all llms', () 
     assert.equal(assets.filter((item) => item.type === 'agent').length, 2);
 });
 
-test('skills: export validates source skill trees before writing targets', () => {
+// Regression for #26: the broken skill is skipped and its existing target is
+// left alone, but an unrelated skill in the same run still exports. The
+// reference is a markdown link -- inline code is prose, not an asset.
+test('skills: a skill with a missing referenced file is skipped without blocking others', () => {
     const root = makeProjectTree('soft-harness-skills-export-preflight-', {
         '.harness': {
             skills: {
@@ -236,9 +239,12 @@ test('skills: export validates source skill trees before writing targets', () =>
                         'SKILL.md': [
                             '# Unsafe',
                             '',
-                            'See `../references/missing.md`.',
+                            'See [the notes](../references/missing.md).',
                             ''
                         ].join('\n')
+                    },
+                    fine: {
+                        'SKILL.md': '# Fine'
                     }
                 }
             }
@@ -252,9 +258,43 @@ test('skills: export validates source skill trees before writing targets', () =>
         }
     });
 
-    assert.throws(() => exportSkillsAndAgents(root, {}), /managed skill export is missing referenced file: \.\.\/references\/missing\.md/);
+    const result = exportSkillsAndAgents(root, {});
+
+    assert.ok(result.warnings.some((warning) => warning.target === '.claude/skills/unsafe'
+        && /missing referenced file: \.\.\/references\/missing\.md/.test(warning.reason)));
+    // the broken skill is skipped, so its existing target survives untouched
     assert.match(readUtf8(path.join(root, '.claude', 'skills', 'unsafe', 'SKILL.md')), /# Existing target/);
     assert.equal(exists(path.join(root, '.codex', 'skills', 'unsafe')), false);
+    // ...and the unrelated skill still exports
+    assert.equal(exists(path.join(root, '.claude', 'skills', 'fine', 'SKILL.md')), true);
+    assert.ok(result.exported.some((entry) => entry.to === '.claude/skills/fine'));
+});
+
+// Regression for #26: the literal string from the issue -- a CLI flag's
+// documented default value, in prose. It is not a bundled asset.
+test('skills: a documented CLI default in prose is not treated as a bundled asset', () => {
+    const root = makeProjectTree('soft-harness-skills-export-cli-default-', {
+        '.harness': {
+            skills: {
+                common: {
+                    'finance-ops': {
+                        'SKILL.md': [
+                            '# Finance Ops',
+                            '',
+                            '- `--history DIR` — History directory for MoM comparison (default: `./data/history/`)',
+                            '- `--script PATH` — Analyzer entry point (default: `./scripts/cfo-analyzer.py`)',
+                            ''
+                        ].join('\n')
+                    }
+                }
+            }
+        }
+    });
+
+    const result = exportSkillsAndAgents(root, {});
+
+    assert.deepEqual(result.warnings, []);
+    assert.equal(exists(path.join(root, '.claude', 'skills', 'finance-ops', 'SKILL.md')), true);
 });
 
 test('skills: external runtime worktrees are excluded unless explicitly portable', () => {
@@ -347,10 +387,12 @@ test('skills: export validates trailing-slash Markdown links', () => {
         }
     });
 
-    assert.throws(() => exportSkillsAndAgents(root, {}), /managed skill export is missing referenced file: \.\/data\/history\//);
+    const result = exportSkillsAndAgents(root, {});
+
+    assert.ok(result.warnings.some((warning) => /missing referenced file: \.\/data\/history\//.test(warning.reason)));
 });
 
-test('skills: export preflight rejects references missing from exported target layout', () => {
+test('skills: export preflight skips references missing from the exported target layout', () => {
     const root = makeProjectTree('soft-harness-skills-export-target-layout-', {
         '.harness': {
             skills: {
@@ -359,7 +401,7 @@ test('skills: export preflight rejects references missing from exported target l
                         'SKILL.md': [
                             '# Unsafe',
                             '',
-                            'See `../outside.md`.',
+                            'See [the sibling](../outside.md).',
                             ''
                         ].join('\n')
                     },
@@ -376,7 +418,10 @@ test('skills: export preflight rejects references missing from exported target l
         }
     });
 
-    assert.throws(() => exportSkillsAndAgents(root, {}), /managed skill export is missing referenced file in target layout: \.\.\/outside\.md/);
+    const result = exportSkillsAndAgents(root, {});
+
+    assert.ok(result.warnings.some((warning) => warning.target === '.claude/skills/unsafe'
+        && /missing referenced file in target layout: \.\.\/outside\.md/.test(warning.reason)));
     assert.match(readUtf8(path.join(root, '.claude', 'skills', 'unsafe', 'SKILL.md')), /# Existing target/);
 });
 

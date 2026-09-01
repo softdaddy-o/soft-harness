@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { listBackups } = require('../src/backup');
 const { loadState } = require('../src/state');
-const { readUtf8, removePath, writeUtf8 } = require('../src/fs-util');
+const { exists, readUtf8, removePath, writeUtf8 } = require('../src/fs-util');
 const { readInstalledPluginEntries } = require('../src/plugins');
 const { runSync } = require('../src/sync');
 const { copyFixture, makeTempDir } = require('./helpers');
@@ -139,20 +139,46 @@ test('sync: dry-run reports harness sources shadowed by common bucket', async ()
         && entry.target === '.claude/skills/shared'));
 });
 
-test('sync: skill export preflight failure leaves instruction targets untouched', async () => {
+// Regression for #26: a skill with a broken reference is skipped with a
+// warning rather than aborting the run -- unrelated skills are usually the
+// reason the run was started. The reference is written as a markdown link,
+// because a path in inline code is prose and no longer counts as an asset.
+test('sync: a skill with a missing referenced file is skipped, not fatal', async () => {
     const root = makeTempDir('soft-harness-sync-export-preflight-');
-    writeUtf8(path.join(root, 'AGENTS.md'), '# Existing Codex instructions');
     writeUtf8(path.join(root, '.harness', 'HARNESS.md'), '# Managed shared instructions');
     writeUtf8(path.join(root, '.harness', 'llm', 'codex.md'), '# Managed Codex instructions');
     writeUtf8(path.join(root, '.harness', 'skills', 'common', 'unsafe', 'SKILL.md'), [
         '# Unsafe',
         '',
-        'See `../references/missing.md`.',
+        'See [the notes](../references/missing.md).',
         ''
     ].join('\n'));
+    writeUtf8(path.join(root, '.harness', 'skills', 'common', 'fine', 'SKILL.md'), '# Fine');
 
-    await assert.rejects(() => runSync(root, { noImport: true }, {}), /managed skill export is missing referenced file: \.\.\/references\/missing\.md/);
-    assert.match(readUtf8(path.join(root, 'AGENTS.md')), /# Existing Codex instructions/);
+    const result = await runSync(root, { noImport: true }, {});
+
+    assert.ok(result.warnings.some((warning) => warning.target === '.claude/skills/unsafe'
+        && /missing referenced file: \.\.\/references\/missing\.md/.test(warning.reason)));
+    assert.equal(exists(path.join(root, '.claude', 'skills', 'unsafe')), false);
+    // the unrelated skill and the instruction export both still land
+    assert.equal(exists(path.join(root, '.claude', 'skills', 'fine')), true);
+    assert.match(readUtf8(path.join(root, 'AGENTS.md')), /Managed Codex instructions/);
+});
+
+// Regression for #26: dry-run used to exit 0 while only the real run died, so
+// the problem stayed invisible until it blocked you.
+test('sync: dry-run reports the same skipped-skill warning as the real run', async () => {
+    const root = makeTempDir('soft-harness-sync-export-preflight-dry-');
+    writeUtf8(path.join(root, '.harness', 'HARNESS.md'), '# Managed shared instructions');
+    writeUtf8(
+        path.join(root, '.harness', 'skills', 'common', 'unsafe', 'SKILL.md'),
+        'See [the notes](../references/missing.md).\n'
+    );
+
+    const result = await runSync(root, { noImport: true, dryRun: true }, {});
+
+    assert.ok(result.warnings.some((warning) => /missing referenced file/.test(warning.reason)));
+    assert.equal(exists(path.join(root, '.claude', 'skills', 'unsafe')), false);
 });
 
 test('sync: organize ports Claude markdown agents into codex toml outputs', async () => {
