@@ -23,6 +23,7 @@ Commands:
   soft-harness revert --list          List available backups created by helper flows
   soft-harness revert <timestamp>     Restore files from a backup created by helper flows
   soft-harness help                   Show this message
+  soft-harness <command> --help       Show this message without running the command
 
 Sync options:
   --root=<path>                      Run against an explicit root instead of the current directory
@@ -92,6 +93,56 @@ const ICONS = {
     syncPlan: '📦',
     unknown: '❓ Unknown'
 };
+
+// Flags each mutating subcommand actually understands. Derived from the
+// parsers below rather than from HELP: `--no-run-installs` and
+// `--no-run-uninstalls` are parsed but undocumented, and a HELP-derived list
+// would reject them.
+const KNOWN_FLAGS = {
+    sync: {
+        boolean: [
+            '--account', '--codex-plugins-enabled', '--dry-run', '-n', '--explain',
+            '--force-export-untracked-hosts', '--manual-review', '-i', '--no-export',
+            '--no-import', '--no-run-installs', '--no-run-uninstalls', '--verbose', '--yes'
+        ],
+        prefix: ['--body-threshold=', '--heading-threshold=', '--link-mode=', '--root=']
+    },
+    organize: {
+        boolean: ['--account', '--dry-run', '-n', '--explain', '--json', '--partition-memory', '--verbose'],
+        prefix: ['--account-root=', '--root=']
+    },
+    remember: {
+        boolean: ['--no-export'],
+        prefix: ['--content=', '--llm=', '--scope=', '--section=', '--title=']
+    },
+    revert: {
+        boolean: ['--list'],
+        prefix: []
+    }
+};
+
+// A mutating subcommand must refuse what it does not understand. Running with
+// defaults instead is how `sync --help` came to execute a real pull-back.
+function assertKnownFlags(command, args) {
+    const known = KNOWN_FLAGS[command];
+    if (!known) {
+        return;
+    }
+
+    for (const arg of args) {
+        if (!arg.startsWith('-')) {
+            continue;
+        }
+        if (known.boolean.includes(arg) || known.prefix.some((prefix) => arg.startsWith(prefix))) {
+            continue;
+        }
+        throw new Error(`unknown option: ${arg}`);
+    }
+}
+
+function wantsHelp(args) {
+    return args.includes('--help') || args.includes('-h');
+}
 
 function parseSyncArgs(args) {
     const flags = new Set(args);
@@ -385,13 +436,23 @@ function runRevert(args) {
 
 async function main(argv, io) {
     const command = argv[2] || 'help';
+    const args = argv.slice(3);
+
+    // `--help` resolves before any option-dependent execution path, for every
+    // subcommand. It must never be able to reach a mutating code path.
+    if (command === 'help' || wantsHelp([command, ...args])) {
+        process.stdout.write(HELP);
+        return 0;
+    }
+
+    try {
+        assertKnownFlags(command, args);
+    } catch (error) {
+        process.stderr.write(`${command} failed: ${error.message}\n`);
+        return 1;
+    }
 
     switch (command) {
-        case 'help':
-        case '--help':
-        case '-h':
-            process.stdout.write(HELP);
-            return 0;
         case 'sync':
             return runSync(argv.slice(3), io);
         case 'analyze':

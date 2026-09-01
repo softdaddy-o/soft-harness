@@ -1079,3 +1079,93 @@ test('cli: revert list prints no backups message when empty', async () => {
         process.stdout.write = originalStdoutWrite;
     }
 });
+
+// Regression for #25: `sync --help` used to fall through to a real sync with
+// default options, which left --no-import off and pulled host files back over
+// .harness/ sources. Help must be inert on every subcommand.
+function snapshotTree(rootDir) {
+    const snapshot = new Map();
+    const walk = (dir) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const absolutePath = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                walk(absolutePath);
+                continue;
+            }
+            snapshot.set(path.relative(rootDir, absolutePath), fs.readFileSync(absolutePath, 'utf8'));
+        }
+    };
+    walk(rootDir);
+    return snapshot;
+}
+
+function makeSyncableTree(prefix) {
+    return makeProjectTree(prefix, {
+        '.harness': {
+            'HARNESS.md': '# Harness\n\nShared rules.\n',
+            memory: { 'shared.md': '# Memory\n\nRemembered.\n' }
+        },
+        'CLAUDE.md': '# Claude\n\nUncommitted host edit.\n'
+    });
+}
+
+test('cli: sync --help prints usage and changes nothing on disk', () => {
+    const root = makeSyncableTree('soft-harness-cli-sync-help-');
+    const before = snapshotTree(root);
+
+    const result = spawnSync('node', [CLI, 'sync', '--help'], { cwd: root, encoding: 'utf8' });
+
+    assert.equal(result.status, 0);
+    assert.match(result.stdout, /soft-harness sync/);
+    assert.doesNotMatch(result.stdout, /pulled_back/);
+    // createBackup is the first thing runSync does, so an absent backups
+    // directory proves we returned before any execution path.
+    assert.equal(fs.existsSync(path.join(root, '.harness', 'backups')), false);
+    assert.equal(fs.existsSync(path.join(root, '.harness', '.sync-state.json')), false);
+    assert.deepEqual(snapshotTree(root), before);
+});
+
+test('cli: --help is inert for every subcommand', () => {
+    for (const command of ['sync', 'analyze', 'organize', 'remember', 'revert', 'curate', 'origins', 'plugins', 'prompt']) {
+        const root = makeSyncableTree(`soft-harness-cli-help-${command}-`);
+        const before = snapshotTree(root);
+
+        for (const flag of ['--help', '-h']) {
+            const result = spawnSync('node', [CLI, command, flag], { cwd: root, encoding: 'utf8' });
+            assert.equal(result.status, 0, `${command} ${flag} should exit 0`);
+            assert.match(result.stdout, /soft-harness - internal deterministic helpers/);
+            assert.equal(
+                fs.existsSync(path.join(root, '.harness', 'backups')),
+                false,
+                `${command} ${flag} must not create a backup`
+            );
+            assert.deepEqual(snapshotTree(root), before, `${command} ${flag} must not change files`);
+        }
+    }
+});
+
+test('cli: mutating subcommands reject unrecognized flags instead of running with defaults', () => {
+    for (const command of ['sync', 'organize', 'remember', 'revert']) {
+        const root = makeSyncableTree(`soft-harness-cli-unknown-${command}-`);
+        const before = snapshotTree(root);
+
+        const result = spawnSync('node', [CLI, command, '--totally-bogus-flag'], { cwd: root, encoding: 'utf8' });
+
+        assert.equal(result.status, 1, `${command} should reject an unknown flag`);
+        assert.match(result.stderr, /unknown option: --totally-bogus-flag/);
+        assert.equal(fs.existsSync(path.join(root, '.harness', 'backups')), false);
+        assert.deepEqual(snapshotTree(root), before, `${command} must not change files`);
+    }
+});
+
+test('cli: documented and undocumented sync flags are still accepted', () => {
+    const root = makeSyncableTree('soft-harness-cli-known-flags-');
+    const result = spawnSync(
+        'node',
+        [CLI, 'sync', '--no-import', '--dry-run', '--no-run-installs', '--no-run-uninstalls', '--link-mode=copy'],
+        { cwd: root, encoding: 'utf8' }
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stderr, /unknown option/);
+});
