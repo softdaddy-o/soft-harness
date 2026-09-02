@@ -27,10 +27,11 @@ async function runSync(rootDir, options, io) {
         || Boolean(options && options.interactive && firstSync && !options.yes);
 
     const discovered = await discoverInstructions(rootDir, effectiveOptions);
-    const backupTargets = collectInitialBackupTargets(rootDir, discovered, state, options);
+    const backupPlan = collectInitialBackupTargets(rootDir, discovered, state, options);
     const backup = (options && options.dryRun)
         ? null
-        : createBackup(rootDir, backupTargets, { reason: 'sync' });
+        : createBackup(rootDir, backupPlan.paths, { reason: 'sync' });
+    assertDisplacedTargetsAreRecoverable(backup, backupPlan.displaced);
     ensureHarnessFiles(rootDir, options);
     await resolveCodexPluginEnablement(rootDir, effectiveOptions);
 
@@ -241,39 +242,71 @@ async function resolveInstructionConflicts(conflicts, options) {
     return decisions;
 }
 
+// Why this run would write a path. Kept next to the paths themselves so the
+// abort message can say what was about to happen to the file it could not
+// back up.
+const DISPLACED_EXPORT_TARGET = 'export target';
+const DISPLACED_PULL_BACK = 'pull-back destination';
+const DISPLACED_PLUGIN_MIRROR = 'Codex plugin mirror target';
+const DISPLACED_SYNC_BOOKKEEPING = 'sync bookkeeping file';
+
+// Returns every path worth backing up, plus the subset this run intends to
+// overwrite or delete. The two come from one enumeration on purpose: a second
+// list of "what gets written" would drift from the first.
 function collectInitialBackupTargets(rootDir, discovered, state, options) {
-    const paths = new Set([
-        '.harness/HARNESS.md',
-        '.harness/llm',
-        '.harness/memory',
-        '.harness/settings',
-        '.harness/agents',
-        '.harness/asset-origins.yaml',
-        '.harness/plugins.yaml',
-        '.harness/.sync-state.json',
-        '.harness/.gitignore',
-        '.agents/plugins/marketplace.json',
-        'plugins'
-    ]);
+    const targets = new Map();
+    const add = (relativePath, displacedReason) => {
+        if (!relativePath) {
+            return;
+        }
+        targets.set(relativePath, targets.get(relativePath) || displacedReason || null);
+    };
+
+    const writesExports = !options || !options.noExport;
+    const writesSources = !options || !options.noImport;
+
+    // ensureHarnessFiles only writes these when they are absent, and an absent
+    // file has nothing to back up, so they are never displaced.
+    add('.harness/HARNESS.md');
+    add('.harness/.gitignore');
+    // Read during a sync, written only by the settings commands.
+    add('.harness/settings');
+    add('.harness/settings/portable.yaml');
+    add('.harness/plugins.yaml');
+    // Umbrella directories: the files under them that this run does write are
+    // marked below, and containment covers a failure recorded against the
+    // directory as a whole.
+    add('.harness/llm');
+    add('.harness/memory');
+    add('.harness/agents');
+    add('.harness/asset-origins.yaml', (writesExports || writesSources) && DISPLACED_SYNC_BOOKKEEPING);
+    add('.harness/.sync-state.json', DISPLACED_SYNC_BOOKKEEPING);
+    // Only a mirroring run rewrites these. Treating every interactive run as a
+    // mirroring one -- because resolveCodexPluginEnablement can still say yes
+    // later -- would put a marketplace-installed `plugins/` tree back under the
+    // abort, and an unreadable link in a tree the run never writes is the exact
+    // shape this branch exists to survive. See the ordering note below.
+    const mirrorsCodexPlugins = Boolean(options && options.codexPluginsEnabled);
+    add('.agents/plugins/marketplace.json', mirrorsCodexPlugins && DISPLACED_PLUGIN_MIRROR);
+    add('plugins', mirrorsCodexPlugins && DISPLACED_PLUGIN_MIRROR);
 
     for (const item of discovered) {
-        paths.add(item.relativePath);
-        paths.add(`.harness/llm/${item.llm}.md`);
-        paths.add(`.harness/memory/llm/${item.llm}.md`);
+        add(item.relativePath);
+        add(`.harness/llm/${item.llm}.md`, writesSources && DISPLACED_PULL_BACK);
+        add(`.harness/memory/llm/${item.llm}.md`, writesSources && DISPLACED_PULL_BACK);
         for (const target of getProfile(item.llm).instruction_files) {
-            paths.add(target);
+            add(target, writesExports && DISPLACED_EXPORT_TARGET);
         }
     }
 
     for (const llm of ['claude', 'codex', 'gemini']) {
         const profile = getProfile(llm);
         if (profile.settings_file) {
-            paths.add(profile.settings_file);
-            paths.add(`.harness/settings/llm/${llm}.yaml`);
+            add(profile.settings_file, writesExports && DISPLACED_EXPORT_TARGET);
+            add(`.harness/settings/llm/${llm}.yaml`);
         }
     }
-    paths.add('.harness/settings/portable.yaml');
-    paths.add('.harness/memory/shared.md');
+    add('.harness/memory/shared.md', writesSources && DISPLACED_PULL_BACK);
 
     // Export writes targets, never sources, so a source only needs a backup
     // when pull-back can write into it -- that is, when import runs. Backing
@@ -281,23 +314,88 @@ function collectInitialBackupTargets(rootDir, discovered, state, options) {
     // touch, which is how a nested symlink in one of them could abort
     // everything. Shadowed sources are already excluded: discoverHarnessAssets
     // returns the plan, and a shadowed entry is never planned.
-    const backsUpSources = !options || !options.noImport;
     for (const item of discoverHarnessAssets(rootDir)) {
-        if (backsUpSources) {
-            paths.add(item.source);
+        if (writesSources) {
+            add(item.source, DISPLACED_PULL_BACK);
         }
-        paths.add(item.target);
+        add(item.target, writesExports && DISPLACED_EXPORT_TARGET);
     }
 
+    // Host assets the run reads to detect drift. A managed one is already an
+    // export target above; the rest are never written, which is what keeps an
+    // unreadable link in one of them from stopping an unrelated export.
     for (const item of discoverSkillsAndAgents(rootDir)) {
-        paths.add(item.relativePath);
+        add(item.relativePath);
     }
 
     for (const item of state.assets.instructions || []) {
-        paths.add(item.target);
-        paths.add(item.source);
+        add(item.target, writesExports && DISPLACED_EXPORT_TARGET);
+        add(item.source, writesSources && DISPLACED_PULL_BACK);
     }
-    return Array.from(paths);
+
+    return {
+        paths: Array.from(targets.keys()),
+        displaced: new Map(Array.from(targets).filter(([, reason]) => reason))
+    };
+}
+
+// A backup that could not capture a path is only survivable while the run
+// leaves that path alone -- the 2026-09-01 EPERM was a link under a skill this
+// run never writes, and stopping the whole sync for it was the bug. Overwriting
+// a file whose backup failed is the opposite: the old bytes are gone and revert
+// has nothing to put back, so refuse before anything is applied.
+//
+// Two writes decided after this point escape the gate, both for the same
+// reason: moving the check to where they are decided would put it after the
+// exports, which is the half-applied state this check exists to avoid.
+// removeCodexPluginFallbackAssets deletes host assets chosen from
+// pluginResult.codexPluginMirrors, which only exists once syncPlugins has run;
+// and resolveCodexPluginEnablement can turn mirroring on after the backup, so
+// a run that starts with it off does not treat `plugins/` as displaced.
+function assertDisplacedTargetsAreRecoverable(backup, displaced) {
+    if (!backup) {
+        return;
+    }
+
+    const blocked = [];
+    for (const warning of backup.warnings || []) {
+        const displacedPath = findDisplacedPath(displaced, warning.path);
+        if (displacedPath) {
+            blocked.push(`${warning.path} (${warning.reason}) -- this run would write ${displacedPath} (${displaced.get(displacedPath)})`);
+        }
+    }
+
+    if (blocked.length === 0) {
+        return;
+    }
+
+    throw new Error(`backup failed for a path this run would overwrite, so no changes were applied: ${blocked.join('; ')}`);
+}
+
+// A failure is recorded against the path handed to createBackup, which may be
+// a directory holding the displaced file, or a file inside a displaced
+// directory. Either nesting means the displaced bytes were not captured.
+function findDisplacedPath(displaced, failedPath) {
+    const failed = normalizeRelativePath(failedPath);
+    if (!failed) {
+        return null;
+    }
+
+    for (const displacedPath of displaced.keys()) {
+        const candidate = normalizeRelativePath(displacedPath);
+        if (containsOrEquals(candidate, failed) || containsOrEquals(failed, candidate)) {
+            return displacedPath;
+        }
+    }
+    return null;
+}
+
+function containsOrEquals(ancestor, descendant) {
+    return descendant === ancestor || descendant.startsWith(`${ancestor}/`);
+}
+
+function normalizeRelativePath(value) {
+    return String(value || '').split('\\').join('/').replace(/\/+$/u, '');
 }
 
 function buildNextState(rootDir, state, discovered, plugins) {
