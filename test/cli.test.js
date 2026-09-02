@@ -117,7 +117,7 @@ test('cli: resolveCommandRoot rejects account mode without a home directory', ()
 });
 
 test('cli: invalid link mode exits non-zero', () => {
-    const result = spawnSync('node', [CLI, 'sync', '--link-mode=bogus'], { encoding: 'utf8' });
+    const result = spawnSync('node', [CLI, 'sync', '--export', '--link-mode=bogus'], { encoding: 'utf8' });
     assert.equal(result.status, 1);
     assert.match(result.stderr, /invalid --link-mode/i);
 });
@@ -916,7 +916,7 @@ test('cli: main runs sync, analyze, and revert flows in-process', async () => {
     try {
         process.chdir(root);
 
-        assert.equal(await main(['node', 'cli.js', 'sync', '--dry-run'], {}), 0);
+        assert.equal(await main(['node', 'cli.js', 'sync', '--export', '--import', '--dry-run'], {}), 0);
         assert.ok(stdout.join('').includes('📦'));
         stdout.length = 0;
 
@@ -981,7 +981,7 @@ test('cli: main honors --root for sync and --account for analyze', async () => {
     try {
         process.chdir(cwdRoot);
 
-        assert.equal(await main(['node', 'cli.js', 'sync', '--dry-run', `--root=${targetRoot}`], {}), 0);
+        assert.equal(await main(['node', 'cli.js', 'sync', '--export', '--import', '--dry-run', `--root=${targetRoot}`], {}), 0);
         assert.match(stdout.join(''), /📦 import=1/u);
         stdout.length = 0;
 
@@ -1277,4 +1277,184 @@ test('cli: an unknown subcommand of plugins and origins still fails clearly', ()
         assert.equal(result.status, 1);
         assert.match(result.stderr, new RegExp(`unsupported ${command} command: bogus`));
     }
+});
+
+// Regression for the bare-`sync` accident: `sync` with no direction ran BOTH
+// export (.harness -> host) and pull-back (host -> .harness). The pull-back leg
+// overwrote .harness/ sources from generated host files, which is the hard
+// direction to undo -- it is how six .harness/ files were lost on 2026-09-01.
+// A direction is not a default; the caller has to say which way the bytes move.
+const HARNESS_CLAUDE = path.join('.harness', 'llm', 'claude.md');
+
+// Establishes sync state, then edits a host file so a pull-back has real drift
+// to carry back into .harness/. Returns the tree root.
+function makeDriftedTree(prefix) {
+    const root = makeSyncableTree(prefix);
+    const first = spawnSync('node', [CLI, 'sync', '--export', '--import'], { cwd: root, encoding: 'utf8' });
+    assert.equal(first.status, 0, `setup sync failed: ${first.stderr}`);
+    const hostFile = path.join(root, 'CLAUDE.md');
+    fs.writeFileSync(hostFile, `${readUtf8(hostFile)}\n## Host Drift\n\nAdded on the host only.\n`);
+    return root;
+}
+
+function harnessClaude(root) {
+    const file = path.join(root, HARNESS_CLAUDE);
+    return fs.existsSync(file) ? readUtf8(file) : '';
+}
+
+test('cli: sync without a direction fails and changes nothing on disk', () => {
+    const root = makeSyncableTree('soft-harness-cli-sync-no-direction-');
+    const before = snapshotTree(root);
+
+    const result = spawnSync('node', [CLI, 'sync'], { cwd: root, encoding: 'utf8' });
+
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /no direction given/i);
+    // The message has to show the caller the way out, so all three forms appear.
+    assert.match(result.stderr, /sync --export/);
+    assert.match(result.stderr, /sync --import/);
+    assert.match(result.stderr, /sync --export --import/);
+    // createBackup is the first thing runSync does, so an absent backups
+    // directory proves we never reached an execution path.
+    assert.equal(fs.existsSync(path.join(root, '.harness', 'backups')), false);
+    assert.equal(fs.existsSync(path.join(root, '.harness', '.sync-state.json')), false);
+    assert.deepEqual(snapshotTree(root), before);
+});
+
+test('cli: sync --dry-run without a direction still fails before touching disk', () => {
+    const root = makeSyncableTree('soft-harness-cli-sync-no-direction-dry-');
+    const before = snapshotTree(root);
+
+    const result = spawnSync('node', [CLI, 'sync', '--dry-run'], { cwd: root, encoding: 'utf8' });
+
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /no direction given/i);
+    assert.deepEqual(snapshotTree(root), before);
+});
+
+test('cli: sync --export exports without pulling host drift back', () => {
+    const root = makeDriftedTree('soft-harness-cli-sync-export-');
+    const before = harnessClaude(root);
+
+    const result = spawnSync('node', [CLI, 'sync', '--export'], { cwd: root, encoding: 'utf8' });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /pulled_back=0/);
+    assert.equal(harnessClaude(root), before, '--export must not rewrite .harness/ sources');
+    assert.doesNotMatch(harnessClaude(root), /Host Drift/);
+});
+
+test('cli: sync --import pulls host drift back into .harness', () => {
+    const root = makeDriftedTree('soft-harness-cli-sync-import-');
+    const before = harnessClaude(root);
+
+    const result = spawnSync('node', [CLI, 'sync', '--import'], { cwd: root, encoding: 'utf8' });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stdout, /pulled_back=0/);
+    assert.notEqual(harnessClaude(root), before, '--import must carry host drift back');
+    assert.match(harnessClaude(root), /Host Drift/);
+});
+
+test('cli: sync --export --import reproduces the previous bidirectional default', () => {
+    const explicit = makeDriftedTree('soft-harness-cli-sync-both-');
+    const result = spawnSync('node', [CLI, 'sync', '--export', '--import'], { cwd: explicit, encoding: 'utf8' });
+
+    assert.equal(result.status, 0, result.stderr);
+    // The old bare `sync` on this tree reported imported=2 exported=1 pulled_back=4.
+    assert.match(result.stdout, /imported=2\s+exported=1\s+pulled_back=4/);
+    assert.match(harnessClaude(explicit), /Host Drift/);
+});
+
+test('cli: sync --no-import matches --export and warns that it is deprecated', () => {
+    const deprecated = makeDriftedTree('soft-harness-cli-sync-noimport-');
+    const exported = makeDriftedTree('soft-harness-cli-sync-noimport-ref-');
+
+    const legacy = spawnSync('node', [CLI, 'sync', '--no-import'], { cwd: deprecated, encoding: 'utf8' });
+    const modern = spawnSync('node', [CLI, 'sync', '--export'], { cwd: exported, encoding: 'utf8' });
+
+    assert.equal(legacy.status, 0, legacy.stderr);
+    assert.equal(modern.status, 0, modern.stderr);
+    // Same direction, so the same report and the same .harness/ bytes. The
+    // backup timestamp is the one line that legitimately differs between runs.
+    const withoutBackupTs = (stdout) => stdout.replace(/^backup: .*$/mu, 'backup: <ts>');
+    assert.equal(withoutBackupTs(legacy.stdout), withoutBackupTs(modern.stdout));
+    assert.equal(harnessClaude(deprecated), harnessClaude(exported));
+    assert.doesNotMatch(harnessClaude(deprecated), /Host Drift/);
+    // The alias still works, but it says so on stderr rather than silently.
+    assert.match(legacy.stderr, /deprecated: use --export/);
+    assert.doesNotMatch(modern.stderr, /deprecated/);
+});
+
+// --no-import earned its alias: instruction files outside this repo still spell
+// it that way. --no-export has no such caller, so keeping it would only widen
+// the syntax this whole change exists to narrow -- a second, indirect way to ask
+// for the pull-back without naming it. It fails loudly and names the direction.
+test('cli: sync --no-export fails, points at --import, and changes nothing on disk', () => {
+    const root = makeSyncableTree('soft-harness-cli-sync-noexport-');
+    const before = snapshotTree(root);
+
+    const result = spawnSync('node', [CLI, 'sync', '--no-export'], { cwd: root, encoding: 'utf8' });
+
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /--no-export is not a direction/);
+    // The message has to name the flag that replaces it.
+    assert.match(result.stderr, /sync --import/);
+    // createBackup is the first thing runSync does, so an absent backups
+    // directory proves we never reached an execution path.
+    assert.equal(fs.existsSync(path.join(root, '.harness', 'backups')), false);
+    assert.equal(fs.existsSync(path.join(root, '.harness', '.sync-state.json')), false);
+    assert.deepEqual(snapshotTree(root), before);
+});
+
+// A rejected flag must not be offered as a suggestion. `sync no-export` is the
+// same hyphen-less typo as `sync no-import`, and pointing the caller at
+// --no-export would only route them to a second error.
+test('cli: sync rejects the hyphen-less no-export typo without suggesting the flag', () => {
+    const root = makeSyncableTree('soft-harness-cli-sync-noexport-typo-');
+    const before = snapshotTree(root);
+
+    const result = spawnSync('node', [CLI, 'sync', 'no-export'], { cwd: root, encoding: 'utf8' });
+
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /unexpected argument: no-export/);
+    assert.doesNotMatch(result.stderr, /did you mean/);
+    assert.deepEqual(snapshotTree(root), before);
+});
+
+// --no-export is sync-only. `remember --no-export` means something unrelated --
+// record the memory, skip regenerating host outputs -- and the CLI grammar
+// change above must leave it alone.
+test('cli: remember --no-export still records memory without regenerating host files', () => {
+    const skipped = makeSyncableTree('soft-harness-cli-remember-noexport-');
+    const exported = makeSyncableTree('soft-harness-cli-remember-export-');
+    const invocation = ['remember', '--title=Timezone', '--content=Always use KST'];
+    const hostBefore = readUtf8(path.join(skipped, 'CLAUDE.md'));
+
+    const result = spawnSync('node', [CLI, ...invocation, '--no-export'], { cwd: skipped, encoding: 'utf8' });
+    const reference = spawnSync('node', [CLI, ...invocation], { cwd: exported, encoding: 'utf8' });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stderr, /unknown option|unexpected argument|not a direction/);
+    // The memory itself is still written -- only the export leg is skipped.
+    assert.match(readUtf8(path.join(skipped, '.harness', 'memory', 'shared.md')), /Always use KST/);
+    assert.equal(readUtf8(path.join(skipped, 'CLAUDE.md')), hostBefore);
+    assert.equal(fs.existsSync(path.join(skipped, '.harness', '.sync-state.json')), false);
+    // Without the flag the same command does regenerate the host file, so the
+    // assertions above are pinning a real skip and not a no-op command.
+    assert.equal(reference.status, 0, reference.stderr);
+    assert.notEqual(readUtf8(path.join(exported, 'CLAUDE.md')), hostBefore);
+});
+
+// The CLI gate must not reach into the library. runSync's own defaults stay
+// bidirectional, because ~38 internal callers pass `{}` and rely on that.
+test('sync: runSync keeps its bidirectional default for internal callers', async () => {
+    const { runSync: runSyncImpl } = loadFresh('../src/sync');
+    const root = makeDriftedTree('soft-harness-runsync-default-');
+
+    const result = await runSyncImpl(root, {}, {});
+
+    assert.ok(result.exported.length > 0, 'runSync({}) must still export');
+    assert.ok(result.pulledBack.length > 0, 'runSync({}) must still pull back');
+    assert.match(harnessClaude(root), /Host Drift/);
 });
