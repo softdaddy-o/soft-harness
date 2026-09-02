@@ -1079,3 +1079,202 @@ test('cli: revert list prints no backups message when empty', async () => {
         process.stdout.write = originalStdoutWrite;
     }
 });
+
+// Regression for #25: `sync --help` used to fall through to a real sync with
+// default options, which left --no-import off and pulled host files back over
+// .harness/ sources. Help must be inert on every subcommand.
+function snapshotTree(rootDir) {
+    const snapshot = new Map();
+    const walk = (dir) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const absolutePath = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                walk(absolutePath);
+                continue;
+            }
+            snapshot.set(path.relative(rootDir, absolutePath), fs.readFileSync(absolutePath, 'utf8'));
+        }
+    };
+    walk(rootDir);
+    return snapshot;
+}
+
+function makeSyncableTree(prefix) {
+    return makeProjectTree(prefix, {
+        '.harness': {
+            'HARNESS.md': '# Harness\n\nShared rules.\n',
+            memory: { 'shared.md': '# Memory\n\nRemembered.\n' }
+        },
+        'CLAUDE.md': '# Claude\n\nUncommitted host edit.\n'
+    });
+}
+
+test('cli: sync --help prints usage and changes nothing on disk', () => {
+    const root = makeSyncableTree('soft-harness-cli-sync-help-');
+    const before = snapshotTree(root);
+
+    const result = spawnSync('node', [CLI, 'sync', '--help'], { cwd: root, encoding: 'utf8' });
+
+    assert.equal(result.status, 0);
+    assert.match(result.stdout, /soft-harness sync/);
+    assert.doesNotMatch(result.stdout, /pulled_back/);
+    // createBackup is the first thing runSync does, so an absent backups
+    // directory proves we returned before any execution path.
+    assert.equal(fs.existsSync(path.join(root, '.harness', 'backups')), false);
+    assert.equal(fs.existsSync(path.join(root, '.harness', '.sync-state.json')), false);
+    assert.deepEqual(snapshotTree(root), before);
+});
+
+test('cli: --help is inert for every subcommand', () => {
+    for (const command of ['sync', 'analyze', 'organize', 'remember', 'revert', 'curate', 'origins', 'plugins', 'prompt']) {
+        const root = makeSyncableTree(`soft-harness-cli-help-${command}-`);
+        const before = snapshotTree(root);
+
+        for (const flag of ['--help', '-h']) {
+            const result = spawnSync('node', [CLI, command, flag], { cwd: root, encoding: 'utf8' });
+            assert.equal(result.status, 0, `${command} ${flag} should exit 0`);
+            assert.match(result.stdout, /soft-harness - internal deterministic helpers/);
+            assert.equal(
+                fs.existsSync(path.join(root, '.harness', 'backups')),
+                false,
+                `${command} ${flag} must not create a backup`
+            );
+            assert.deepEqual(snapshotTree(root), before, `${command} ${flag} must not change files`);
+        }
+    }
+});
+
+test('cli: mutating subcommands reject unrecognized flags instead of running with defaults', () => {
+    for (const command of ['sync', 'organize', 'remember', 'revert']) {
+        const root = makeSyncableTree(`soft-harness-cli-unknown-${command}-`);
+        const before = snapshotTree(root);
+
+        const result = spawnSync('node', [CLI, command, '--totally-bogus-flag'], { cwd: root, encoding: 'utf8' });
+
+        assert.equal(result.status, 1, `${command} should reject an unknown flag`);
+        assert.match(result.stderr, /unknown option: --totally-bogus-flag/);
+        assert.equal(fs.existsSync(path.join(root, '.harness', 'backups')), false);
+        assert.deepEqual(snapshotTree(root), before, `${command} must not change files`);
+    }
+});
+
+test('cli: documented and undocumented sync flags are still accepted', () => {
+    const root = makeSyncableTree('soft-harness-cli-known-flags-');
+    const result = spawnSync(
+        'node',
+        [CLI, 'sync', '--no-import', '--dry-run', '--no-run-installs', '--no-run-uninstalls', '--link-mode=copy'],
+        { cwd: root, encoding: 'utf8' }
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stderr, /unknown option/);
+});
+
+// Follow-up regression for #25: rejecting only arguments that start with `-`
+// left the same accident reachable. `sync no-import` -- the two missing hyphens
+// are an easy typo -- parsed as "sync with defaults", so --no-import stayed off
+// and the pull-back overwrote .harness/ sources. A hyphen is not what makes an
+// argument valid; matching the command's declared syntax is.
+test('cli: sync rejects a hyphen-less flag typo and changes nothing on disk', () => {
+    const root = makeSyncableTree('soft-harness-cli-sync-typo-');
+    const before = snapshotTree(root);
+
+    const result = spawnSync('node', [CLI, 'sync', 'no-import'], { cwd: root, encoding: 'utf8' });
+
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /unexpected argument: no-import/);
+    // createBackup is the first thing runSync does, so an absent backups
+    // directory proves we never reached an execution path.
+    assert.equal(fs.existsSync(path.join(root, '.harness', 'backups')), false);
+    assert.equal(fs.existsSync(path.join(root, '.harness', '.sync-state.json')), false);
+    assert.deepEqual(snapshotTree(root), before);
+});
+
+test('cli: commands that take no positional argument reject a stray one', () => {
+    const cases = [
+        ['sync', ['bogus']],
+        ['analyze', ['prompts']],
+        ['organize', ['--partition-memory', 'bogus']],
+        ['remember', ['--title=T', '--content=C', 'bogus']]
+    ];
+
+    for (const [command, args] of cases) {
+        const root = makeSyncableTree(`soft-harness-cli-stray-${command}-`);
+        const before = snapshotTree(root);
+
+        const result = spawnSync('node', [CLI, command, ...args], { cwd: root, encoding: 'utf8' });
+
+        assert.equal(result.status, 1, `${command} should reject a stray positional`);
+        assert.match(result.stderr, /unexpected argument: (bogus|prompts)/);
+        assert.equal(fs.existsSync(path.join(root, '.harness', 'backups')), false);
+        assert.deepEqual(snapshotTree(root), before, `${command} must not change files`);
+    }
+});
+
+test('cli: revert rejects extra positionals and a timestamp alongside --list', () => {
+    const root = makeSyncableTree('soft-harness-cli-revert-syntax-');
+    createBackup(root, ['CLAUDE.md'], { timestamp: '2026-04-13-120000' });
+    const before = snapshotTree(root);
+
+    const extra = spawnSync('node', [CLI, 'revert', '2026-04-13-120000', 'bogus'], { cwd: root, encoding: 'utf8' });
+    assert.equal(extra.status, 1);
+    assert.match(extra.stderr, /unexpected argument: bogus/);
+
+    const listed = spawnSync('node', [CLI, 'revert', '--list', '2026-04-13-120000'], { cwd: root, encoding: 'utf8' });
+    assert.equal(listed.status, 1);
+    assert.match(listed.stderr, /revert --list takes no timestamp/);
+
+    assert.deepEqual(snapshotTree(root), before, 'a rejected revert must not restore anything');
+});
+
+test('cli: valid invocations of every command still parse', () => {
+    const root = makeSyncableTree('soft-harness-cli-valid-syntax-');
+    fs.writeFileSync(path.join(root, 'plugin-origins.json'), JSON.stringify({
+        plugin_origins: [{
+            plugin: 'frontend-design@claude-code-plugins',
+            hosts: ['claude'],
+            source_type: 'github',
+            repo: 'acme/frontend-design',
+            latest_version: '1.4.0'
+        }]
+    }), 'utf8');
+    fs.writeFileSync(path.join(root, 'asset-origins.json'), JSON.stringify({
+        asset_origins: [{
+            kind: 'skill',
+            asset: 'gstack',
+            hosts: ['claude'],
+            source_type: 'github',
+            repo: 'acme/gstack',
+            latest_version: '2.0.0'
+        }]
+    }), 'utf8');
+    createBackup(root, ['CLAUDE.md'], { timestamp: '2026-04-13-120000' });
+
+    const invocations = [
+        ['revert', '--list'],
+        ['revert', '2026-04-13-120000'],
+        ['plugins', 'import-origins', '--input=plugin-origins.json'],
+        ['origins', 'import', '--input=asset-origins.json'],
+        ['curate', 'plugins', '--input=plugin-origins.json'],
+        ['prompt', '--analyze'],
+        ['analyze', '--category=skills'],
+        ['remember', '--title=Rule', '--content=Body', '--no-export'],
+        ['organize', '--partition-memory', '--dry-run'],
+        ['sync', '--no-import', '--dry-run']
+    ];
+
+    for (const invocation of invocations) {
+        const result = spawnSync('node', [CLI, ...invocation], { cwd: root, encoding: 'utf8' });
+        assert.equal(result.status, 0, `${invocation.join(' ')} failed: ${result.stderr}`);
+        assert.doesNotMatch(result.stderr, /unknown option|unexpected argument/);
+    }
+});
+
+test('cli: an unknown subcommand of plugins and origins still fails clearly', () => {
+    for (const [command, subcommand] of [['plugins', 'bogus'], ['origins', 'bogus']]) {
+        const root = makeSyncableTree(`soft-harness-cli-subcommand-${command}-`);
+        const result = spawnSync('node', [CLI, command, subcommand], { cwd: root, encoding: 'utf8' });
+        assert.equal(result.status, 1);
+        assert.match(result.stderr, new RegExp(`unsupported ${command} command: bogus`));
+    }
+});
