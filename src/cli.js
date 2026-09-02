@@ -40,7 +40,6 @@ Sync options:
   --export                           Write .harness/ sources out to host files
   --import                           Read host files back into .harness/ (pull-back)
   --no-import                        Deprecated alias for --export
-  --no-export                        Skip .harness -> project export (import only)
   --link-mode=<mode>                 Export skill/agent links using copy, symlink, or junction
   --force-export-untracked-hosts     Allow repo-internal link exports even when target paths are not gitignored
   --codex-plugins-enabled            Confirm Codex plugins are enabled; install mirrored Claude plugin bundles into Codex
@@ -111,11 +110,14 @@ const ICONS = {
 // Value checks stay in the parsers that own them (`--category=`, `--link-mode=`,
 // `remember --title`), so each mistake keeps one error message.
 
-// Every spelling that names a direction. The two negative flags predate
-// --export/--import and stay here so existing callers keep parsing.
-const SYNC_DIRECTIONS = ['--export', '--import', '--no-export', '--no-import'];
+// Every spelling that names a direction. --no-import predates --export and
+// stays so existing callers keep parsing: instruction files outside this repo
+// still spell it that way against the installed CLI. --no-export has no such
+// caller, so it is rejected below rather than kept as a second, indirect way to
+// ask for the pull-back -- see REJECTED_SYNC_FLAGS.
+const SYNC_DIRECTIONS = ['--export', '--import', '--no-import'];
 
-// main() prefixes this with `sync failed: `.
+// main() prefixes both of these with `sync failed: `.
 const NO_DIRECTION_MESSAGE = [
     'no direction given -- sync moves files both ways, and the two are not',
     'symmetric: a pull-back rewrites .harness/ sources from generated host files.',
@@ -125,14 +127,28 @@ const NO_DIRECTION_MESSAGE = [
     '  sync --export --import   both'
 ].join('\n');
 
+// Flags sync parses only so it can refuse them by name. Dropping --no-export
+// from `booleans` instead would report a bare `unknown option`, which does not
+// tell the caller which flag now says what they meant.
+const REJECTED_SYNC_FLAGS = {
+    '--no-export': [
+        '--no-export is not a direction. It named a leg to skip, so it asked for',
+        'the pull-back -- the leg that rewrites .harness/ sources from generated',
+        'host files -- without ever saying so. Name the direction instead:',
+        '',
+        '  sync --import            host files -> .harness/'
+    ].join('\n')
+};
+
 const COMMAND_SYNTAX = {
     sync: {
         booleans: [
             '--account', '--codex-plugins-enabled', '--dry-run', '-n', '--explain', '--export',
-            '--force-export-untracked-hosts', '--import', '--manual-review', '-i', '--no-export',
+            '--force-export-untracked-hosts', '--import', '--manual-review', '-i',
             '--no-import', '--no-run-installs', '--no-run-uninstalls', '--verbose', '--yes'
         ],
         values: ['--body-threshold=', '--heading-threshold=', '--link-mode=', '--root='],
+        rejects: REJECTED_SYNC_FLAGS,
         maxPositionals: 0,
         // The two directions are not symmetric: export regenerates host files
         // from .harness/, but a pull-back rewrites .harness/ sources from those
@@ -230,6 +246,9 @@ function planInvocation(command, args) {
         if (syntax.booleans.includes(arg) || syntax.values.some((prefix) => arg.startsWith(prefix))) {
             continue;
         }
+        if (syntax.rejects && syntax.rejects[arg]) {
+            throw new Error(syntax.rejects[arg]);
+        }
         throw new Error(`unknown option: ${arg}`);
     }
 
@@ -255,13 +274,15 @@ function planInvocation(command, args) {
 // runSync already understands. This is a CLI-layer translation only: runSync's
 // own defaults stay bidirectional for the internal callers that pass `{}`.
 function resolveSyncDirection(flags) {
-    // --export/--import name the legs to run; --no-import/--no-export name a
-    // leg to skip. A positive flag therefore turns the unnamed leg off, and a
-    // negative flag still subtracts on top of it.
+    // --export/--import name the legs to run; --no-import names a leg to skip.
+    // A positive flag therefore turns the unnamed leg off, and the alias still
+    // subtracts on top of it. --no-export is not read here: planInvocation
+    // rejects it before sync can parse, so honoring it would be dead code that
+    // reads like a supported spelling.
     const positive = flags.has('--export') || flags.has('--import');
     return {
         noImport: flags.has('--no-import') || (positive && !flags.has('--import')),
-        noExport: flags.has('--no-export') || (positive && !flags.has('--export'))
+        noExport: positive && !flags.has('--export')
     };
 }
 

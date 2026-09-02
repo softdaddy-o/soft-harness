@@ -1386,14 +1386,64 @@ test('cli: sync --no-import matches --export and warns that it is deprecated', (
     assert.doesNotMatch(modern.stderr, /deprecated/);
 });
 
-test('cli: sync --no-export is still accepted as an import direction', () => {
-    const root = makeDriftedTree('soft-harness-cli-sync-noexport-');
+// --no-import earned its alias: instruction files outside this repo still spell
+// it that way. --no-export has no such caller, so keeping it would only widen
+// the syntax this whole change exists to narrow -- a second, indirect way to ask
+// for the pull-back without naming it. It fails loudly and names the direction.
+test('cli: sync --no-export fails, points at --import, and changes nothing on disk', () => {
+    const root = makeSyncableTree('soft-harness-cli-sync-noexport-');
+    const before = snapshotTree(root);
 
     const result = spawnSync('node', [CLI, 'sync', '--no-export'], { cwd: root, encoding: 'utf8' });
 
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /--no-export is not a direction/);
+    // The message has to name the flag that replaces it.
+    assert.match(result.stderr, /sync --import/);
+    // createBackup is the first thing runSync does, so an absent backups
+    // directory proves we never reached an execution path.
+    assert.equal(fs.existsSync(path.join(root, '.harness', 'backups')), false);
+    assert.equal(fs.existsSync(path.join(root, '.harness', '.sync-state.json')), false);
+    assert.deepEqual(snapshotTree(root), before);
+});
+
+// A rejected flag must not be offered as a suggestion. `sync no-export` is the
+// same hyphen-less typo as `sync no-import`, and pointing the caller at
+// --no-export would only route them to a second error.
+test('cli: sync rejects the hyphen-less no-export typo without suggesting the flag', () => {
+    const root = makeSyncableTree('soft-harness-cli-sync-noexport-typo-');
+    const before = snapshotTree(root);
+
+    const result = spawnSync('node', [CLI, 'sync', 'no-export'], { cwd: root, encoding: 'utf8' });
+
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /unexpected argument: no-export/);
+    assert.doesNotMatch(result.stderr, /did you mean/);
+    assert.deepEqual(snapshotTree(root), before);
+});
+
+// --no-export is sync-only. `remember --no-export` means something unrelated --
+// record the memory, skip regenerating host outputs -- and the CLI grammar
+// change above must leave it alone.
+test('cli: remember --no-export still records memory without regenerating host files', () => {
+    const skipped = makeSyncableTree('soft-harness-cli-remember-noexport-');
+    const exported = makeSyncableTree('soft-harness-cli-remember-export-');
+    const invocation = ['remember', '--title=Timezone', '--content=Always use KST'];
+    const hostBefore = readUtf8(path.join(skipped, 'CLAUDE.md'));
+
+    const result = spawnSync('node', [CLI, ...invocation, '--no-export'], { cwd: skipped, encoding: 'utf8' });
+    const reference = spawnSync('node', [CLI, ...invocation], { cwd: exported, encoding: 'utf8' });
+
     assert.equal(result.status, 0, result.stderr);
-    assert.doesNotMatch(result.stderr, /requires a direction/);
-    assert.match(harnessClaude(root), /Host Drift/);
+    assert.doesNotMatch(result.stderr, /unknown option|unexpected argument|not a direction/);
+    // The memory itself is still written -- only the export leg is skipped.
+    assert.match(readUtf8(path.join(skipped, '.harness', 'memory', 'shared.md')), /Always use KST/);
+    assert.equal(readUtf8(path.join(skipped, 'CLAUDE.md')), hostBefore);
+    assert.equal(fs.existsSync(path.join(skipped, '.harness', '.sync-state.json')), false);
+    // Without the flag the same command does regenerate the host file, so the
+    // assertions above are pinning a real skip and not a no-op command.
+    assert.equal(reference.status, 0, reference.stderr);
+    assert.notEqual(readUtf8(path.join(exported, 'CLAUDE.md')), hostBefore);
 });
 
 // The CLI gate must not reach into the library. runSync's own defaults stay
