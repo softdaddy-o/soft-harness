@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { listBackups } = require('../src/backup');
+const { resetFsBackend, setFsBackend } = require('../src/fs-backend');
 const { loadState } = require('../src/state');
 const { exists, readUtf8, removePath, writeUtf8 } = require('../src/fs-util');
 const { readInstalledPluginEntries } = require('../src/plugins');
@@ -564,4 +565,124 @@ function makeClaudePluginMirrorFixture(prefix) {
         repository: 'https://github.com/obra/superpowers'
     }, null, 2));
     return root;
+}
+
+// Regression for #24: export writes targets, never sources. Backing up harness
+// sources on a --no-import run meant walking trees the run would never touch,
+// which is how a nested symlink in one of them could abort everything.
+test('sync: --no-import backs up export targets but not harness sources', async () => {
+    const root = makeTempDir('soft-harness-sync-backup-scope-');
+    writeUtf8(path.join(root, '.harness', 'skills', 'claude', 'built-in', 'SKILL.md'), '# Built In');
+    writeUtf8(path.join(root, '.claude', 'skills', 'built-in', 'SKILL.md'), '# Existing target');
+
+    await runSync(root, { noImport: true }, {});
+
+    const backups = listBackups(root);
+    const latest = backups[backups.length - 1];
+    const manifest = JSON.parse(readUtf8(path.join(root, '.harness', 'backups', latest.timestamp, 'manifest.json')));
+    const backedUp = manifest.entries.map((entry) => entry.path);
+
+    assert.ok(backedUp.includes('.claude/skills/built-in'), 'the export target is backed up');
+    assert.equal(backedUp.includes('.harness/skills/claude/built-in'), false, 'the source is not written to, so it is not backed up');
+});
+
+// ...but pull-back does write into harness sources, so an importing run still
+// has to back them up.
+test('sync: an importing run still backs up harness sources', async () => {
+    const root = makeTempDir('soft-harness-sync-backup-scope-import-');
+    writeUtf8(path.join(root, '.harness', 'skills', 'claude', 'built-in', 'SKILL.md'), '# Built In');
+
+    await runSync(root, {}, {});
+
+    const backups = listBackups(root);
+    const latest = backups[backups.length - 1];
+    const manifest = JSON.parse(readUtf8(path.join(root, '.harness', 'backups', latest.timestamp, 'manifest.json')));
+
+    assert.ok(manifest.entries.some((entry) => entry.path === '.harness/skills/claude/built-in'));
+});
+
+// Regression for #24: a backup failure on a path this run is about to
+// overwrite is not survivable -- the old bytes are gone and revert cannot
+// bring them back -- so the run must stop before it writes anything.
+test('sync: a failed backup of an export target aborts before anything is written', async () => {
+    const root = makeTempDir('soft-harness-sync-backup-displaced-');
+    writeUtf8(path.join(root, '.harness', 'skills', 'claude', 'built-in', 'SKILL.md'), '# Built In');
+    writeUtf8(path.join(root, '.claude', 'skills', 'built-in', 'SKILL.md'), '# Existing target');
+
+    const restore = failBackupCopyFor('.claude/skills/built-in');
+    try {
+        await assert.rejects(
+            runSync(root, { noImport: true }, {}),
+            (error) => {
+                assert.match(error.message, /backup failed/);
+                assert.match(error.message, /\.claude\/skills\/built-in/);
+                assert.match(error.message, /export target/);
+                assert.match(error.message, /no changes were applied/);
+                return true;
+            }
+        );
+    } finally {
+        restore();
+    }
+
+    // the file the export would have replaced is still the original
+    assert.equal(readUtf8(path.join(root, '.claude', 'skills', 'built-in', 'SKILL.md')), '# Existing target');
+});
+
+// ...and the 2026-09-01 incident stays fixed: the failing path there was a
+// host-discovered skill the run never writes, so it only warns and the
+// unrelated export still lands.
+test('sync: a failed backup of a path the run never writes only warns', async () => {
+    const root = makeTempDir('soft-harness-sync-backup-shadowed-');
+    writeUtf8(path.join(root, '.harness', 'skills', 'claude', 'built-in', 'SKILL.md'), '# Built In');
+    writeUtf8(path.join(root, '.codex', 'skills', 'session-end-learning', 'SKILL.md'), '# Session End Learning');
+
+    const restore = failBackupCopyFor('.codex/skills/session-end-learning');
+    let result = null;
+    try {
+        result = await runSync(root, { noImport: true }, {});
+    } finally {
+        restore();
+    }
+
+    assert.equal(result.phase, 'completed');
+    assert.ok(result.backupWarnings.some((warning) => warning.path === '.codex/skills/session-end-learning'));
+    assert.match(readUtf8(path.join(root, '.claude', 'skills', 'built-in', 'SKILL.md')), /# Built In/);
+});
+
+// Make the backup copy of one path fail the way an unreadable asset does.
+// Keyed on the backup destination so only the backup breaks: discovery and
+// export read the same source and must keep working.
+function failBackupCopyFor(relativePath) {
+    const suffix = relativePath.split('/').join(path.sep);
+    const backend = { ...createNodeBackendSnapshot() };
+    backend.copyFileSync = (source, target, ...rest) => {
+        if (String(target).includes(`${path.sep}backups${path.sep}`) && String(source).includes(suffix)) {
+            const error = new Error('EPERM: operation not permitted, copyfile');
+            error.code = 'EPERM';
+            throw error;
+        }
+        return fs.copyFileSync(source, target, ...rest);
+    };
+    setFsBackend(backend);
+    return () => resetFsBackend();
+}
+
+function createNodeBackendSnapshot() {
+    return {
+        chmodSync: fs.chmodSync.bind(fs),
+        copyFileSync: fs.copyFileSync.bind(fs),
+        cpSync: fs.cpSync.bind(fs),
+        existsSync: fs.existsSync.bind(fs),
+        lstatSync: fs.lstatSync.bind(fs),
+        mkdirSync: fs.mkdirSync.bind(fs),
+        readFileSync: fs.readFileSync.bind(fs),
+        readdirSync: fs.readdirSync.bind(fs),
+        readlinkSync: fs.readlinkSync.bind(fs),
+        realpathSync: fs.realpathSync.bind(fs),
+        rmSync: fs.rmSync.bind(fs),
+        statSync: fs.statSync.bind(fs),
+        symlinkSync: fs.symlinkSync.bind(fs),
+        writeFileSync: fs.writeFileSync.bind(fs)
+    };
 }

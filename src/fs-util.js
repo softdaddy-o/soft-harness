@@ -37,12 +37,16 @@ function writeJson(filePath, value) {
     writeUtf8(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-function copyPath(sourcePath, targetPath) {
+// `options.dereferenceLinks` copies what a symlink points at instead of
+// recreating the link. Backups use it: Windows refuses `symlink` without
+// Developer Mode or elevation, and a backup only needs the bytes. Exports must
+// not use it -- preserving the link is the whole point of --link-mode.
+function copyPath(sourcePath, targetPath, options) {
     const backend = getFsBackend();
     const stats = backend.lstatSync(sourcePath);
     rejectInvalidCopyTarget(backend, sourcePath, targetPath, stats);
     ensureDir(path.dirname(targetPath));
-    copyPathEntry(sourcePath, targetPath, stats);
+    copyPathEntry(sourcePath, targetPath, stats, options);
 }
 
 function rejectInvalidCopyTarget(backend, sourcePath, targetPath, stats) {
@@ -106,7 +110,7 @@ function resolveWithExistingAncestor(backend, targetPath) {
     }
 }
 
-function copyPathEntry(sourcePath, targetPath, sourceStats) {
+function copyPathEntry(sourcePath, targetPath, sourceStats, options) {
     const backend = getFsBackend();
     const stats = sourceStats || backend.lstatSync(sourcePath);
     const targetStats = getEntryStats(backend, targetPath);
@@ -127,7 +131,18 @@ function copyPathEntry(sourcePath, targetPath, sourceStats) {
         if (targetStats) {
             backend.rmSync(targetPath, { recursive: true, force: true });
         }
-        backend.symlinkSync(linkTarget, targetPath, linkType);
+        try {
+            backend.symlinkSync(linkTarget, targetPath, linkType);
+        } catch (error) {
+            // Recreating the link is preferred -- it keeps a restore faithful.
+            // When the platform refuses (Windows without Developer Mode or
+            // elevation), a caller that only needs the bytes can say so rather
+            // than lose the whole run to EPERM.
+            if (!isLinkPermissionError(error) || !options || !options.dereferenceLinks) {
+                throw error;
+            }
+            copyDereferencedLink(backend, sourcePath, targetPath, options);
+        }
         return;
     }
     if (stats.isDirectory()) {
@@ -136,7 +151,7 @@ function copyPathEntry(sourcePath, targetPath, sourceStats) {
         }
         ensureDir(targetPath);
         for (const entry of backend.readdirSync(sourcePath)) {
-            copyPathEntry(path.join(sourcePath, entry), path.join(targetPath, entry));
+            copyPathEntry(path.join(sourcePath, entry), path.join(targetPath, entry), null, options);
         }
         backend.chmodSync(targetPath, stats.mode);
         return;
@@ -146,6 +161,27 @@ function copyPathEntry(sourcePath, targetPath, sourceStats) {
     }
     backend.copyFileSync(sourcePath, targetPath);
     backend.chmodSync(targetPath, stats.mode);
+}
+
+function isLinkPermissionError(error) {
+    return error && (error.code === 'EPERM' || error.code === 'EACCES');
+}
+
+// Copy what the link points at, by resolving it to a real path first. A
+// dangling link has nothing to copy, so it is skipped rather than failing the
+// caller: backing up a broken link is a no-op either way.
+function copyDereferencedLink(backend, sourcePath, targetPath, options) {
+    let realSource;
+    try {
+        realSource = backend.realpathSync(sourcePath);
+    } catch (error) {
+        if (isMissingEntryError(error)) {
+            return;
+        }
+        throw error;
+    }
+
+    copyPathEntry(realSource, targetPath, null, options);
 }
 
 function getEntryStats(backend, targetPath) {
