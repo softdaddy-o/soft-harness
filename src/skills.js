@@ -1311,21 +1311,27 @@ function collectManagedSkillTargetLayoutProblems(rootDir, entry, plannedTargetFi
     return problems;
 }
 
-// Only a path referenced *as* an asset counts: a markdown link or an image.
-// A path inside inline code is prose -- typically a CLI flag's default value,
-// like "`--history DIR` (default: `./data/history/`)" -- and describes a
-// directory the skill creates at runtime, not a file it ships.
 function collectLocalMarkdownReferences(content) {
     const references = new Set();
     const text = String(content || '');
-    const linkPattern = /!?\[[^\]]*\]\(((?:\.\.?\/)[^)\s]+)/gu;
+    const patterns = [
+        { pattern: /`((?:\.\.?\/)[^`\r\n]+)`/gu, allowDirectoryArgument: true },
+        { pattern: /\[[^\]]+\]\(((?:\.\.?\/)[^)]+)\)/gu, allowDirectoryArgument: false }
+    ];
 
-    for (const match of text.matchAll(linkPattern)) {
-        const value = cleanText(match[1]);
-        if (!value) {
-            continue;
+    for (const { pattern, allowDirectoryArgument } of patterns) {
+        for (const match of text.matchAll(pattern)) {
+            const value = cleanText(match[1]);
+            if (!value) {
+                continue;
+            }
+            const isInlineDirectoryArgument = allowDirectoryArgument
+                && (value.endsWith('/') || value.endsWith('\\') || !path.extname(value));
+            if (isInlineDirectoryArgument) {
+                continue;
+            }
+            references.add(value.split('#')[0]);
         }
-        references.add(value.split('#')[0]);
     }
 
     return Array.from(references).filter(Boolean);

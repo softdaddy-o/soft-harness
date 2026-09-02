@@ -141,8 +141,7 @@ test('sync: dry-run reports harness sources shadowed by common bucket', async ()
 
 // Regression for #26: a skill with a broken reference is skipped with a
 // warning rather than aborting the run -- unrelated skills are usually the
-// reason the run was started. The reference is written as a markdown link,
-// because a path in inline code is prose and no longer counts as an asset.
+// reason the run was started.
 test('sync: a skill with a missing referenced file is skipped, not fatal', async () => {
     const root = makeTempDir('soft-harness-sync-export-preflight-');
     writeUtf8(path.join(root, '.harness', 'HARNESS.md'), '# Managed shared instructions');

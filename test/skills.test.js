@@ -228,8 +228,7 @@ test('skills: discoverHarnessAssets expands common buckets across all llms', () 
 });
 
 // Regression for #26: the broken skill is skipped and its existing target is
-// left alone, but an unrelated skill in the same run still exports. The
-// reference is a markdown link -- inline code is prose, not an asset.
+// left alone, but an unrelated skill in the same run still exports.
 test('skills: a skill with a missing referenced file is skipped without blocking others', () => {
     const root = makeProjectTree('soft-harness-skills-export-preflight-', {
         '.harness': {
@@ -239,7 +238,7 @@ test('skills: a skill with a missing referenced file is skipped without blocking
                         'SKILL.md': [
                             '# Unsafe',
                             '',
-                            'See [the notes](../references/missing.md).',
+                            'See `../references/missing.md`.',
                             ''
                         ].join('\n')
                     },
@@ -270,9 +269,11 @@ test('skills: a skill with a missing referenced file is skipped without blocking
     assert.ok(result.exported.some((entry) => entry.to === '.claude/skills/fine'));
 });
 
-// Regression for #26: the literal string from the issue -- a CLI flag's
-// documented default value, in prose. It is not a bundled asset.
-test('skills: a documented CLI default in prose is not treated as a bundled asset', () => {
+// Regression for #26: the literal string from the issue. `./data/history/` is a
+// CLI flag's documented default directory, not a bundled asset, so it is
+// ignored; `./scripts/cfo-analyzer.py` names a file the skill really ships, so
+// it is validated -- and resolves, because the file is there.
+test('skills: an inline CLI default directory is ignored while the inline file it ships is validated', () => {
     const root = makeProjectTree('soft-harness-skills-export-cli-default-', {
         '.harness': {
             skills: {
@@ -284,7 +285,10 @@ test('skills: a documented CLI default in prose is not treated as a bundled asse
                             '- `--history DIR` — History directory for MoM comparison (default: `./data/history/`)',
                             '- `--script PATH` — Analyzer entry point (default: `./scripts/cfo-analyzer.py`)',
                             ''
-                        ].join('\n')
+                        ].join('\n'),
+                        scripts: {
+                            'cfo-analyzer.py': '# analyzer\n'
+                        }
                     }
                 }
             }
@@ -295,6 +299,56 @@ test('skills: a documented CLI default in prose is not treated as a bundled asse
 
     assert.deepEqual(result.warnings, []);
     assert.equal(exists(path.join(root, '.claude', 'skills', 'finance-ops', 'SKILL.md')), true);
+    assert.equal(exists(path.join(root, '.claude', 'skills', 'finance-ops', 'scripts', 'cfo-analyzer.py')), true);
+});
+
+// Regression for #26: a relative path inside inline code that names a real file
+// is an asset reference. When it is missing the skill is skipped with a
+// warning -- detected, but no longer fatal.
+test('skills: a missing inline-code asset reference warns instead of aborting', () => {
+    const root = makeProjectTree('soft-harness-skills-export-inline-asset-', {
+        '.harness': {
+            skills: {
+                common: {
+                    metrics: {
+                        'SKILL.md': 'See `./references/metrics-guide.md` for definitions.\n'
+                    },
+                    fine: {
+                        'SKILL.md': '# Fine'
+                    }
+                }
+            }
+        }
+    });
+
+    const result = exportSkillsAndAgents(root, {});
+
+    assert.ok(result.warnings.some((warning) => warning.target === '.claude/skills/metrics'
+        && /missing referenced file: \.\/references\/metrics-guide\.md/.test(warning.reason)));
+    assert.equal(exists(path.join(root, '.claude', 'skills', 'metrics')), false);
+    assert.equal(exists(path.join(root, '.claude', 'skills', 'fine', 'SKILL.md')), true);
+});
+
+// Regression for #26: a markdown link keeps counting as an asset reference, the
+// same as before the skipped-skill change.
+test('skills: a missing markdown link reference warns instead of aborting', () => {
+    const root = makeProjectTree('soft-harness-skills-export-link-asset-', {
+        '.harness': {
+            skills: {
+                common: {
+                    metrics: {
+                        'SKILL.md': 'See [the guide](./references/metrics-guide.md).\n'
+                    }
+                }
+            }
+        }
+    });
+
+    const result = exportSkillsAndAgents(root, {});
+
+    assert.ok(result.warnings.some((warning) => warning.target === '.claude/skills/metrics'
+        && /missing referenced file: \.\/references\/metrics-guide\.md/.test(warning.reason)));
+    assert.equal(exists(path.join(root, '.claude', 'skills', 'metrics')), false);
 });
 
 test('skills: external runtime worktrees are excluded unless explicitly portable', () => {
@@ -353,7 +407,9 @@ test('skills: export ignores relative directory arguments in inline code example
         }
     });
 
-    assert.doesNotThrow(() => exportSkillsAndAgents(root, {}));
+    const result = exportSkillsAndAgents(root, {});
+
+    assert.deepEqual(result.warnings, []);
     assert.equal(exists(path.join(root, '.claude', 'skills', 'finance', 'SKILL.md')), true);
 });
 
@@ -370,7 +426,9 @@ test('skills: export ignores extensionless relative directory arguments in inlin
         }
     });
 
-    assert.doesNotThrow(() => exportSkillsAndAgents(root, {}));
+    const result = exportSkillsAndAgents(root, {});
+
+    assert.deepEqual(result.warnings, []);
     assert.equal(exists(path.join(root, '.codex', 'skills', 'experiment', 'SKILL.md')), true);
 });
 
@@ -401,7 +459,7 @@ test('skills: export preflight skips references missing from the exported target
                         'SKILL.md': [
                             '# Unsafe',
                             '',
-                            'See [the sibling](../outside.md).',
+                            'See `../outside.md`.',
                             ''
                         ].join('\n')
                     },
