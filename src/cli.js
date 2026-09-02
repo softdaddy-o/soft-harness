@@ -11,7 +11,9 @@ Active user workflow lives in the plugin skills:
   organize                          Natural-language host maintenance plus snapshot refresh
 
 Commands:
-  soft-harness sync [options]         Legacy reconcile helper during plugin migration
+  soft-harness sync --export|--import [options]
+                                      Legacy reconcile helper during plugin migration
+                                      (a direction is required; see Sync options)
   soft-harness analyze [options]      Debug analysis for prompts, settings, skills, plugins, and memory
   soft-harness organize --partition-memory [opts]
                                       Partition Claude/Codex memory into shared memory, docs, or removal
@@ -35,8 +37,10 @@ Sync options:
   --heading-threshold=<0..1>         Heading similarity threshold for near-match routing (default: ${DEFAULT_HEADING_THRESHOLD})
   --body-threshold=<0..1>            Body similarity threshold for near-match routing (default: ${DEFAULT_BODY_THRESHOLD})
   --yes                              Auto-approve first-sync review prompts
-  --no-import                        Skip project -> .harness import and pull-back
-  --no-export                        Skip .harness -> project export
+  --export                           Write .harness/ sources out to host files
+  --import                           Read host files back into .harness/ (pull-back)
+  --no-import                        Deprecated alias for --export
+  --no-export                        Skip .harness -> project export (import only)
   --link-mode=<mode>                 Export skill/agent links using copy, symlink, or junction
   --force-export-untracked-hosts     Allow repo-internal link exports even when target paths are not gitignored
   --codex-plugins-enabled            Confirm Codex plugins are enabled; install mirrored Claude plugin bundles into Codex
@@ -106,15 +110,42 @@ const ICONS = {
 //
 // Value checks stay in the parsers that own them (`--category=`, `--link-mode=`,
 // `remember --title`), so each mistake keeps one error message.
+
+// Every spelling that names a direction. The two negative flags predate
+// --export/--import and stay here so existing callers keep parsing.
+const SYNC_DIRECTIONS = ['--export', '--import', '--no-export', '--no-import'];
+
+// main() prefixes this with `sync failed: `.
+const NO_DIRECTION_MESSAGE = [
+    'no direction given -- sync moves files both ways, and the two are not',
+    'symmetric: a pull-back rewrites .harness/ sources from generated host files.',
+    '',
+    '  sync --export            .harness/ -> host files',
+    '  sync --import            host files -> .harness/',
+    '  sync --export --import   both'
+].join('\n');
+
 const COMMAND_SYNTAX = {
     sync: {
         booleans: [
-            '--account', '--codex-plugins-enabled', '--dry-run', '-n', '--explain',
-            '--force-export-untracked-hosts', '--manual-review', '-i', '--no-export',
+            '--account', '--codex-plugins-enabled', '--dry-run', '-n', '--explain', '--export',
+            '--force-export-untracked-hosts', '--import', '--manual-review', '-i', '--no-export',
             '--no-import', '--no-run-installs', '--no-run-uninstalls', '--verbose', '--yes'
         ],
         values: ['--body-threshold=', '--heading-threshold=', '--link-mode=', '--root='],
-        maxPositionals: 0
+        maxPositionals: 0,
+        // The two directions are not symmetric: export regenerates host files
+        // from .harness/, but a pull-back rewrites .harness/ sources from those
+        // generated files, which is the leg that is hard to undo. A bare `sync`
+        // used to run both, so the destructive one happened by default. Making
+        // the direction explicit turns that silent overwrite into a loud stop.
+        // Flipping the default instead would have made a deliberate pull-back
+        // silently not happen, which is the worse failure.
+        rule(positionals, args) {
+            if (!args.some((arg) => SYNC_DIRECTIONS.includes(arg))) {
+                throw new Error(NO_DIRECTION_MESSAGE);
+            }
+        }
     },
     analyze: {
         booleans: ['--account', '--explain', '--include-account', '--json', '--verbose'],
@@ -220,8 +251,23 @@ function planInvocation(command, args) {
     return { action: 'run' };
 }
 
+// Resolves the direction spellings into the noImport/noExport pair that
+// runSync already understands. This is a CLI-layer translation only: runSync's
+// own defaults stay bidirectional for the internal callers that pass `{}`.
+function resolveSyncDirection(flags) {
+    // --export/--import name the legs to run; --no-import/--no-export name a
+    // leg to skip. A positive flag therefore turns the unnamed leg off, and a
+    // negative flag still subtracts on top of it.
+    const positive = flags.has('--export') || flags.has('--import');
+    return {
+        noImport: flags.has('--no-import') || (positive && !flags.has('--import')),
+        noExport: flags.has('--no-export') || (positive && !flags.has('--export'))
+    };
+}
+
 function parseSyncArgs(args) {
     const flags = new Set(args);
+    const direction = resolveSyncDirection(flags);
     const linkModeArg = args.find((arg) => arg.startsWith('--link-mode='));
     const linkMode = linkModeArg ? linkModeArg.split('=')[1] : 'copy';
     const root = parseCommandRootArgs(args);
@@ -240,8 +286,8 @@ function parseSyncArgs(args) {
         headingThreshold: thresholds.headingThreshold,
         linkMode,
         manualReview: flags.has('--manual-review') || flags.has('-i'),
-        noImport: flags.has('--no-import'),
-        noExport: flags.has('--no-export'),
+        noImport: direction.noImport,
+        noExport: direction.noExport,
         noRunInstalls: flags.has('--no-run-installs'),
         noRunUninstalls: flags.has('--no-run-uninstalls'),
         root,
@@ -309,6 +355,11 @@ async function runSync(args, io) {
     } catch (error) {
         process.stderr.write(`sync failed: ${error.message}\n`);
         return 1;
+    }
+    // Kept working on purpose: instruction files outside this repo still spell
+    // it --no-import against the installed CLI. It is announced, not removed.
+    if (args.includes('--no-import')) {
+        process.stderr.write('deprecated: use --export instead of --no-import\n');
     }
     syncOptions.interactive = !syncOptions.yes && Boolean(process.stdin.isTTY && process.stdout.isTTY);
 
