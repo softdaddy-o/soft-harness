@@ -438,11 +438,17 @@ function exportSkillsAndAgents(rootDir, options) {
     const exported = [];
     const routes = [...assetPlan.shadowed];
 
-    if (!options || !options.dryRun) {
-        validateManagedSkillExportSources(rootDir, plan);
-    }
+    // Validated on dry-run too, so the failure is visible before the mutating
+    // run rather than only when it blocks you.
+    const warnings = validateManagedSkillExportSources(rootDir, plan);
+    const skippedTargets = new Set(warnings.map((warning) => `${warning.type}:${warning.target}`));
+    routes.push(...warnings);
 
     for (const entry of plan) {
+        if (skippedTargets.has(`${entry.type}:${entry.target}`)) {
+            continue;
+        }
+
         const outcome = ensureManagedTarget(rootDir, entry, options);
         const mode = outcome && outcome.mode;
         if (!mode) {
@@ -468,7 +474,8 @@ function exportSkillsAndAgents(rootDir, options) {
 
     return {
         exported,
-        routes
+        routes,
+        warnings
     };
 }
 
@@ -1208,35 +1215,66 @@ function patchRawFrontmatter(raw, values) {
     return out.join('\n').replace(/\n+$/u, '');
 }
 
-function validateManagedSkillTree(rootDir) {
+function collectManagedSkillTreeProblems(rootDir) {
+    const problems = [];
     for (const file of walkFiles(rootDir, (relativePath) => path.posix.basename(relativePath) === 'SKILL.md')) {
         const skillDir = path.dirname(file.absolutePath);
         const content = readUtf8(file.absolutePath);
         for (const relativeRef of collectLocalMarkdownReferences(content)) {
             const absoluteRef = path.resolve(skillDir, relativeRef);
             if (!exists(absoluteRef)) {
-                throw new Error(`managed skill export is missing referenced file: ${relativeRef}`);
+                problems.push({
+                    reference: relativeRef,
+                    message: `managed skill export is missing referenced file: ${relativeRef}`
+                });
             }
         }
     }
+    return problems;
 }
 
+// Returns the problems found rather than throwing. One skill with a broken
+// reference must not abort a run that was started for unrelated skills, so
+// callers skip the offending skill and warn.
 function validateManagedSkillExportSources(rootDir, plan) {
-    const validated = new Set();
+    const warnings = [];
+    const problemsBySource = new Map();
     const plannedTargetFiles = buildPlannedSkillTargetFiles(rootDir, plan);
+
     for (const entry of plan) {
         if (entry.type !== 'skill' || isSharedSupportDirectory(entry.target)) {
             continue;
         }
 
         const absoluteSource = path.join(rootDir, entry.source);
-        if (!validated.has(absoluteSource)) {
-            validateManagedSkillTree(absoluteSource);
-            validated.add(absoluteSource);
+        if (!problemsBySource.has(entry.source)) {
+            problemsBySource.set(entry.source, collectManagedSkillTreeProblems(absoluteSource));
         }
 
-        validateManagedSkillTargetLayout(rootDir, entry, plannedTargetFiles);
+        // A reference missing from the source is also missing from the target
+        // layout. Report it once, as the source problem.
+        const sourceProblems = problemsBySource.get(entry.source);
+        const reported = new Set(sourceProblems.map((problem) => problem.reference));
+        const messages = [
+            ...sourceProblems,
+            ...collectManagedSkillTargetLayoutProblems(rootDir, entry, plannedTargetFiles)
+                .filter((problem) => !reported.has(problem.reference))
+        ];
+
+        for (const { message } of messages) {
+            warnings.push({
+                action: 'skipped',
+                type: entry.type,
+                llm: entry.llm,
+                name: entry.name,
+                source: entry.source,
+                target: entry.target,
+                reason: message
+            });
+        }
     }
+
+    return warnings;
 }
 
 function buildPlannedSkillTargetFiles(rootDir, plan) {
@@ -1254,7 +1292,8 @@ function buildPlannedSkillTargetFiles(rootDir, plan) {
     return files;
 }
 
-function validateManagedSkillTargetLayout(rootDir, entry, plannedTargetFiles) {
+function collectManagedSkillTargetLayoutProblems(rootDir, entry, plannedTargetFiles) {
+    const problems = [];
     const absoluteSource = path.join(rootDir, entry.source);
     for (const file of walkFiles(absoluteSource, (relativePath) => path.posix.basename(relativePath) === 'SKILL.md')) {
         const skillTargetDir = path.dirname(path.resolve(rootDir, entry.target, file.relativePath));
@@ -1262,10 +1301,14 @@ function validateManagedSkillTargetLayout(rootDir, entry, plannedTargetFiles) {
         for (const relativeRef of collectLocalMarkdownReferences(content)) {
             const targetRef = path.resolve(skillTargetDir, relativeRef);
             if (!plannedTargetFiles.has(targetRef) && !exists(targetRef)) {
-                throw new Error(`managed skill export is missing referenced file in target layout: ${relativeRef}`);
+                problems.push({
+                    reference: relativeRef,
+                    message: `managed skill export is missing referenced file in target layout: ${relativeRef}`
+                });
             }
         }
     }
+    return problems;
 }
 
 function collectLocalMarkdownReferences(content) {

@@ -723,6 +723,10 @@ function formatSyncReport(result, options) {
         appendSection(lines, 'conflicts', formatConflictDetails(result.details && result.details.conflicts));
     }
 
+    appendSection(lines, 'warnings', (result.warnings || []).map(
+        (warning) => `${warning.source} -> ${warning.target}: ${warning.reason}`
+    ));
+
     if (result.pluginActions && result.pluginActions.length > 0) {
         lines.push('');
         lines.push('plugins');
@@ -817,6 +821,10 @@ function formatExportDetails(entries, options) {
         }
         if (entry.action === 'shadowed') {
             items.push(`${entry.source} -> ${entry.target} [shadowed by ${entry.shadowedBy}]`);
+            continue;
+        }
+        if (entry.action === 'skipped') {
+            items.push(`${entry.source} -> ${entry.target} [skipped: ${entry.reason}]`);
         }
     }
     return items;

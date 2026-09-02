@@ -227,7 +227,9 @@ test('skills: discoverHarnessAssets expands common buckets across all llms', () 
     assert.equal(assets.filter((item) => item.type === 'agent').length, 2);
 });
 
-test('skills: export validates source skill trees before writing targets', () => {
+// Regression for #26: the broken skill is skipped and its existing target is
+// left alone, but an unrelated skill in the same run still exports.
+test('skills: a skill with a missing referenced file is skipped without blocking others', () => {
     const root = makeProjectTree('soft-harness-skills-export-preflight-', {
         '.harness': {
             skills: {
@@ -239,6 +241,9 @@ test('skills: export validates source skill trees before writing targets', () =>
                             'See `../references/missing.md`.',
                             ''
                         ].join('\n')
+                    },
+                    fine: {
+                        'SKILL.md': '# Fine'
                     }
                 }
             }
@@ -252,9 +257,98 @@ test('skills: export validates source skill trees before writing targets', () =>
         }
     });
 
-    assert.throws(() => exportSkillsAndAgents(root, {}), /managed skill export is missing referenced file: \.\.\/references\/missing\.md/);
+    const result = exportSkillsAndAgents(root, {});
+
+    assert.ok(result.warnings.some((warning) => warning.target === '.claude/skills/unsafe'
+        && /missing referenced file: \.\.\/references\/missing\.md/.test(warning.reason)));
+    // the broken skill is skipped, so its existing target survives untouched
     assert.match(readUtf8(path.join(root, '.claude', 'skills', 'unsafe', 'SKILL.md')), /# Existing target/);
     assert.equal(exists(path.join(root, '.codex', 'skills', 'unsafe')), false);
+    // ...and the unrelated skill still exports
+    assert.equal(exists(path.join(root, '.claude', 'skills', 'fine', 'SKILL.md')), true);
+    assert.ok(result.exported.some((entry) => entry.to === '.claude/skills/fine'));
+});
+
+// Regression for #26: the literal string from the issue. `./data/history/` is a
+// CLI flag's documented default directory, not a bundled asset, so it is
+// ignored; `./scripts/cfo-analyzer.py` names a file the skill really ships, so
+// it is validated -- and resolves, because the file is there.
+test('skills: an inline CLI default directory is ignored while the inline file it ships is validated', () => {
+    const root = makeProjectTree('soft-harness-skills-export-cli-default-', {
+        '.harness': {
+            skills: {
+                common: {
+                    'finance-ops': {
+                        'SKILL.md': [
+                            '# Finance Ops',
+                            '',
+                            '- `--history DIR` — History directory for MoM comparison (default: `./data/history/`)',
+                            '- `--script PATH` — Analyzer entry point (default: `./scripts/cfo-analyzer.py`)',
+                            ''
+                        ].join('\n'),
+                        scripts: {
+                            'cfo-analyzer.py': '# analyzer\n'
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    const result = exportSkillsAndAgents(root, {});
+
+    assert.deepEqual(result.warnings, []);
+    assert.equal(exists(path.join(root, '.claude', 'skills', 'finance-ops', 'SKILL.md')), true);
+    assert.equal(exists(path.join(root, '.claude', 'skills', 'finance-ops', 'scripts', 'cfo-analyzer.py')), true);
+});
+
+// Regression for #26: a relative path inside inline code that names a real file
+// is an asset reference. When it is missing the skill is skipped with a
+// warning -- detected, but no longer fatal.
+test('skills: a missing inline-code asset reference warns instead of aborting', () => {
+    const root = makeProjectTree('soft-harness-skills-export-inline-asset-', {
+        '.harness': {
+            skills: {
+                common: {
+                    metrics: {
+                        'SKILL.md': 'See `./references/metrics-guide.md` for definitions.\n'
+                    },
+                    fine: {
+                        'SKILL.md': '# Fine'
+                    }
+                }
+            }
+        }
+    });
+
+    const result = exportSkillsAndAgents(root, {});
+
+    assert.ok(result.warnings.some((warning) => warning.target === '.claude/skills/metrics'
+        && /missing referenced file: \.\/references\/metrics-guide\.md/.test(warning.reason)));
+    assert.equal(exists(path.join(root, '.claude', 'skills', 'metrics')), false);
+    assert.equal(exists(path.join(root, '.claude', 'skills', 'fine', 'SKILL.md')), true);
+});
+
+// Regression for #26: a markdown link keeps counting as an asset reference, the
+// same as before the skipped-skill change.
+test('skills: a missing markdown link reference warns instead of aborting', () => {
+    const root = makeProjectTree('soft-harness-skills-export-link-asset-', {
+        '.harness': {
+            skills: {
+                common: {
+                    metrics: {
+                        'SKILL.md': 'See [the guide](./references/metrics-guide.md).\n'
+                    }
+                }
+            }
+        }
+    });
+
+    const result = exportSkillsAndAgents(root, {});
+
+    assert.ok(result.warnings.some((warning) => warning.target === '.claude/skills/metrics'
+        && /missing referenced file: \.\/references\/metrics-guide\.md/.test(warning.reason)));
+    assert.equal(exists(path.join(root, '.claude', 'skills', 'metrics')), false);
 });
 
 test('skills: external runtime worktrees are excluded unless explicitly portable', () => {
@@ -313,7 +407,9 @@ test('skills: export ignores relative directory arguments in inline code example
         }
     });
 
-    assert.doesNotThrow(() => exportSkillsAndAgents(root, {}));
+    const result = exportSkillsAndAgents(root, {});
+
+    assert.deepEqual(result.warnings, []);
     assert.equal(exists(path.join(root, '.claude', 'skills', 'finance', 'SKILL.md')), true);
 });
 
@@ -330,7 +426,9 @@ test('skills: export ignores extensionless relative directory arguments in inlin
         }
     });
 
-    assert.doesNotThrow(() => exportSkillsAndAgents(root, {}));
+    const result = exportSkillsAndAgents(root, {});
+
+    assert.deepEqual(result.warnings, []);
     assert.equal(exists(path.join(root, '.codex', 'skills', 'experiment', 'SKILL.md')), true);
 });
 
@@ -347,10 +445,12 @@ test('skills: export validates trailing-slash Markdown links', () => {
         }
     });
 
-    assert.throws(() => exportSkillsAndAgents(root, {}), /managed skill export is missing referenced file: \.\/data\/history\//);
+    const result = exportSkillsAndAgents(root, {});
+
+    assert.ok(result.warnings.some((warning) => /missing referenced file: \.\/data\/history\//.test(warning.reason)));
 });
 
-test('skills: export preflight rejects references missing from exported target layout', () => {
+test('skills: export preflight skips references missing from the exported target layout', () => {
     const root = makeProjectTree('soft-harness-skills-export-target-layout-', {
         '.harness': {
             skills: {
@@ -376,7 +476,10 @@ test('skills: export preflight rejects references missing from exported target l
         }
     });
 
-    assert.throws(() => exportSkillsAndAgents(root, {}), /managed skill export is missing referenced file in target layout: \.\.\/outside\.md/);
+    const result = exportSkillsAndAgents(root, {});
+
+    assert.ok(result.warnings.some((warning) => warning.target === '.claude/skills/unsafe'
+        && /missing referenced file in target layout: \.\.\/outside\.md/.test(warning.reason)));
     assert.match(readUtf8(path.join(root, '.claude', 'skills', 'unsafe', 'SKILL.md')), /# Existing target/);
 });
 
