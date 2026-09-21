@@ -995,12 +995,23 @@ function dedupePluginAgents(items) {
 
 function buildCodexAgentToml(content, fallbackName) {
     const parsed = parseClaudeAgentMarkdown(content, fallbackName);
-    return [
+    const lines = [
         `name = ${toTomlBasicString(parsed.displayName)}`,
-        `description = ${toTomlBasicString(parsed.shortDescription)}`,
-        `developer_instructions = ${toTomlMultilineString(parsed.developerInstructions)}`,
-        ''
-    ].join('\n');
+        `description = ${toTomlBasicString(parsed.shortDescription)}`
+    ];
+
+    // Per-agent model selection. Codex falls back to the session's model when
+    // these keys are absent, so only emit what the author actually declared --
+    // writing a default here would pin every existing agent to it.
+    if (parsed.model) {
+        lines.push(`model = ${toTomlBasicString(parsed.model)}`);
+    }
+    if (parsed.modelReasoningEffort) {
+        lines.push(`model_reasoning_effort = ${toTomlBasicString(parsed.modelReasoningEffort)}`);
+    }
+
+    lines.push(`developer_instructions = ${toTomlMultilineString(parsed.developerInstructions)}`, '');
+    return lines.join('\n');
 }
 
 function parseClaudeAgentMarkdown(content, fallbackName) {
@@ -1012,6 +1023,8 @@ function parseClaudeAgentMarkdown(content, fallbackName) {
     return {
         displayName,
         shortDescription,
+        model: cleanText(frontmatter.model),
+        modelReasoningEffort: cleanText(frontmatter.model_reasoning_effort ?? frontmatter.modelReasoningEffort),
         developerInstructions: normalizeDeveloperInstructions(body, displayName, shortDescription)
     };
 }

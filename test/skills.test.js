@@ -603,6 +603,50 @@ test('skills: import ports Claude markdown agents into codex toml agents', () =>
     assert.match(origin.notes, /Codex TOML agent/);
 });
 
+test('skills: codex toml agents carry per-agent model selection, and omit it when unset', () => {
+    const root = makeProjectTree('soft-harness-skills-agent-model-', {
+        '.claude': {
+            agents: {
+                'heavy.md': [
+                    '---',
+                    'name: heavy',
+                    'description: Architecture decisions and debugging with no known cause.',
+                    'model: gpt-5.6-sol',
+                    'model_reasoning_effort: high',
+                    '---',
+                    '',
+                    'Think before editing. State the design decision and its tradeoff first.',
+                    ''
+                ].join('\n'),
+                'plain.md': [
+                    '---',
+                    'name: plain',
+                    'description: Inherits whatever model the session is using.',
+                    '---',
+                    '',
+                    'Answer with the minimum work that satisfies the request.',
+                    ''
+                ].join('\n')
+            }
+        }
+    });
+
+    importSkillsAndAgents(root, {});
+
+    const heavy = readUtf8(path.join(root, '.harness', 'agents', 'codex', 'heavy.toml'));
+    assert.match(heavy, /^model = "gpt-5\.6-sol"$/mu);
+    assert.match(heavy, /^model_reasoning_effort = "high"$/mu);
+    // The model keys must precede the multiline instructions block, or they land
+    // inside it and Codex never sees them.
+    assert.ok(heavy.indexOf('model = ') < heavy.indexOf('developer_instructions = '));
+
+    // Regression guard: an agent that declares no model must stay silent about it
+    // so Codex keeps inheriting the session model instead of being pinned.
+    const plain = readUtf8(path.join(root, '.harness', 'agents', 'codex', 'plain.toml'));
+    assert.equal(/^model = /mu.test(plain), false);
+    assert.equal(/^model_reasoning_effort = /mu.test(plain), false);
+});
+
 test('skills: plugin Claude agents assigned to codex are ported into codex toml agents', () => {
     const root = makeProjectTree('soft-harness-skills-plugin-agent-port-', {
         '.harness': {
