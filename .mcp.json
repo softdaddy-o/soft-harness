@@ -1,23 +1,5 @@
 {
   "mcpServers": {
-    "Logseq_Unreal": {
-      "command": "node",
-      "args": [
-        "D:/bin/logseq-mcp-file/dist/index.js"
-      ],
-      "env": {
-        "LOGSEQ_GRAPH_PATH": "D:/Logseq_Unreal"
-      }
-    },
-    "LogseqData": {
-      "command": "node",
-      "args": [
-        "D:/bin/logseq-mcp-file/dist/index.js"
-      ],
-      "env": {
-        "LOGSEQ_GRAPH_PATH": "D:/LogseqData"
-      }
-    },
     "notionApi": {
       "command": "npx",
       "args": [
