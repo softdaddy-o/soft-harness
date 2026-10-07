@@ -653,8 +653,12 @@ function inspectUnmanagedTargetFiles(rootDir, entry) {
     return result;
 }
 
+// options.staleState, when given, collects entries whose target moved away
+// from the recorded hash but still equals what the source exports. Those are
+// not drift and are left out of the returned list.
 function detectSkillsAndAgentsDrift(rootDir, options) {
     const drift = [];
+    const staleState = options && Array.isArray(options.staleState) ? options.staleState : null;
     const managed = buildManagedAssetIndex(options && options.state);
     for (const entry of discoverHarnessAssets(rootDir)) {
         const absoluteSource = path.join(rootDir, entry.source);
@@ -692,11 +696,23 @@ function detectSkillsAndAgentsDrift(rootDir, options) {
             continue;
         }
 
-        if (entry.type === 'skill') {
-            const currentHash = hashDirectory(absoluteTarget);
-            if (prior.target_hash !== currentHash) {
-                drift.push({
-                    type: 'skill',
+        const currentHash = entry.type === 'skill'
+            ? hashDirectory(absoluteTarget)
+            : hashFile(absoluteTarget);
+        if (prior.target_hash === currentHash) {
+            continue;
+        }
+
+        // The record is per checkout and git-ignored. When source and target
+        // were changed together somewhere else (another worktree, another
+        // machine) and merged in, the target moves away from the record here
+        // without anyone editing it. If the target is exactly what the current
+        // source would export, nothing was hand-edited: the record is stale,
+        // and the next export rewrites it.
+        if (targetMatchesExportedSource(rootDir, entry)) {
+            if (staleState) {
+                staleState.push({
+                    type: entry.type,
                     mode: 'copy',
                     target: entry.target,
                     source: entry.source
@@ -705,18 +721,40 @@ function detectSkillsAndAgentsDrift(rootDir, options) {
             continue;
         }
 
-        const currentHash = hashFile(absoluteTarget);
-        if (prior.target_hash !== currentHash) {
-            drift.push({
-                type: 'agent',
-                mode: 'copy',
-                target: entry.target,
-                source: entry.source
-            });
-        }
+        drift.push({
+            type: entry.type,
+            mode: 'copy',
+            target: entry.target,
+            source: entry.source
+        });
     }
 
     return drift;
+}
+
+// Strict on purpose: unlike export's own up-to-date check, a target file the
+// source does not carry counts as a difference here. A file someone added by
+// hand to an exported skill must still surface as drift.
+function targetMatchesExportedSource(rootDir, entry) {
+    const absoluteSource = path.join(rootDir, entry.source);
+    const absoluteTarget = path.join(rootDir, entry.target);
+    if (!exists(absoluteSource)) {
+        return false;
+    }
+    if (entry.type === 'skill') {
+        return managedSkillTreesEqual(absoluteSource, absoluteTarget, { requireTargetMetadata: true });
+    }
+    return hashFile(absoluteSource) === hashFile(absoluteTarget);
+}
+
+// Normalizing a SKILL.md fills in a missing `name` or `description`. Export
+// itself always writes both, so a target lacking one was edited by hand even
+// when its normalized form matches.
+function hasOwnSkillMetadata(content) {
+    const frontmatter = extractFrontmatter(content).frontmatter;
+    return Boolean(frontmatter && typeof frontmatter === 'object'
+        && typeof frontmatter.name === 'string' && cleanText(frontmatter.name)
+        && typeof frontmatter.description === 'string' && cleanText(frontmatter.description));
 }
 
 function resolveManagedMode(rootDir, entry, options) {
@@ -1498,8 +1536,12 @@ function managedSkillTreesEqual(sourceDir, targetDir, options) {
             const fallbackName = relativeDir === '.'
                 ? path.basename(sourceDir)
                 : path.posix.basename(relativeDir);
+            const targetContent = readUtf8(targetFile);
+            if (options && options.requireTargetMetadata && !hasOwnSkillMetadata(targetContent)) {
+                return false;
+            }
             const normalizedSource = normalizeSkillMarkdown(readUtf8(sourceFile.absolutePath), fallbackName);
-            const normalizedTarget = normalizeSkillMarkdown(readUtf8(targetFile), fallbackName);
+            const normalizedTarget = normalizeSkillMarkdown(targetContent, fallbackName);
             if (normalizedSource !== normalizedTarget) {
                 return false;
             }

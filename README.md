@@ -340,6 +340,24 @@ Two related rules:
   When the target holds unmanaged files, the export keeps a copy instead and
   reports the reason `kept-copy-unmanaged-files`.
 
+### Drift and the per-checkout sync record
+
+`.harness/.sync-state.json` is git-ignored, so each checkout keeps its own
+record of what it last exported. Drift means "an exported skill or agent was
+edited directly": its target no longer matches that record.
+
+When source and target are changed together somewhere else (another worktree,
+another machine) and then merged in, this checkout's record is out of date
+although nobody edited the target. If the target is exactly what the current
+source exports (the same `SKILL.md` normalization export applies, so quote
+style in frontmatter does not count), it is not drift. `--dry-run` lists it
+under `stale-state refreshed`, and the next real run rewrites the record. Such
+an entry is never pulled back into the source by `--import`.
+
+A target that differs from what the source exports stays drift. This check is
+stricter than export's own up-to-date test: a file added by hand to an exported
+skill directory is a difference here, so it is still reported.
+
 ## Virtual PC Test Fixture
 
 The repository also contains a builder for a sanitized Windows-like fixture used to test `analyze` and `organize` with an LLM:

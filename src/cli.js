@@ -717,6 +717,8 @@ function formatSyncReport(result, options) {
     if (result.phase === 'dry-run') {
         lines.push(`${ICONS.syncPlan} import=${result.plan.import.length}  export=${result.plan.export.length}  drift=${result.plan.drift.length}  conflicts=${result.plan.conflicts.length}`);
         appendSyncDryRunPlan(lines, result.details, options);
+        appendSection(lines, 'stale-state refreshed (target already equals what the source exports, so not drift; a real run rewrites the record)',
+            ((result.details && result.details.staleState) || []).map((entry) => `${entry.target} <- ${entry.source}`));
     } else {
         lines.push(`${ICONS.completed} imported=${result.imported.length}  exported=${result.exported.length}  pulled_back=${result.pulledBack.length}`);
         if (result.backupTs) {

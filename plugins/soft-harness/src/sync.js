@@ -52,6 +52,7 @@ async function runSync(rootDir, options, io) {
         imports: [],
         exports: [],
         drift: [],
+        staleState: [],
         conflicts: []
     };
 
@@ -99,7 +100,7 @@ async function runSync(rootDir, options, io) {
         }));
     }
 
-    const otherDrift = detectAllDrift(rootDir, { state }).filter((entry) => entry.type !== 'instruction');
+    const otherDrift = detectAllDrift(rootDir, { state, staleState: details.staleState }).filter((entry) => entry.type !== 'instruction');
     plan.drift.push(...otherDrift);
     details.drift.push(...otherDrift);
     if ((!options || !options.noImport) && otherDrift.length > 0) {
