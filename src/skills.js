@@ -444,12 +444,42 @@ function exportSkillsAndAgents(rootDir, options) {
     const skippedTargets = new Set(warnings.map((warning) => `${warning.type}:${warning.target}`));
     routes.push(...warnings);
 
+    const unmanaged = [];
+    const prune = Boolean(options && options.pruneUnmanaged);
+
     for (const entry of plan) {
         if (skippedTargets.has(`${entry.type}:${entry.target}`)) {
             continue;
         }
 
-        const outcome = ensureManagedTarget(rootDir, entry, options);
+        // Files the canonical source does not carry -- runtime state a skill
+        // writes into its own exported directory, or a file removed from the
+        // source -- are not this export's to delete unless asked (#23).
+        const extras = inspectUnmanagedTargetFiles(rootDir, entry);
+        if (extras.collisions.length > 0 && !prune) {
+            const warning = {
+                type: entry.type,
+                source: entry.source,
+                target: entry.target,
+                reason: `skipped: target has ${extras.collisions.join(', ')} where the source needs a different file type; rerun with --prune-unmanaged to replace it`
+            };
+            warnings.push(warning);
+            routes.push(warning);
+            continue;
+        }
+        for (const file of extras.files) {
+            unmanaged.push({
+                type: entry.type,
+                target: entry.target,
+                path: path.posix.join(entry.target, file),
+                action: prune ? 'prune' : 'preserve'
+            });
+        }
+
+        const outcome = ensureManagedTarget(rootDir, entry, {
+            ...(options || {}),
+            unmanagedFiles: extras.files
+        });
         const mode = outcome && outcome.mode;
         if (!mode) {
             continue;
@@ -475,17 +505,20 @@ function exportSkillsAndAgents(rootDir, options) {
     return {
         exported,
         routes,
-        warnings
+        warnings,
+        unmanaged
     };
 }
 
 function ensureManagedTarget(rootDir, entry, options) {
     const absoluteSource = path.join(rootDir, entry.source);
     const absoluteTarget = path.join(rootDir, entry.target);
-    const desired = resolveManagedMode(rootDir, entry, options);
+    const prune = Boolean(options && options.pruneUnmanaged);
+    const unmanagedFiles = (options && options.unmanagedFiles) || [];
+    const desired = keepCopyForUnmanagedFiles(resolveManagedMode(rootDir, entry, options), unmanagedFiles, prune);
     const desiredMode = desired.mode;
 
-    if (targetMatches(rootDir, entry, desiredMode)) {
+    if (targetMatches(rootDir, entry, desiredMode) && !(prune && unmanagedFiles.length > 0)) {
         if (!options || !options.dryRun) {
             removeLegacyManagedMarker(absoluteTarget, entry.type);
             removeLegacyCodexExportAgent(rootDir, entry);
@@ -510,7 +543,12 @@ function ensureManagedTarget(rootDir, entry, options) {
         }
     }
 
-    removePath(absoluteTarget);
+    // Replacing the directory wholesale is what deleted unmanaged files. By
+    // default the source is copied over the target instead, which rewrites
+    // every managed file and leaves the rest where it is.
+    if (prune || entry.type !== 'skill' || !isRealDirectory(absoluteTarget)) {
+        removePath(absoluteTarget);
+    }
     copyManagedAsset(absoluteSource, absoluteTarget, { ...entry, validate: true });
     removeLegacyManagedMarker(absoluteTarget, entry.type);
     removeLegacyCodexExportAgent(rootDir, entry);
@@ -541,10 +579,78 @@ function targetMatches(rootDir, entry, desiredMode) {
     }
 
     if (entry.type === 'skill') {
-        return managedSkillTreesEqual(absoluteSource, absoluteTarget);
+        // Unmanaged files are reported and handled by the caller; they do not
+        // make the managed content stale.
+        return managedSkillTreesEqual(absoluteSource, absoluteTarget, { ignoreExtraTargetFiles: true });
     }
 
     return hashFile(absoluteSource) === hashFile(absoluteTarget);
+}
+
+// A link would replace the target directory and take its unmanaged files with
+// it, so a target that holds any stays a copy unless pruning was asked for.
+function keepCopyForUnmanagedFiles(desired, unmanagedFiles, prune) {
+    if (desired.mode === 'copy' || prune || unmanagedFiles.length === 0) {
+        return desired;
+    }
+    return {
+        mode: 'copy',
+        reason: 'kept-copy-unmanaged-files'
+    };
+}
+
+function isRealDirectory(targetPath) {
+    const stats = lstatOrNull(targetPath);
+    return Boolean(stats && stats.isDirectory() && !stats.isSymbolicLink());
+}
+
+function lstatOrNull(targetPath) {
+    try {
+        return getFsBackend().lstatSync(targetPath);
+    } catch (error) {
+        return null;
+    }
+}
+
+// Lists target files the canonical source does not carry, and target entries
+// that block a managed path with the wrong type (a file where the source has a
+// directory, or the reverse) -- those cannot be kept and still export.
+// A linked or missing target holds no files of its own, so it has neither.
+function inspectUnmanagedTargetFiles(rootDir, entry) {
+    const result = { files: [], collisions: [] };
+    if (entry.type !== 'skill') {
+        return result;
+    }
+    const absoluteSource = path.join(rootDir, entry.source);
+    const absoluteTarget = path.join(rootDir, entry.target);
+    if (!isRealDirectory(absoluteTarget) || !exists(absoluteSource)) {
+        return result;
+    }
+
+    const sourceFiles = walkFiles(absoluteSource).map((file) => file.relativePath);
+    const managed = new Set(sourceFiles);
+    const collisions = new Set();
+    for (const relativePath of sourceFiles) {
+        const parts = relativePath.split('/');
+        for (let index = 1; index < parts.length; index += 1) {
+            const ancestor = parts.slice(0, index).join('/');
+            const ancestorStats = lstatOrNull(path.join(absoluteTarget, ancestor));
+            if (ancestorStats && !ancestorStats.isDirectory()) {
+                collisions.add(ancestor);
+            }
+        }
+        const stats = lstatOrNull(path.join(absoluteTarget, relativePath));
+        if (stats && stats.isDirectory() && !stats.isSymbolicLink()) {
+            collisions.add(relativePath);
+        }
+    }
+
+    result.collisions = Array.from(collisions).sort();
+    result.files = walkFiles(absoluteTarget)
+        .map((file) => file.relativePath)
+        .filter((relativePath) => !managed.has(relativePath))
+        .sort();
+    return result;
 }
 
 function detectSkillsAndAgentsDrift(rootDir, options) {
@@ -1148,7 +1254,10 @@ function copyManagedAsset(sourcePath, targetPath, entry) {
     if (!entry || entry.type !== 'skill') {
         return;
     }
-    normalizeSkillMarkdownTree(targetPath);
+    // Normalize only the SKILL.md files this copy wrote; an unmanaged one left
+    // in the target is not ours to rewrite.
+    const managed = new Set(walkFiles(sourcePath).map((file) => file.relativePath));
+    normalizeSkillMarkdownTree(targetPath, managed);
 }
 
 function isExternalRuntimeSkill(skillDir) {
@@ -1158,8 +1267,10 @@ function isExternalRuntimeSkill(skillDir) {
         && !exists(path.join(skillDir, '.harness-portable'));
 }
 
-function normalizeSkillMarkdownTree(rootDir) {
-    for (const file of walkFiles(rootDir, (relativePath) => path.posix.basename(relativePath) === 'SKILL.md')) {
+function normalizeSkillMarkdownTree(rootDir, onlyRelativePaths) {
+    const isManagedSkillMarkdown = (relativePath) => path.posix.basename(relativePath) === 'SKILL.md'
+        && (!onlyRelativePaths || onlyRelativePaths.has(relativePath));
+    for (const file of walkFiles(rootDir, isManagedSkillMarkdown)) {
         const relativeDir = path.posix.dirname(file.relativePath);
         const fallbackName = relativeDir === '.'
             ? path.basename(rootDir)
@@ -1367,10 +1478,12 @@ function toQuotedYamlString(value) {
         .replace(/"/gu, '\\"')}"`;
 }
 
-function managedSkillTreesEqual(sourceDir, targetDir) {
+// `options.ignoreExtraTargetFiles` compares only the files the source carries.
+function managedSkillTreesEqual(sourceDir, targetDir, options) {
     const sourceFiles = walkFiles(sourceDir);
     const targetFiles = walkFiles(targetDir);
-    if (sourceFiles.length !== targetFiles.length) {
+    const ignoreExtras = Boolean(options && options.ignoreExtraTargetFiles);
+    if (ignoreExtras ? targetFiles.length < sourceFiles.length : sourceFiles.length !== targetFiles.length) {
         return false;
     }
 

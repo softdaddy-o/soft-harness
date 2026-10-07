@@ -303,6 +303,43 @@ Keep deterministic code only where it materially helps the skills.
 - host-file apply helpers
 - backup and revert primitives
 
+### Unmanaged files in exported skill directories
+
+An exported skill directory such as `.claude/skills/<name>/` can hold files its
+`.harness/skills/<bucket>/<name>/` source does not carry. Typical examples are
+runtime state a skill writes into its own directory (`state.json`, a log) and a
+file you deleted from the source. These files are **unmanaged**.
+
+`sync --export` keeps unmanaged files by default. It overwrites every file the
+source carries and lists each unmanaged file in its report, also in `--dry-run`:
+
+```
+unmanaged files kept (not in .harness/ source; --prune-unmanaged deletes them)
+└─ .claude/skills/monitor-sentry/state.json
+```
+
+To delete them, add `--prune-unmanaged`. Run it with `--dry-run` first to see
+the list under "will be deleted by --prune-unmanaged".
+
+Why keeping is the default:
+
+- A source can lack a file only in one checkout. A gitignored canonical file is
+  absent from a fresh git worktree, so an export there used to delete the
+  tracked host copy (issue #23).
+- Runtime state cannot be rebuilt. If a monitor loses its `seenIssues` list, it
+  re-alerts on every issue it saw before. A file kept by mistake costs one
+  extra file in a listing.
+- Deletion is the step that is hard to undo, so it needs an explicit flag.
+
+Two related rules:
+
+- If an unmanaged entry blocks a managed path with the wrong type (a file where
+  the source has a directory, or the reverse), that skill is skipped with a
+  warning. It is not replaced unless you add `--prune-unmanaged`.
+- `--link-mode=symlink|junction` replaces the target directory with a link.
+  When the target holds unmanaged files, the export keeps a copy instead and
+  reports the reason `kept-copy-unmanaged-files`.
+
 ## Virtual PC Test Fixture
 
 The repository also contains a builder for a sanitized Windows-like fixture used to test `analyze` and `organize` with an LLM:

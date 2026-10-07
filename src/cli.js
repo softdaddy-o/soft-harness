@@ -42,6 +42,8 @@ Sync options:
   --no-import                        Deprecated alias for --export
   --link-mode=<mode>                 Export skill/agent links using copy, symlink, or junction
   --force-export-untracked-hosts     Allow repo-internal link exports even when target paths are not gitignored
+  --prune-unmanaged                  Delete files in an exported skill directory that its .harness/ source
+                                     does not carry (default: keep them and list them)
   --codex-plugins-enabled            Confirm Codex plugins are enabled; install mirrored Claude plugin bundles into Codex
 
 Analyze options:
@@ -145,7 +147,8 @@ const COMMAND_SYNTAX = {
         booleans: [
             '--account', '--codex-plugins-enabled', '--dry-run', '-n', '--explain', '--export',
             '--force-export-untracked-hosts', '--import', '--manual-review', '-i',
-            '--no-import', '--no-run-installs', '--no-run-uninstalls', '--verbose', '--yes'
+            '--no-import', '--no-run-installs', '--no-run-uninstalls', '--prune-unmanaged',
+            '--verbose', '--yes'
         ],
         values: ['--body-threshold=', '--heading-threshold=', '--link-mode=', '--root='],
         rejects: REJECTED_SYNC_FLAGS,
@@ -311,6 +314,7 @@ function parseSyncArgs(args) {
         noExport: direction.noExport,
         noRunInstalls: flags.has('--no-run-installs'),
         noRunUninstalls: flags.has('--no-run-uninstalls'),
+        pruneUnmanaged: flags.has('--prune-unmanaged'),
         root,
         verbose: flags.has('--verbose') || flags.has('--explain'),
         yes: flags.has('--yes')
@@ -723,6 +727,7 @@ function formatSyncReport(result, options) {
         appendSection(lines, 'conflicts', formatConflictDetails(result.details && result.details.conflicts));
     }
 
+    appendUnmanagedSection(lines, result);
     appendSection(lines, 'warnings', (result.warnings || []).map(
         (warning) => `${warning.source} -> ${warning.target}: ${warning.reason}`
     ));
@@ -739,6 +744,21 @@ function formatSyncReport(result, options) {
     }
 
     return `${lines.join('\n')}\n`;
+}
+
+// Always shown, not only with --verbose: a file the export keeps or deletes
+// without saying so is how #23 went unnoticed.
+function appendUnmanagedSection(lines, result) {
+    const entries = result.unmanaged || [];
+    const kept = entries.filter((entry) => entry.action === 'preserve').map((entry) => entry.path);
+    const pruned = entries.filter((entry) => entry.action === 'prune').map((entry) => entry.path);
+    const planned = result.phase === 'dry-run';
+    appendSection(lines, planned
+        ? 'unmanaged files (not in .harness/ source; will be kept, --prune-unmanaged deletes them)'
+        : 'unmanaged files kept (not in .harness/ source; --prune-unmanaged deletes them)', kept);
+    appendSection(lines, planned
+        ? 'unmanaged files (not in .harness/ source; will be deleted by --prune-unmanaged)'
+        : 'unmanaged files deleted (--prune-unmanaged)', pruned);
 }
 
 function formatPluginAction(action) {

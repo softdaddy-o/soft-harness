@@ -46,6 +46,7 @@ async function runSync(rootDir, options, io) {
     const exported = [];
     const pulledBack = [];
     const warnings = [];
+    const unmanaged = [];
     let pluginActions = [];
     const details = {
         imports: [],
@@ -121,6 +122,7 @@ async function runSync(rootDir, options, io) {
         plan.export.push(...assetExportResult.exported);
         details.exports.push(...(assetExportResult.routes || []));
         warnings.push(...(assetExportResult.warnings || []));
+        unmanaged.push(...(assetExportResult.unmanaged || []));
     }
 
     const pluginResult = syncPlugins(rootDir, state, effectiveOptions);
@@ -142,6 +144,7 @@ async function runSync(rootDir, options, io) {
             pluginActions,
             details,
             warnings,
+            unmanaged,
             backupWarnings: [],
             backupTs: null
         };
@@ -159,6 +162,7 @@ async function runSync(rootDir, options, io) {
         pluginActions,
         details,
         warnings,
+        unmanaged,
         backupWarnings: backup ? (backup.warnings || []) : [],
         backupTs: backup ? backup.timestamp : null
     };
